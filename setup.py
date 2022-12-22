@@ -10,5 +10,5 @@ setup(
     platforms=["mac", "unix"],
     install_requires=["h5py", "tqdm", "numpy", "click", "mypy", "black"],
     python_requires=">=3.9",
-    entry_points={"console_scripts": ["mouse-rt = cammy.cli:cli"]},
+    entry_points={"console_scripts": ["cammy = cammy.cli:cli"]},
 )

@@ -1,6 +1,8 @@
 import gi
+import multiprocessing
 gi.require_version("Aravis", "0.8")
 from gi.repository import Aravis
+
 
 
 def get_all_cameras_aravis():
@@ -19,3 +21,10 @@ def get_pixel_format_aravis(pixel_format):
 		raise RuntimeError(f"Did not understand pixel format {pixel_format}")
 
 	return arv_format
+
+
+def get_queues(ids=None):
+	if ids:
+		queues = {id: multiprocessing.Manager().Queue(20) for id in ids}
+	else:
+		return None
