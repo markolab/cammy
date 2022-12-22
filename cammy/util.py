@@ -1,5 +1,7 @@
 import gi
 import multiprocessing
+import cv2
+import numpy as np
 gi.require_version("Aravis", "0.8")
 from gi.repository import Aravis
 
@@ -23,8 +25,26 @@ def get_pixel_format_aravis(pixel_format):
 	return arv_format
 
 
-def get_queues(ids=None):
+def get_queues(ids=None) -> dict:
 	if ids:
-		queues = {id: multiprocessing.Manager().Queue(20) for id in ids}
+		queues = {}
+		queues["display"] = {id: multiprocessing.Manager().Queue(50) for id in ids}
+		queues["storage"] = {id: multiprocessing.Manager().Queue(50) for id in ids} 
+		return queues
 	else:
-		return None
+		raise RuntimeError("Must specify IDs to construct queues")
+
+
+
+def intensity_to_rgb(frame, min=0, max=256, colormap=cv2.COLORMAP_JET):
+	# disp_frame = frame.copy().astype(np.float32)
+	disp_frame = np.clip((frame - min) / (max - min), 0, 1) * 255
+	return cv2.applyColorMap(disp_frame.astype(np.uint8), colormap)
+
+
+def intensity_to_rgba(frame, min=0, max=256, colormap=cv2.COLORMAP_JET):
+	new_frame = np.ones((frame.shape[0], frame.shape[1], 4))
+	disp_frame = np.clip((frame - min) / (max - min), 0, 1) * 255
+	rgb_frame = cv2.applyColorMap(disp_frame.astype(np.uint8), colormap)
+	new_frame[:,:,1:] = rgb_frame
+	return rgb_frame

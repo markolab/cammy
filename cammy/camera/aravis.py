@@ -23,7 +23,7 @@ class AravisCamera(CammyCamera):
 		auto_exposure: bool=False
 	):
 
-		super().__init__()
+		super(CammyCamera, self).__init__()
 		# prelims for using fake camera
 		if fake_camera:
 			Aravis.set_fake_camera_genicam_filename(os.getenv("FAKE_GENICAM_PATH"))
