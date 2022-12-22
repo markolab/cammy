@@ -46,5 +46,5 @@ def intensity_to_rgba(frame, min=0, max=256, colormap=cv2.COLORMAP_JET):
 	new_frame = np.ones((frame.shape[0], frame.shape[1], 4))
 	disp_frame = np.clip((frame - min) / (max - min), 0, 1) * 255
 	rgb_frame = cv2.applyColorMap(disp_frame.astype(np.uint8), colormap)
-	new_frame[:,:,1:] = rgb_frame
-	return rgb_frame
+	new_frame[:,:,:3] = rgb_frame
+	return new_frame

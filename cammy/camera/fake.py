@@ -1,6 +1,7 @@
 import numpy as np
 import logging
 import time
+import cv2
 from cammy.camera.camera import CammyCamera
 from typing import Optional
 
@@ -43,7 +44,7 @@ class FakeCamera(CammyCamera):
 	def __init__(
 		self,
 		id: Optional[str],
-		exposure_time: float = 0.5,
+		exposure_time: float = 0.01,
 		fps: float = 60,
 		pixel_format: str = "MONO_8",
 		width: int = 600,
@@ -60,7 +61,8 @@ class FakeCamera(CammyCamera):
 		self._height = height
 		self._width = width
 		self._last_frame_grab = time.time()
-		self._period = 1. / fps
+		self.fps = fps
+		self.frame_count = 0
 
 		if pixel_format == "MONO_16":
 			self._use_dtype = np.uint16
@@ -71,12 +73,14 @@ class FakeCamera(CammyCamera):
 
 	def try_pop_frame(self):
 		cur_time = time.time()
-		if self.camera.is_running and ((cur_time - self._last_frame_grab) > self._period):
+		if self.camera.is_running and ((cur_time - self._last_frame_grab) > (1. / self.fps)):
 			dat = np.random.randint(0, self._max_val, size=(self._height, self._width)).astype(
 				"float"
 			)
+			# dat = np.ones((self._height, self._width))
 			dat *= self.get_exposure_time()
 			self._last_frame_grab = cur_time
+			self.frame_count += 1
 			return dat.astype(self._use_dtype), None
 		else:
 			return None, None
