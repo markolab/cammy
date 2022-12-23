@@ -70,7 +70,7 @@ def simple_preview(
 			logging.info(f"Found Aravis camera {_id}")
 			_cam = AravisCamera(id=_id)
 			if _id in camera_dct.keys():
-				for k, v in camera_dct[k].items():
+				for k, v in camera_dct[_id].items():
 					_cam.set_feature(k, v)
 	elif use_fake_camera:
 		# spool up n fake cameras
