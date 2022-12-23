@@ -140,8 +140,5 @@ class AravisCamera(CammyCamera):
 			self.logger.warning("Feature type not implemented: %s", ntype)
 		
 		newval = self.get_feature(name)
-		if newval == val:
-			self.logger.info(f"{name} set to {val} successfully")
-		else:
-			self.logger.info(f"{name} set to {val} failed")
+		self.logger.info(f"{name} set to {newval}")
 		

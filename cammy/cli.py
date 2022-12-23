@@ -4,7 +4,7 @@ import toml
 import logging
 import sys
 from typing import Optional
-from cammy.util import get_all_cameras_aravis, intensity_to_rgb, intensity_to_rgba, get_queues
+from cammy.util import get_all_cameras_aravis, intensity_to_rgba, get_queues
 from cammy.camera.aravis import AravisCamera
 from cammy.camera.fake import FakeCamera
 from cammy.framegrabber.framegrabber import FrameGrabber
@@ -61,7 +61,7 @@ def simple_preview(
 	# for labeling videos
 	font = cv2.FONT_HERSHEY_SIMPLEX
 	white = (255, 255, 255)
-	txt_pos = (25, 100)
+	txt_pos = (25, 25)
 
 	# simply spool up and show input from all detected cameras
 	cameras = []
@@ -97,10 +97,7 @@ def simple_preview(
 	with dpg.texture_registry(show=True):
 		for _cam in cameras:
 			_id = _cam.id
-			# blank_data = np.zeros((4, _cam._height, _cam._width), dtype="float").ravel()
-			blank_data = (
-				intensity_to_rgba(np.zeros((_cam._height, _cam._width))).astype("float").ravel()
-			)
+			blank_data = np.zeros((_cam._height, _cam._width, 4), dtype="float32")
 			dpg.add_raw_texture(
 				_cam._width,
 				_cam._height,
@@ -128,6 +125,7 @@ def simple_preview(
 	# initiate a framegrabber per camera, then turn them on
 	dpg.show_metrics()
 	dpg.show_viewport()
+
 	try:
 		while dpg.is_dearpygui_running():
 			# for k, v in queues["display"].items():
@@ -142,16 +140,28 @@ def simple_preview(
 			#     plt_val = intensity_to_rgba(dat[0])
 			#     dpg.set_value(f"texture_{k}", plt_val)
 			# don't use multiprocessing so we can mod on the fly, for acquisition we can use mp
-			dat = [(_cam.try_pop_frame(), _cam) for _cam in cameras]
-			for (_dat, _cam) in dat:
-				if _dat[0] is not None:
+			# dat = [(_cam.try_pop_frame(), _cam) for _cam in cameras]
+			dat = []
+			for _cam in cameras:
+				new_frame = None
+				new_ts = None
+				while True:
+					_dat = _cam.try_pop_frame()
+					if _dat[0] is None:
+						break
+					else:
+						new_frame = _dat[0]
+						new_ts = _dat[1]
+				dat.append((new_frame, new_ts))
 
-					plt_val = intensity_to_rgba(_dat[0]).astype("float")
-					cv2.putText(plt_val, str(_cam.count), txt_pos, font, 1, white)
-					dpg.set_value(f"texture_{_cam.id}", plt_val.ravel() / 500)
+			for (_dat, _cam) in zip(dat, cameras):
+				if _dat[0] is not None:
+					plt_val = intensity_to_rgba(_dat[0]).astype("float32")
+					cv2.putText(plt_val, str(_cam.count), txt_pos, font, 1, (1, 1, 1, 1))
+					dpg.set_value(f"texture_{_cam.id}", plt_val)
 					_cam.count += 1
 			dpg.render_dearpygui_frame()
-			time.sleep(0.001)
+			# time.sleep(0.01)
 	finally:
 		[_cam.stop_acquisition() for _cam in cameras]
 		dpg.destroy_context()
