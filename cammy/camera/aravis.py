@@ -77,6 +77,7 @@ class AravisCamera(CammyCamera):
 		if buffer:
 			frame = self._array_from_buffer_address(buffer)
 			timestamp = buffer.get_timestamp()
+			self.stream.push_buffer(buffer)
 			return frame, timestamp
 		else:
 			return None, None
