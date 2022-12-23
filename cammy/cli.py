@@ -1,6 +1,7 @@
 import click
 import numpy as np
 import toml
+import logging
 from typing import Optional
 from cammy.util import get_all_cameras_aravis, intensity_to_rgb, intensity_to_rgba, get_queues
 from cammy.camera.aravis import AravisCamera
@@ -47,6 +48,10 @@ def simple_preview(
 	import queue
 	import cv2
 
+	logging.basicConfig(stream=sys.stdout, level=logging.DEBUG,
+						format="[%(asctime)s]: %(message)s",
+						datefmt="%Y-%m-%d %H:%M:%S")
+
 	if camera_options is not None:
 		camera_dct = toml.load(camera_options)
 	else:
@@ -62,6 +67,7 @@ def simple_preview(
 	if all_cameras_aravis and not use_fake_camera:
 		ids = get_all_cameras_aravis()  # ids of all cameras
 		for _id in ids:
+			logging.info(f"Found Aravis camera {_id}")
 			_cam = AravisCamera(id=_id)
 			if _id in camera_dct.keys():
 				for k, v in camera_dct[k].items():
