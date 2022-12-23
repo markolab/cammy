@@ -3,3 +3,4 @@ PixelFormat = "MONO_16"
 AcquisitionFrameRateEnable = true
 Scan3dOperatingMode = "HighSpeedDistance625mmSingleFreq"
 Scan3dAmplitudeGain = 1
+ExposureTimeSelector = "Exp1000Us"

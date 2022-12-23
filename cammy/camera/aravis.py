@@ -46,9 +46,9 @@ class AravisCamera(CammyCamera):
 						format="[%(asctime)s]: %(message)s",
 						datefmt="%Y-%m-%d %H:%M:%S")
 					
-		self.set_exposure_time(exposure_time)
-		self.set_frame_rate(fps)
-		self.set_pixel_format(get_pixel_format_aravis(pixel_format))
+		# self.set_exposure_time(exposure_time)
+		# self.set_frame_rate(fps)
+		# self.set_pixel_format(get_pixel_format_aravis(pixel_format))
 		[x, y, width, height] = self.camera.get_region()
 
 		self._payload = self.camera.get_payload()  # size of payload
