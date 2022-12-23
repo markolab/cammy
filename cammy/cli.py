@@ -1,5 +1,7 @@
 import click
 import numpy as np
+import toml
+from typing import Optional
 from cammy.util import get_all_cameras_aravis, intensity_to_rgb, intensity_to_rgba, get_queues
 from cammy.camera.aravis import AravisCamera
 from cammy.camera.fake import FakeCamera
@@ -28,20 +30,42 @@ def live_preview():
 @click.option("--use-fake-camera", is_flag=True)
 @click.option("--n-fake-cameras", type=int, default=1)
 @click.option("--fake-camera-interface", type=str, default="custom")
+@click.option(
+	"--camera-options",
+	type=click.Path(resolve_path=True, exists=True),
+	help="TOML file with camera options",
+)
 def simple_preview(
-	all_cameras_aravis: bool, use_fake_camera: bool, n_fake_cameras: int, fake_camera_interface: str
+	all_cameras_aravis: bool,
+	use_fake_camera: bool,
+	n_fake_cameras: int,
+	fake_camera_interface: str,
+	camera_options: Optional[str],
 ):
 	import dearpygui.dearpygui as dpg
 	import time
 	import queue
 	import cv2
-	
+
+	if camera_options is not None:
+		camera_dct = toml.load(camera_options)
+	else:
+		camera_dct = {}
+		
+	# for labeling videos
+	font = cv2.FONT_HERSHEY_SIMPLEX
+	white = (255, 255, 255)
+	txt_pos = (25, 100)
+
 	# simply spool up and show input from all detected cameras
 	cameras = []
 	if all_cameras_aravis and not use_fake_camera:
-		# ids = get_all_cameras_aravis()  # ids of all cameras
-		# then spool here
-		raise NotImplementedError
+		ids = get_all_cameras_aravis()  # ids of all cameras
+		for _id in ids:
+			_cam = AravisCamera(id=_id)
+			if _id in camera_dct.keys():
+				for k, v in camera_dct[k].items():
+					_cam.set_feature(k, v)
 	elif use_fake_camera:
 		# spool up n fake cameras
 		for i in range(n_fake_cameras):
@@ -56,7 +80,6 @@ def simple_preview(
 			cameras.append(_cam)
 	else:
 		raise RuntimeError("Incompatible flag settings")
-
 
 	dpg.create_context()
 	dpg.create_viewport(title="Custom Title", width=1000, height=1000)
@@ -113,22 +136,19 @@ def simple_preview(
 			dat = [(_cam.try_pop_frame(), _cam) for _cam in cameras]
 			for (_dat, _cam) in dat:
 				if _dat[0] is not None:
-					font = cv2.FONT_HERSHEY_SIMPLEX
-					white = (255, 255, 255)
-					txt_pos = (25, 100)
+
 					plt_val = intensity_to_rgba(_dat[0]).astype("float")
 					cv2.putText(plt_val, str(_cam.count), txt_pos, font, 1, white)
 					dpg.set_value(f"texture_{_cam.id}", plt_val.ravel() / 500)
 					_cam.count += 1
 			dpg.render_dearpygui_frame()
-			time.sleep(.001)
+			time.sleep(0.001)
 	finally:
 		[_cam.stop_acquisition() for _cam in cameras]
 		dpg.destroy_context()
 		# for _grabber in frame_grabbers:
 		#     _grabber.is_running = 0
 		# time.sleep(1)
-		
 
 
 @cli.command(name="get-genicam-xml")

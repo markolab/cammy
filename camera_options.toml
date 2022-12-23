@@ -1,0 +1,5 @@
+["Lucid Vision Labs-HTP003S-001-224500508"]
+PixelFormat = "MONO_16"
+AcquisitionFrameRateEnable = true
+Scan3dOperatingMode = "HighSpeedDistance625mmSingleFreq"
+Scan3dAmplitudeGain = 1
