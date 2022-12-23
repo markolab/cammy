@@ -32,6 +32,7 @@ class AravisCamera(CammyCamera):
 			Aravis.enable_interface("Fake")
 
 		self.camera = Aravis.Camera.new(id)
+		self.device = self.camera.get_device()
 		# self.camera = Aravis.Camera() # THIS IS JUST FOR PYLANCE
 
 		if not auto_exposure:
@@ -53,9 +54,8 @@ class AravisCamera(CammyCamera):
 
 		self._payload = self.camera.get_payload()  # size of payload
 		self._width = width
-		self._height = height
-
-		# stage stream
+		self._height = height	# stage stream
+		self.id = id
 		self.stream = self.camera.create_stream()
 		# Aravis.FakeCamera.set_fill_pattern(self.camera, self.fill_pattern_callback, [0,0,0])
 		# self.stream = self.camera.create_stream(self.fake_data_callback, None)
@@ -99,7 +99,7 @@ class AravisCamera(CammyCamera):
 
 	# https://github.com/SintefManufacturing/python-aravis/blob/master/aravis.py#L79
 	def get_feature_type(self, name):
-		genicam = self.camera.get_genicam()
+		genicam = self.device.get_genicam()
 		node = genicam.get_node(name)
 		if not node:
 			raise AravisException("Feature {} does not seem to exist in camera".format(name))
@@ -111,13 +111,13 @@ class AravisCamera(CammyCamera):
 		"""
 		ntype = self.get_feature_type(name)
 		if ntype in ("Enumeration", "String", "StringReg"):
-			return self.camera.get_string_feature_value(name)
+			return self.device.get_string_feature_value(name)
 		elif ntype == "Integer":
-			return self.camera.get_integer_feature_value(name)
+			return self.device.get_integer_feature_value(name)
 		elif ntype == "Float":
-			return self.camera.get_float_feature_value(name)
+			return self.device.get_float_feature_value(name)
 		elif ntype == "Boolean":
-			return self.camera.get_integer_feature_value(name)
+			return self.device.get_integer_feature_value(name)
 		else:
 			self.logger.warning("Feature type not implemented: %s", ntype)
 
@@ -128,13 +128,13 @@ class AravisCamera(CammyCamera):
 		"""
 		ntype = self.get_feature_type(name)
 		if ntype in ("String", "Enumeration", "StringReg"):
-			status = self.camera.set_string_feature_value(name, val)
+			status = self.device.set_string_feature_value(name, val)
 		elif ntype == "Integer":
-			status = self.camera.set_integer_feature_value(name, int(val))
+			status = self.device.set_integer_feature_value(name, int(val))
 		elif ntype == "Float":
-			status = self.camera.set_float_feature_value(name, float(val))
+			status = self.device.set_float_feature_value(name, float(val))
 		elif ntype == "Boolean":
-			status = self.camera.set_integer_feature_value(name, int(val))
+			status = self.device.set_integer_feature_value(name, int(val))
 		else:
 			self.logger.warning("Feature type not implemented: %s", ntype)
 		

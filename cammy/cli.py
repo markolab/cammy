@@ -2,6 +2,7 @@ import click
 import numpy as np
 import toml
 import logging
+import sys
 from typing import Optional
 from cammy.util import get_all_cameras_aravis, intensity_to_rgb, intensity_to_rgba, get_queues
 from cammy.camera.aravis import AravisCamera
@@ -71,7 +72,9 @@ def simple_preview(
 			_cam = AravisCamera(id=_id)
 			if _id in camera_dct.keys():
 				for k, v in camera_dct[_id].items():
+					logging.info(f"{k} is {_cam.get_feature(k)}")
 					_cam.set_feature(k, v)
+			cameras.append(_cam)
 	elif use_fake_camera:
 		# spool up n fake cameras
 		for i in range(n_fake_cameras):
