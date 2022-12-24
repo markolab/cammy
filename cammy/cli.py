@@ -37,6 +37,7 @@ def aravis_load_settings():
 @click.option("--interface", type=click.Choice(["aravis", "fake_custom", "all"]), default="all")
 @click.option("--n-fake-cameras", type=int, default=1)
 @click.option("--acquire", is_flag=True)
+@click.option("--jumbo-frames", default=True, type=bool)
 @click.option(
 	"--camera-options",
 	type=click.Path(resolve_path=True, exists=True),
@@ -47,7 +48,8 @@ def simple_preview(
 	interface: str,
 	n_fake_cameras: int,
 	camera_options: Optional[str],
-	acquire: bool
+	acquire: bool,
+	jumbo_frames: bool,
 ):
 	import dearpygui.dearpygui as dpg
 	import cv2
@@ -69,7 +71,7 @@ def simple_preview(
 		NotImplementedError()
 
 	for _id, _interface in ids.items():
-		cameras[_id] = initialize_camera(_id, _interface, camera_dct.get(_id))
+		cameras[_id] = initialize_camera(_id, _interface, camera_dct.get(_id), jumbo_frames=jumbo_frames)
 
 	if acquire:
 		recorders = []

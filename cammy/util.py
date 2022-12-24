@@ -58,10 +58,10 @@ def intensity_to_rgba(frame, minval=300, maxval=800, colormap=cv2.COLORMAP_TURBO
 	return new_frame
 
 
-def initialize_camera(id, interface: str, config={}):
+def initialize_camera(id, interface: str, config={}, **kwargs):
 	if (interface == "aravis") or (interface == "all"):
 		from cammy.camera.aravis import AravisCamera
-		cam = AravisCamera(id=id)
+		cam = AravisCamera(id=id, **kwargs)
 		if config is not None:
 			for k, v in config.items():
 				cam.set_feature(k, v)
