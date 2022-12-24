@@ -44,6 +44,7 @@ class AravisCamera(CammyCamera):
 				print(e)
 
 		self.logger = logging.getLogger(self.__class__.__name__)
+		self.logger.setLevel(logging.DEBUG)
 		# logging.basicConfig(stream=sys.stdout, level=logging.DEBUG,
 		# 				format="[%(asctime)s]: %(message)s",
 		# 				datefmt="%Y-%m-%d %H:%M:%S")

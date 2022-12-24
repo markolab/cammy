@@ -7,6 +7,7 @@ gi.require_version("Aravis", "0.8")
 from gi.repository import Aravis
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 
 def get_all_camera_ids(interface="aravis", n_cams=1):
