@@ -19,6 +19,7 @@ class FrameGrabber(multiprocessing.Process):
 			if bool(self.is_running):
 				try:
 					frame, timestamp = self.camera_object.try_pop_frame()
+					print(frame)
 					if frame is not None:
 						self.queue.put((frame, timestamp))
 				except (KeyboardInterrupt, SystemExit):

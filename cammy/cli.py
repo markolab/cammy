@@ -79,7 +79,7 @@ def acquire(all_cameras_aravis: bool, camera_options: str):
 				format=dpg.mvFormat_Float_rgba,
 			)
 	
-	queues = get_queues([_cam.id for _cam in cameras]) # returns a dictionary of queues
+	queues = get_queues([_id for _id in cameras.keys()]) # returns a dictionary of queues
 	frame_grabbers = []
 	for _id, _cam in cameras.items():
 		_id = _cam.id
@@ -98,7 +98,6 @@ def acquire(all_cameras_aravis: bool, camera_options: str):
 	# initiate a framegrabber per camera, then turn them on
 	dpg.show_metrics()
 	dpg.show_viewport()
-
 	try:
 		while dpg.is_dearpygui_running():
 			for k, v in queues["display"].items():
@@ -110,7 +109,7 @@ def acquire(all_cameras_aravis: bool, camera_options: str):
 					except queue.Empty:
 						break
 				if dat is not None:
-					plt_val = intensity_to_rgba(dat[0])
+					plt_val = intensity_to_rgba(dat[0]).astype("float32")
 					dpg.set_value(f"texture_{k}", plt_val)
 			dpg.render_dearpygui_frame()
 	finally:
@@ -187,7 +186,7 @@ def simple_preview(
 	dpg.setup_dearpygui()
 
 	with dpg.texture_registry(show=True):
-		for _id, _cam in cameras.items()
+		for _id, _cam in cameras.items():
 			blank_data = np.zeros((_cam._height, _cam._width, 4), dtype="float32")
 			dpg.add_raw_texture(
 				_cam._width,
@@ -225,7 +224,7 @@ def simple_preview(
 					else:
 						new_frame = _dat[0]
 						new_ts = _dat[1]
-				dat[id] = (new_frame, new_ts)
+				dat[_id] = (new_frame, new_ts)
 
 			for _id, _dat in dat.items():
 				if _dat[0] is not None:
