@@ -6,11 +6,13 @@ gi.require_version("Aravis", "0.8")
 from gi.repository import Aravis
 
 
-
-def get_all_cameras_aravis():
-	Aravis.update_device_list()
-	n_cams = Aravis.get_n_devices()
-	ids = [Aravis.get_device_id(i) for i in range(n_cams)]
+def get_all_camera_ids(interface="aravis"):
+	if interface == "aravis":
+		Aravis.update_device_list()
+		n_cams = Aravis.get_n_devices()
+		ids = {"aravis": Aravis.get_device_id(i) for i in range(n_cams)}
+	else:
+		raise RuntimeError(f"Did not understand interface {interface}")
 	return ids
 
 
@@ -47,3 +49,15 @@ def intensity_to_rgba(frame, minval=300, maxval=800, colormap=cv2.COLORMAP_TURBO
 	rgb_frame = cv2.applyColorMap(disp_frame.astype(np.uint8), colormap)
 	new_frame[:,:,:3] = rgb_frame / 255.
 	return new_frame
+
+
+def initialize_camera(id, interface: str, config={}):
+	if interface == "aravis":
+		from cammy.camera.aravis import AravisCamera
+		cam = AravisCamera(id=id)
+		if config is not None:
+			for k, v in config.items():
+				cam.set_feature(k, v)
+	else:
+		raise RuntimeError(f"Did not understand interface {interface}")
+	return cam

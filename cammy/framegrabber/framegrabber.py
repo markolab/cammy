@@ -1,14 +1,15 @@
 import multiprocessing
 import queue
-
+from typing import Optional
+from util import initialize_camera
 
 # HERE take the camera object and nest into a frame grabber that runs as multiprocessing.Process
 # this will use try_pop_frame and fill a queue once started
 class FrameGrabber(multiprocessing.Process):
-	def __init__(self, queue, camera_object, id):
+	def __init__(self, queue, interface: str, id: str, config: Optional[dict]):
 		multiprocessing.Process.__init__(self)
 		self.queue = queue
-		self.camera_object = camera_object
+		self.camera = initialize_camera(id=id, interface=interface, config=config)
 		self.is_running = multiprocessing.Value("i", 0)
 		self.id = id
 	
