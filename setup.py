@@ -8,7 +8,17 @@ setup(
     version="0.001a",
     packages=find_packages(),
     platforms=["mac", "unix"],
-    install_requires=["h5py", "tqdm", "numpy", "click", "mypy", "black", "toml", "opencv-python", "dearpygui"],
+    install_requires=[
+        "h5py",
+        "tqdm",
+        "numpy",
+        "click",
+        "mypy",
+        "black",
+        "toml",
+        "opencv-python",
+        "dearpygui",
+    ],
     python_requires=">=3.9",
     entry_points={"console_scripts": ["cammy = cammy.cli:cli"]},
 )
