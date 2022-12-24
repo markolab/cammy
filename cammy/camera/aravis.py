@@ -19,7 +19,7 @@ class AravisCamera(CammyCamera):
 		exposure_time: float = 1000,
 		fps: float = 30,
 		pixel_format: str = "MONO_16",
-		buffer_size: int = 3,
+		buffer_size: int = 1000,
 		fake_camera: bool = False,
 		auto_exposure: bool = False,
 		queue=None,
@@ -33,6 +33,7 @@ class AravisCamera(CammyCamera):
 			Aravis.enable_interface("Fake")
 
 		self.camera = Aravis.Camera.new(id)
+		self.camera.gv_set_packet_size(8000)
 		self.device = self.camera.get_device()
 		# self.camera = Aravis.Camera() # THIS IS JUST FOR PYLANCE
 
@@ -52,6 +53,7 @@ class AravisCamera(CammyCamera):
 		self.id = id
 		self.stream = self.camera.create_stream()
 		self.queue = queue
+		self.missed_frames = 0
 
 		for i in range(buffer_size):
 			self.stream.push_buffer(Aravis.Buffer.new_allocate(self._payload))
@@ -61,10 +63,19 @@ class AravisCamera(CammyCamera):
 	def try_pop_frame(self):
 		buffer = self.stream.try_pop_buffer()
 		if buffer:
-			frame = self._array_from_buffer_address(buffer)
-			timestamp = buffer.get_timestamp()
-			if self.queue is not None:
-				self.queue.put((frame, timestamp))
+			status = buffer.get_status()
+			if status == Aravis.BufferStatus.TIMEOUT:
+				print("missed frame")
+				self.missed_frames += 1
+				frame = None
+				timestamp = None
+			elif status == Aravis.BufferStatus.SUCCESS:
+				frame = self._array_from_buffer_address(buffer)
+				timestamp = buffer.get_timestamp()
+				if self.queue is not None:
+					self.queue.put((frame, timestamp))
+			else:
+				raise RuntimeError("Did not understand status")
 			self.stream.push_buffer(buffer)
 			return frame, timestamp
 		else:
