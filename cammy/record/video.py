@@ -15,6 +15,7 @@ class VideoRecorder(BaseRecord):
 		slices=24,
 		slicecrc=1,
 		filename="test.avi",
+		queue=None,
 	):
 		super(BaseRecord, self).__init__()
 
@@ -37,6 +38,10 @@ class VideoRecorder(BaseRecord):
 			filename,
 		]
 		self._command = command
+		self.queue = queue
+		# self.is_running = multiprocessing.Value("i", 0)
+		self.id = id
+		self.filename=filename
 
 
 	def write_data(self, data):
