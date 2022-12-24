@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 def get_all_camera_ids(interface="aravis", n_cams=1):
-	if interface == "aravis":
+	if (interface == "aravis") or (interface == "all"):
 		Aravis.update_device_list()
 		n_cams = Aravis.get_n_devices()
 		ids = {Aravis.get_device_id(i): "aravis" for i in range(n_cams)}

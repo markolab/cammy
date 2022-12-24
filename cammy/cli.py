@@ -163,8 +163,8 @@ def simple_preview(
 	cameras = {}
 	if all_cameras:
 		ids = get_all_camera_ids(interface, n_cams=n_fake_cameras)
-	
-	for _id, _interface in ids:
+
+	for _id, _interface in ids.items():
 		cameras[_id] = initialize_camera(_id, _interface, camera_dct.get(_id)) 
 
 	dpg.create_context()
