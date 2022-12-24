@@ -3,6 +3,9 @@ import numpy as np
 import toml
 import logging
 import sys
+import multiprocessing
+multiprocessing.set_start_method('spawn')
+
 from typing import Optional
 from cammy.util import get_all_cameras_aravis, intensity_to_rgba, get_queues
 from cammy.camera.aravis import AravisCamera
@@ -63,7 +66,17 @@ def acquire(all_cameras_aravis: bool, camera_options: str):
 			cameras[_id] = _cam
 	else:
 		raise NotImplementedError("Only all Aravis cameras supported")
+	
+	[_cam.start_acquisition() for _cam in cameras.values()]
 
+	queues = get_queues([_id for _id in cameras.keys()]) # returns a dictionary of queues
+	frame_grabbers = []
+	for _id, _cam in cameras.items():
+		new_grabber = FrameGrabber(queue=queues["display"][_id], camera_object=_cam, id=_id)
+		new_grabber.daemon = True
+		frame_grabbers.append(new_grabber)
+
+	[_grabber.start() for _grabber in frame_grabbers]
 	dpg.create_context()
 	dpg.create_viewport(title="Custom Title", width=1000, height=1000)
 	dpg.setup_dearpygui()
@@ -79,25 +92,33 @@ def acquire(all_cameras_aravis: bool, camera_options: str):
 				format=dpg.mvFormat_Float_rgba,
 			)
 	
-	queues = get_queues([_id for _id in cameras.keys()]) # returns a dictionary of queues
-	frame_grabbers = []
-	for _id, _cam in cameras.items():
-		_id = _cam.id
-		new_grabber = FrameGrabber(queue=queues["display"][_id], camera_object=_cam, id=_cam.id)
-		new_grabber.daemon = True
-		frame_grabbers.append(new_grabber)
+	for _id in cameras.keys():
 		with dpg.window(label=f"Camera {_id}"):
 			dpg.add_image(f"texture_{_id}")
 			# add sliders/text boxes for exposure time and fps
 
-	[_grabber.start() for _grabber in frame_grabbers]
+	print(frame_grabbers)
 	counts = [0 for _cam in cameras.values()]
 	for _cam in cameras.values():
 		_cam.count = 0
 
 	# initiate a framegrabber per camera, then turn them on
-	dpg.show_metrics()
-	dpg.show_viewport()
+	# dpg.show_metrics()
+	# dpg.show_viewport()
+
+	while True:
+		for k, v in queues["display"].items():
+			# always clear out the queue and get whatever was last
+			dat = None
+			while True:
+				try:
+					dat = v.get_nowait()
+				except queue.Empty:
+					break
+			if dat is not None:
+				print(dat)
+
+	print("test")
 	try:
 		while dpg.is_dearpygui_running():
 			for k, v in queues["display"].items():
