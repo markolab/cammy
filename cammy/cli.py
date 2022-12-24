@@ -10,8 +10,9 @@ import sys
 # 	format="[%(asctime)s]: %(message)s",
 # 	datefmt="%Y-%m-%d %H:%M:%S",
 # )
+logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+
 
 from typing import Optional
 from cammy.util import get_all_camera_ids, intensity_to_rgba, get_queues, initialize_camera
