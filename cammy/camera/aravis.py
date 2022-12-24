@@ -12,6 +12,7 @@ gi.require_version("Aravis", "0.8")
 from gi.repository import Aravis
 
 
+
 class AravisCamera(CammyCamera):
 	def __init__(
 		self,
@@ -43,9 +44,9 @@ class AravisCamera(CammyCamera):
 				print(e)
 
 		self.logger = logging.getLogger(self.__class__.__name__)
-		logging.basicConfig(stream=sys.stdout, level=logging.DEBUG,
-						format="[%(asctime)s]: %(message)s",
-						datefmt="%Y-%m-%d %H:%M:%S")
+		# logging.basicConfig(stream=sys.stdout, level=logging.DEBUG,
+		# 				format="[%(asctime)s]: %(message)s",
+		# 				datefmt="%Y-%m-%d %H:%M:%S")
 					
 		# self.set_exposure_time(exposure_time)
 		# self.set_frame_rate(fps)

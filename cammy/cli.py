@@ -3,12 +3,17 @@ import numpy as np
 import toml
 import logging
 import sys
-import multiprocessing
 
-multiprocessing.set_start_method("spawn")
+# logging.basicConfig(
+# 	stream=sys.stdout,
+# 	level=logging.DEBUG,
+# 	format="[%(asctime)s]: %(message)s",
+# 	datefmt="%Y-%m-%d %H:%M:%S",
+# )
+logger = logging.getLogger(__name__)
 
 from typing import Optional
-from cammy.util import get_all_camera_ids, intensity_to_rgba, get_queues
+from cammy.util import get_all_camera_ids, intensity_to_rgba, get_queues, initialize_camera
 from cammy.camera.aravis import AravisCamera
 from cammy.camera.fake import FakeCamera
 from cammy.framegrabber.framegrabber import FrameGrabber
@@ -27,7 +32,7 @@ def aravis_load_settings():
 
 @cli.command(name="acquire")
 @click.option("--all-cameras", is_flag=True)
-@click.option("--interface", type=str, default="aravis")
+@click.option("--interface", type=str, default="all")
 @click.option(
 	"--camera-options",
 	type=click.Path(resolve_path=True, exists=True),
@@ -39,13 +44,6 @@ def acquire(all_cameras: bool, interface: str, camera_options: str):
 	import time
 	import queue
 	import cv2
-
-	logging.basicConfig(
-		stream=sys.stdout,
-		level=logging.DEBUG,
-		format="[%(asctime)s]: %(message)s",
-		datefmt="%Y-%m-%d %H:%M:%S",
-	)
 
 	if camera_options is not None:
 		camera_dct = toml.load(camera_options)
@@ -128,31 +126,29 @@ def acquire(all_cameras: bool, interface: str, camera_options: str):
 
 
 @cli.command(name="simple-preview")
-@click.option("--all-cameras-aravis", is_flag=True)
-@click.option("--use-fake-camera", is_flag=True)
+@click.option("--all-cameras", is_flag=True)
+@click.option("--interface", type=click.Choice(["aravis", "fake_custom", "all"]), default="all")
 @click.option("--n-fake-cameras", type=int, default=1)
-@click.option("--fake-camera-interface", type=str, default="custom")
 @click.option(
 	"--camera-options",
 	type=click.Path(resolve_path=True, exists=True),
 	help="TOML file with camera options",
 )
 def simple_preview(
-	all_cameras_aravis: bool,
-	use_fake_camera: bool,
+	all_cameras: bool,
+	interface: str,
 	n_fake_cameras: int,
-	fake_camera_interface: str,
 	camera_options: Optional[str],
 ):
 	import dearpygui.dearpygui as dpg
 	import cv2
 
-	logging.basicConfig(
-		stream=sys.stdout,
-		level=logging.DEBUG,
-		format="[%(asctime)s]: %(message)s",
-		datefmt="%Y-%m-%d %H:%M:%S",
-	)
+	# logging.basicConfig(
+	# 	stream=sys.stdout,
+	# 	level=logging.DEBUG,
+	# 	format="[%(asctime)s]: %(message)s",
+	# 	datefmt="%Y-%m-%d %H:%M:%S",
+	# )
 
 	if camera_options is not None:
 		camera_dct = toml.load(camera_options)
@@ -164,33 +160,12 @@ def simple_preview(
 	white = (255, 255, 255)
 	txt_pos = (25, 25)
 
-	# simply spool up and show input from all detected cameras
 	cameras = {}
-	if all_cameras_aravis and not use_fake_camera:
-		ids = get_all_cameras_aravis()  # ids of all cameras
-		for _id in ids:
-			logging.info(f"Found Aravis camera {_id}")
-			_cam = AravisCamera(id=_id)
-			if _id in camera_dct.keys():
-				for k, v in camera_dct[_id].items():
-					logging.info(f"{k} is {_cam.get_feature(k)}")
-					_cam.set_feature(k, v)
-			cameras[_id] = _cam
-	elif use_fake_camera:
-		# spool up n fake cameras
-		for i in range(n_fake_cameras):
-			_id = f"Fake_{i+1}"
-			if fake_camera_interface == "aravis":
-				_cam = AravisCamera(fake_camera=True, id=_id)
-			elif fake_camera_interface == "custom":
-				_cam = FakeCamera(id=_id)
-			else:
-				raise RuntimeError(
-					f"Did not understand fake camera interface {fake_camera_interface}"
-				)
-			cameras[_id] = _cam
-	else:
-		raise RuntimeError("Incompatible flag settings")
+	if all_cameras:
+		ids = get_all_camera_ids(interface, n_cams=n_fake_cameras)
+	
+	for _id, _interface in ids:
+		cameras[_id] = initialize_camera(_id, _interface, camera_dct.get(_id)) 
 
 	dpg.create_context()
 	dpg.create_viewport(title="Custom Title", width=1000, height=1000)
@@ -206,19 +181,16 @@ def simple_preview(
 				tag=f"texture_{_id}",
 				format=dpg.mvFormat_Float_rgba,
 			)
-	# queues = get_queues([_cam.id for _cam in cameras]) # returns a dictionary of queues
-	# frame_grabbers = []
+
 	for _id, _cam in cameras.items():
 		with dpg.window(label=f"Camera {_id}"):
 			dpg.add_image(f"texture_{_id}")
 			# add sliders/text boxes for exposure time and fps
 
-	# [_grabber.start() for _grabber in frame_grabbers]
 	[_cam.start_acquisition() for _cam in cameras.values()]
 	for _cam in cameras.values():
 		_cam.count = 0
 
-	# initiate a framegrabber per camera, then turn them on
 	dpg.show_metrics()
 	dpg.show_viewport()
 

@@ -2,15 +2,20 @@ import gi
 import multiprocessing
 import cv2
 import numpy as np
+import logging
 gi.require_version("Aravis", "0.8")
 from gi.repository import Aravis
 
+logger = logging.getLogger(__name__)
 
-def get_all_camera_ids(interface="aravis"):
+
+def get_all_camera_ids(interface="aravis", n_cams=1):
 	if interface == "aravis":
 		Aravis.update_device_list()
 		n_cams = Aravis.get_n_devices()
-		ids = {"aravis": Aravis.get_device_id(i) for i in range(n_cams)}
+		ids = {Aravis.get_device_id(i): "aravis" for i in range(n_cams)}
+	elif (interface == "fake") or (interface == "fake_custom"):
+		ids = [f"Fake_{i + 1}" for i in range(n_cams)]
 	else:
 		raise RuntimeError(f"Did not understand interface {interface}")
 	return ids
@@ -52,12 +57,15 @@ def intensity_to_rgba(frame, minval=300, maxval=800, colormap=cv2.COLORMAP_TURBO
 
 
 def initialize_camera(id, interface: str, config={}):
-	if interface == "aravis":
+	if (interface == "aravis") or (interface == "all"):
 		from cammy.camera.aravis import AravisCamera
 		cam = AravisCamera(id=id)
 		if config is not None:
 			for k, v in config.items():
 				cam.set_feature(k, v)
+	elif interface == "fake_custom":
+		from cammy.camera.fake import FakeCamera
+		cam = FakeCamera(id=id)
 	else:
 		raise RuntimeError(f"Did not understand interface {interface}")
 	return cam
