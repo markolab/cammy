@@ -4,6 +4,7 @@ __pycache__/
 *$py.class
 # Test data
 *.avi
+*.swp
 # C extensions
 *.so
 

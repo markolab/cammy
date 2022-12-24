@@ -111,13 +111,15 @@ def simple_preview(
 			dpg.add_image(f"texture_{_id}")
 			# add sliders/text boxes for exposure time and fps
 
+	print("test1")
+
 	[_cam.start_acquisition() for _cam in cameras.values()]
 	for _cam in cameras.values():
 		_cam.count = 0
 
 	dpg.show_metrics()
 	dpg.show_viewport()
-
+	print("test2")
 	try:
 		while dpg.is_dearpygui_running():
 			dat = {}

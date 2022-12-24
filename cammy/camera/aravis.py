@@ -4,7 +4,7 @@ import ctypes
 import numpy as np
 import logging
 import sys
-import threading
+# import threading
 from cammy.util import get_pixel_format_aravis
 from cammy.camera.camera import CammyCamera
 from typing import Optional
@@ -30,16 +30,19 @@ def _array_from_buffer_address(buffer):
 	return im
 
 
-def _stream_callback(user_data, cb_type, buffer):
-	print(f'Callback[{threading.get_native_id()}] {cb_type.value_name} {buffer=}')
-	if buffer is not None:
-		print(user_data)
+import threading
+def stream_callback(user_data, cb_type, buffer):
+	# print(f'Callback[{threading.get_native_id()}] {cb_type.value_name} {buffer=}')
+	if (buffer is not None) and (cb_type.value_name == "ARV_STREAM_CALLBACK_TYPE_BUFFER_DONE"):
 		frame = _array_from_buffer_address(buffer)
-		timestamp = buffer.get_timestamp()
-		for k, v in user_data.queues.items():
-			v.queue.put((frame, timestamp))
-		# Re-enqueue the buffer
 		user_data.stream.push_buffer(buffer)
+		timestamp = buffer.get_timestamp()
+		if buffer.get_status() == Aravis.BufferStatus.SUCCESS:
+			for k, v in user_data.queues.items():
+				v.put((frame, timestamp))
+		else:
+			print("test")
+		# Re-enqueue the buffer
 
 
 # class for passing data we need to extract frames from buffer and put into queue
@@ -56,7 +59,7 @@ class AravisCamera(CammyCamera):
 		exposure_time: float = 1000,
 		fps: float = 30,
 		pixel_format: str = "MONO_16",
-		buffer_size: int = 3,
+		buffer_size: int = 1000,
 		fake_camera: bool = False,
 		auto_exposure: bool = False,
 		queues=None,
@@ -90,7 +93,8 @@ class AravisCamera(CammyCamera):
 		self.queues = queues
 		if queues is not None:
 			user_data = UserData()
-			self.stream = self.camera.create_stream(_stream_callback, user_data)
+			# self.stream = self.camera.create_stream()
+			self.stream = self.camera.create_stream(stream_callback, user_data)
 			user_data.stream = self.stream
 			user_data.queues = queues
 
