@@ -1,6 +1,7 @@
 import multiprocessing
 import queue
 from typing import Optional
+import sys
 from cammy.util import initialize_camera
 
 # HERE take the camera object and nest into a frame grabber that runs as multiprocessing.Process

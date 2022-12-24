@@ -3,6 +3,7 @@ import multiprocessing
 import cv2
 import numpy as np
 import logging
+import sys
 gi.require_version("Aravis", "0.8")
 from gi.repository import Aravis
 
