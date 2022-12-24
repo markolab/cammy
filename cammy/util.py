@@ -7,7 +7,7 @@ import sys
 gi.require_version("Aravis", "0.8")
 from gi.repository import Aravis
 
-logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+
 logger = logging.getLogger(__name__)
 
 

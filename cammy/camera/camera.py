@@ -11,6 +11,7 @@ class CammyCamera:
 
 		self.id = id
 		self.camera = None
+		self.queue = None
 
 	def start_acquisition(self):
 		if self.camera:

@@ -11,13 +11,6 @@ from typing import Optional
 gi.require_version("Aravis", "0.8")
 from gi.repository import Aravis
 
-logging.basicConfig(
-	stream=sys.stdout,
-	level=logging.DEBUG,
-	format="[%(asctime)s]:%(levelname)s:%(name)s %(message)s",
-	datefmt="%Y-%m-%d %H:%M:%S",
-)
-
 
 class AravisCamera(CammyCamera):
 	def __init__(
@@ -50,14 +43,6 @@ class AravisCamera(CammyCamera):
 				print(e)
 
 		self.logger = logging.getLogger(self.__class__.__name__)
-		
-		# logging.basicConfig(stream=sys.stdout, level=logging.DEBUG,
-		# 				format="[%(asctime)s]: %(message)s",
-		# 				datefmt="%Y-%m-%d %H:%M:%S")
-					
-		# self.set_exposure_time(exposure_time)
-		# self.set_frame_rate(fps)
-		# self.set_pixel_format(get_pixel_format_aravis(pixel_format))
 		[x, y, width, height] = self.camera.get_region()
 
 		self._payload = self.camera.get_payload()  # size of payload
@@ -65,19 +50,10 @@ class AravisCamera(CammyCamera):
 		self._height = height	# stage stream
 		self.id = id
 		self.stream = self.camera.create_stream()
-		# Aravis.FakeCamera.set_fill_pattern(self.camera, self.fill_pattern_callback, [0,0,0])
-		# self.stream = self.camera.create_stream(self.fake_data_callback, None)
 
 		for i in range(buffer_size):
 			self.stream.push_buffer(Aravis.Buffer.new_allocate(self._payload))
 
-	# def fill_pattern_callback(self, user_data, cb_type):
-	# 	print(user_data)
-
-	# def fake_data_callback(self, user_data, cb_type, buffer):
-	# 	print(buffer)
-	# 	print(type(buffer))
-	# 	self.stream.push_buffer(Aravis.Buffer.new_allocate(self._payload))
 
 	# https://github.com/SintefManufacturing/python-aravis/blob/master/aravis.py#L162
 	def try_pop_frame(self):
