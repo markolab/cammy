@@ -11,7 +11,12 @@ from typing import Optional
 gi.require_version("Aravis", "0.8")
 from gi.repository import Aravis
 
-logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+logging.basicConfig(
+	stream=sys.stdout,
+	level=logging.DEBUG,
+	format="[%(asctime)s]: %(message)s",
+	datefmt="%Y-%m-%d %H:%M:%S",
+)
 
 
 class AravisCamera(CammyCamera):
