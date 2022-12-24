@@ -34,7 +34,7 @@ class BaseRecord(multiprocessing.Process):
 				try:
 					dat = None
 					try:
-						dat = self.queue.get()
+						dat = self.queue.get_nowait()
 					except queue.Empty:
 						continue
 					if dat is not None:
@@ -42,7 +42,7 @@ class BaseRecord(multiprocessing.Process):
 				except (KeyboardInterrupt, SystemExit):
 					while True:
 						try:
-							dat = self.queue.get()
+							dat = self.queue.get_nowait()
 							if dat is not None:
 								self.write_data(dat)
 						except queue.Empty:
@@ -51,9 +51,10 @@ class BaseRecord(multiprocessing.Process):
 					print(f"Exiting recorder {self.id}")
 					break
 			else:
+				print("Process stopped")
 				while True:
 					try:
-						dat = self.queue.get()
+						dat = self.queue.get_nowait()
 						if dat is not None:
 							self.write_data(dat)
 					except queue.Empty:

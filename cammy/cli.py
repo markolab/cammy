@@ -3,6 +3,7 @@ import numpy as np
 import toml
 import logging
 import sys
+import time
 
 logging.basicConfig(
 	stream=sys.stdout,
@@ -17,7 +18,6 @@ from typing import Optional
 from cammy.util import get_all_camera_ids, intensity_to_rgba, get_queues, initialize_camera
 from cammy.camera.aravis import AravisCamera
 from cammy.camera.fake import FakeCamera
-from cammy.framegrabber.framegrabber import FrameGrabber
 from cammy.record.video import VideoRecorder
 
 
@@ -74,9 +74,9 @@ def simple_preview(
 	if acquire:
 		recorders = []
 		use_queues = get_queues(list(ids.keys()))
-		for _id, _cam in cameras.items()
-			cameras[_id].queue = use_queues[_id]["storage"]
-			_recorder = VideoRecorder(width=cameras[_id]._width, height=cameras[_id]._height)
+		for _id, _cam in cameras.items():
+			cameras[_id].queue = use_queues["storage"][_id]
+			_recorder = VideoRecorder(width=cameras[_id]._width, height=cameras[_id]._height, queue=cameras[_id].queue)
 			_recorder.daemon = True
 			_recorder.start()
 			recorders.append(_recorder)
@@ -135,6 +135,7 @@ def simple_preview(
 		if acquire:
 			for _recorder in recorders:
 				_recorder.is_running = 0
+				time.sleep(4)
 		dpg.destroy_context()
 
 

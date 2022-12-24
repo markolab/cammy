@@ -22,6 +22,7 @@ class AravisCamera(CammyCamera):
 		buffer_size: int = 3,
 		fake_camera: bool = False,
 		auto_exposure: bool = False,
+		queue=None,
 		**kwargs,
 	):
 
@@ -50,6 +51,7 @@ class AravisCamera(CammyCamera):
 		self._height = height	# stage stream
 		self.id = id
 		self.stream = self.camera.create_stream()
+		self.queue = queue
 
 		for i in range(buffer_size):
 			self.stream.push_buffer(Aravis.Buffer.new_allocate(self._payload))
@@ -61,6 +63,8 @@ class AravisCamera(CammyCamera):
 		if buffer:
 			frame = self._array_from_buffer_address(buffer)
 			timestamp = buffer.get_timestamp()
+			if self.queue is not None:
+				self.queue.put((frame, timestamp))
 			self.stream.push_buffer(buffer)
 			return frame, timestamp
 		else:

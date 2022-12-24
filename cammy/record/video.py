@@ -8,35 +8,33 @@ class VideoRecorder(BaseRecord):
 		self,
 		width=600,
 		height=420,
-		threads=1,
+		threads=8,
 		fps=30,
 		pixel_format="gray16le",
-		codec="ffv1 -level 3",
+		codec="ffv1",
 		slices=24,
 		slicecrc=1,
 		filename="test.avi",
 		queue=None,
 	):
-		super(BaseRecord, self).__init__()
 
-		command = [
-			"ffmpeg",
-			"-y",
-			"-loglevel fatal",
-			f"-framerate {str(fps)}",
-			"-f rawvideo",
-			f"-s {width:d}x{height:d}",
-			f"-pix_fmt {pixel_format}",
-			"-i -",
-			"-an",
-			f"-vcodec {codec}",
-			f"-threads {str(threads)}",
-			f"-slices {str(slices)}",
-			f"-slicecrc {str(slicecrc)}",
-			f"-r {str(fps)}",
-			"-g 1",
-			filename,
-		]
+		super(BaseRecord, self).__init__()
+		command = ['ffmpeg',
+               '-y',
+               '-loglevel', 'fatal',
+               '-framerate', str(fps),
+               '-f', 'rawvideo',
+               '-s', f'{str(width)}x{str(height)}',
+               '-pix_fmt', pixel_format,
+               '-i', '-',
+               '-an',
+               '-vcodec', codec,
+               '-threads', str(threads),
+               '-slices', str(slices),
+               '-slicecrc', str(slicecrc),
+               '-r', str(fps),
+               filename]
+		print(command)
 		self._command = command
 		self.queue = queue
 		# self.is_running = multiprocessing.Value("i", 0)
@@ -45,16 +43,17 @@ class VideoRecorder(BaseRecord):
 
 
 	def write_data(self, data):
-		if data.ndim == 3:
-			for _frame in data:
+		vdata, tstamp = data
+		if vdata.ndim == 3:
+			for _frame in vdata:
 				self._pipe.stdin.write(_frame.astype("uint16").tostring())
-		elif data.ndim == 2:
-			self._pipe.stdin.write(data.astype("uint16").tostring())
+		elif vdata.ndim == 2:
+			self._pipe.stdin.write(vdata.astype("uint16").tostring())
 		else:
 			raise RuntimeError("Frames must be 2d or 3d")
 
 
-	def open_writer(self, filename):
+	def open_writer(self):
 		pipe = subprocess.Popen(self._command, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
 		self._pipe = pipe
 
