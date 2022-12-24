@@ -4,6 +4,7 @@ import toml
 import logging
 import sys
 import time
+import queue
 
 logging.basicConfig(
 	stream=sys.stdout,
@@ -47,7 +48,7 @@ def simple_preview(
 	interface: str,
 	n_fake_cameras: int,
 	camera_options: Optional[str],
-	acquire: bool
+	acquire: bool,
 ):
 	import dearpygui.dearpygui as dpg
 	import cv2
@@ -68,15 +69,24 @@ def simple_preview(
 	else:
 		NotImplementedError()
 
+	if acquire:
+		queue_keys = ["display", "storage"]
+	else:
+		queue_keys = ["display"]
+	use_queues = get_queues(list(ids.keys()), keys=queue_keys)
 	for _id, _interface in ids.items():
-		cameras[_id] = initialize_camera(_id, _interface, camera_dct.get(_id))
+		cameras[_id] = initialize_camera(
+			_id, _interface, camera_dct.get(_id), queues=use_queues[_id]
+		)
 
 	if acquire:
 		recorders = []
-		use_queues = get_queues(list(ids.keys()))
 		for _id, _cam in cameras.items():
-			cameras[_id].queue = use_queues["storage"][_id]
-			_recorder = VideoRecorder(width=cameras[_id]._width, height=cameras[_id]._height, queue=cameras[_id].queue)
+			_recorder = VideoRecorder(
+				width=cameras[_id]._width,
+				height=cameras[_id]._height,
+				queue=cameras[_id].queue["storage"],
+			)
 			_recorder.daemon = True
 			_recorder.start()
 			recorders.append(_recorder)
@@ -111,16 +121,15 @@ def simple_preview(
 	try:
 		while dpg.is_dearpygui_running():
 			dat = {}
-			for _id, _cam in cameras.items():
+			for _id, _q in use_queues.items():
+				# always clear out the queue and get whatever was last
 				new_frame = None
 				new_ts = None
 				while True:
-					_dat = _cam.try_pop_frame()
-					if _dat[0] is None:
+					try:
+						new_frame, new_ts = _q["display"].get_nowait()
+					except queue.Empty:
 						break
-					else:
-						new_frame = _dat[0]
-						new_ts = _dat[1]
 				dat[_id] = (new_frame, new_ts)
 
 			for _id, _dat in dat.items():

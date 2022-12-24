@@ -4,12 +4,48 @@ import ctypes
 import numpy as np
 import logging
 import sys
+import threading
 from cammy.util import get_pixel_format_aravis
 from cammy.camera.camera import CammyCamera
 from typing import Optional
 
 gi.require_version("Aravis", "0.8")
 from gi.repository import Aravis
+
+
+# https://github.com/SintefManufacturing/python-aravis/blob/master/aravis.py#L180
+def _array_from_buffer_address(buffer):
+	if not buffer:
+		return None
+	pixel_format = buffer.get_image_pixel_format()
+	bits_per_pixel = pixel_format >> 16 & 0xFF
+	if bits_per_pixel == 8:
+		INTP = ctypes.POINTER(ctypes.c_uint8)
+	else:
+		INTP = ctypes.POINTER(ctypes.c_uint16)
+	addr = buffer.get_data()
+	ptr = ctypes.cast(addr, INTP)
+	im = np.ctypeslib.as_array(ptr, (buffer.get_image_height(), buffer.get_image_width()))
+	im = im.copy()
+	return im
+
+
+def _stream_callback(user_data, cb_type, buffer):
+	print(f'Callback[{threading.get_native_id()}] {cb_type.value_name} {buffer=}')
+	if buffer is not None:
+		frame = _array_from_buffer_address(buffer)
+		timestamp = buffer.get_timestamp()
+		for k, v in user_data.queues.items():
+			v.queue.put((frame, timestamp))
+		# Re-enqueue the buffer
+		user_data.stream.push_buffer(buffer)
+
+
+# class for passing data we need to extract frames from buffer and put into queue
+class UserData:
+	def __init__(self) -> None:
+		self.stream = None
+		self.queues = None
 
 
 class AravisCamera(CammyCamera):
@@ -22,7 +58,7 @@ class AravisCamera(CammyCamera):
 		buffer_size: int = 3,
 		fake_camera: bool = False,
 		auto_exposure: bool = False,
-		queue=None,
+		queues=None,
 		**kwargs,
 	):
 
@@ -50,41 +86,15 @@ class AravisCamera(CammyCamera):
 		self._width = width
 		self._height = height	# stage stream
 		self.id = id
-		self.stream = self.camera.create_stream()
-		self.queue = queue
+		if queues is not None:
+			user_data = UserData()
+			self.stream = self.camera.create_stream(_stream_callback, user_data)
+			user_data.stream = self.stream
+			user_data.queues = queues
 
 		for i in range(buffer_size):
 			self.stream.push_buffer(Aravis.Buffer.new_allocate(self._payload))
 
-
-	# https://github.com/SintefManufacturing/python-aravis/blob/master/aravis.py#L162
-	def try_pop_frame(self):
-		buffer = self.stream.try_pop_buffer()
-		if buffer:
-			frame = self._array_from_buffer_address(buffer)
-			timestamp = buffer.get_timestamp()
-			if self.queue is not None:
-				self.queue.put((frame, timestamp))
-			self.stream.push_buffer(buffer)
-			return frame, timestamp
-		else:
-			return None, None
-
-	# https://github.com/SintefManufacturing/python-aravis/blob/master/aravis.py#L180
-	def _array_from_buffer_address(self, buffer):
-		if not buffer:
-			return None
-		pixel_format = buffer.get_image_pixel_format()
-		bits_per_pixel = pixel_format >> 16 & 0xFF
-		if bits_per_pixel == 8:
-			INTP = ctypes.POINTER(ctypes.c_uint8)
-		else:
-			INTP = ctypes.POINTER(ctypes.c_uint16)
-		addr = buffer.get_data()
-		ptr = ctypes.cast(addr, INTP)
-		im = np.ctypeslib.as_array(ptr, (buffer.get_image_height(), buffer.get_image_width()))
-		im = im.copy()
-		return im
 
 	# https://github.com/SintefManufacturing/python-aravis/blob/master/aravis.py#L79
 	def get_feature_type(self, name):
