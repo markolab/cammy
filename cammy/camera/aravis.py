@@ -33,6 +33,7 @@ def _array_from_buffer_address(buffer):
 def _stream_callback(user_data, cb_type, buffer):
 	print(f'Callback[{threading.get_native_id()}] {cb_type.value_name} {buffer=}')
 	if buffer is not None:
+		print(user_data)
 		frame = _array_from_buffer_address(buffer)
 		timestamp = buffer.get_timestamp()
 		for k, v in user_data.queues.items():
@@ -86,6 +87,7 @@ class AravisCamera(CammyCamera):
 		self._width = width
 		self._height = height	# stage stream
 		self.id = id
+		self.queues = queues
 		if queues is not None:
 			user_data = UserData()
 			self.stream = self.camera.create_stream(_stream_callback, user_data)

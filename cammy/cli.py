@@ -85,7 +85,7 @@ def simple_preview(
 			_recorder = VideoRecorder(
 				width=cameras[_id]._width,
 				height=cameras[_id]._height,
-				queue=cameras[_id].queue["storage"],
+				queue=cameras[_id].queues["storage"],
 			)
 			_recorder.daemon = True
 			_recorder.start()
