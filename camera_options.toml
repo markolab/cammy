@@ -1,7 +1,7 @@
 ["Lucid Vision Labs-HTP003S-001-224500508"]
 PixelFormat = "Mono16"
 # AcquisitionFrameRateEnable = true
-AcquisitionFrameRate = 30
+AcquisitionFrameRate = 40
 Scan3dOperatingMode = "HighSpeedDistance625mmSingleFreq"
 Scan3dAmplitudeGain = 1
 ExposureTimeSelector = "Exp1000Us"

@@ -59,7 +59,7 @@ class AravisCamera(CammyCamera):
 		exposure_time: float = 1000,
 		fps: float = 30,
 		pixel_format: str = "MONO_16",
-		buffer_size: int = 1000,
+		buffer_size: int = 5000,
 		fake_camera: bool = False,
 		auto_exposure: bool = False,
 		queues=None,
@@ -73,6 +73,7 @@ class AravisCamera(CammyCamera):
 			Aravis.enable_interface("Fake")
 
 		self.camera = Aravis.Camera.new(id)
+		self.camera.gv_set_packet_size(9000)
 		self.device = self.camera.get_device()
 		# self.camera = Aravis.Camera() # THIS IS JUST FOR PYLANCE
 
