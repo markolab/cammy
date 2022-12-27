@@ -44,7 +44,7 @@ class VideoRecorder(BaseRecord):
 		self.queue = queue
 		# self.is_running = multiprocessing.Value("i", 0)
 		self.id = id
-		basefile, ext = os.path.splitext(filename)
+		basefile = os.path.splitext(filename)[0]
 		filename_timestamps = f"{basefile}.txt"
 		self.filenames = {"video": filename, "timestamps": filename_timestamps}
 		self.timestamp_fields = timestamp_fields
@@ -61,7 +61,7 @@ class VideoRecorder(BaseRecord):
 			raise RuntimeError("Frames must be 2d or 3d")
 		for _field in self.timestamp_fields:
 			self._tstamp_file.write(f"{tstamps[_field]}\t")
-		self._tstamp_file.write("\n")	
+		self._tstamp_file.write("\n")
 
 
 	def open_writer(self):

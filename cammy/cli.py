@@ -32,6 +32,11 @@ def aravis_load_settings():
 	raise NotImplementedError
 
 
+
+# TODO:
+# 1) MAKE SURE FILE GETS SAVED IN DIRECTORY WITH STANDARD ISO FORMAT
+# 2) TEST TO ENSURE EVERYTHIN GETS CLOSED AND FLUSHED PROPERLY
+# 3) ANYTHING TO ADD TO FILE FORMAT?
 @cli.command(name="simple-preview")
 @click.option("--all-cameras", is_flag=True)
 @click.option("--interface", type=click.Choice(["aravis", "fake_custom", "all"]), default="all")
@@ -143,7 +148,7 @@ def simple_preview(
 					time.sleep(.1)
 			for _recorder in recorders:
 				_recorder.is_running = 0
-				time.sleep(4)
+				time.sleep(1)
 		dpg.destroy_context()
 
 
