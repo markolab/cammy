@@ -73,8 +73,8 @@ def simple_preview(
 	for _id, _interface in ids.items():
 		cameras[_id] = initialize_camera(_id, _interface, camera_dct.get(_id), jumbo_frames=jumbo_frames)
 
+	recorders = []
 	if acquire:
-		recorders = []
 		use_queues = get_queues(list(ids.keys()))
 		for _id, _cam in cameras.items():
 			cameras[_id].queue = use_queues["storage"][_id]
@@ -82,6 +82,8 @@ def simple_preview(
 			_recorder.daemon = True
 			_recorder.start()
 			recorders.append(_recorder)
+	else:
+		use_queues = {}
 
 	dpg.create_context()
 	dpg.create_viewport(title="Custom Title", width=1000, height=1000)
@@ -135,6 +137,10 @@ def simple_preview(
 	finally:
 		[_cam.stop_acquisition() for _cam in cameras.values()]
 		if acquire:
+			# for every camera ID wait until the queue has been written out
+			for k, v in use_queues["storage"].items():
+				while v.qsize() > 0:
+					time.sleep(.1)
 			for _recorder in recorders:
 				_recorder.is_running = 0
 				time.sleep(4)

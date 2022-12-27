@@ -70,16 +70,19 @@ class AravisCamera(CammyCamera):
 				print("missed frame")
 				self.missed_frames += 1
 				frame = None
-				timestamp = None
+				timestamps = None
+				
 			elif status == Aravis.BufferStatus.SUCCESS:
 				frame = self._array_from_buffer_address(buffer)
 				timestamp = buffer.get_timestamp()
+				system_timestamp = buffer.get_system_timestamp()
+				timestamps  = {"device_timestamp": timestamp, "system_timestamp": system_timestamp}
 				if self.queue is not None:
-					self.queue.put((frame, timestamp))
+					self.queue.put((frame, timestamps))
 			else:
 				raise RuntimeError("Did not understand status")
 			self.stream.push_buffer(buffer)
-			return frame, timestamp
+			return frame, timestamps
 		else:
 			return None, None
 
