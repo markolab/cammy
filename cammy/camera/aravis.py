@@ -23,7 +23,7 @@ class AravisCamera(CammyCamera):
 		fake_camera: bool = False,
 		auto_exposure: bool = False,
 		queue=None,
-		jumbo_frames: bool = True
+		jumbo_frames: bool = True,
 		**kwargs,
 	):
 
