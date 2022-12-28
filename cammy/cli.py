@@ -83,6 +83,7 @@ def simple_preview(
 		cameras[_id] = initialize_camera(
 			_id, _interface, camera_dct.get(_id), jumbo_frames=jumbo_frames
 		)
+		print(cameras[_id].get_all_features())
 
 
 
