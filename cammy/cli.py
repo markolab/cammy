@@ -84,7 +84,8 @@ def simple_preview(
 	recorders = []
 	if acquire:
 		use_queues = get_queues(list(ids.keys()))
-		metadata_path = os.path.join(os.path.abspath(__file__), "metadata.toml")
+		basedir = os.path.dirname(os.path.abspath(__file__))
+		metadata_path = os.path.join(basedir, "metadata.toml")
 		show_fields = toml.load(metadata_path)["show_fields"]
 		for _id, _cam in cameras.items():
 			cameras[_id].queue = use_queues["storage"][_id]
