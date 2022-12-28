@@ -3,6 +3,7 @@ import numpy as np
 import toml
 import logging
 import sys
+import os
 import time
 
 logging.basicConfig(
@@ -83,7 +84,8 @@ def simple_preview(
 	recorders = []
 	if acquire:
 		use_queues = get_queues(list(ids.keys()))
-		show_fields = toml.load("metadata.toml")["show_fields"]
+		metadata_path = os.path.join(os.path.abspath(__file__), "metadata.toml")
+		show_fields = toml.load(metadata_path)["show_fields"]
 		for _id, _cam in cameras.items():
 			cameras[_id].queue = use_queues["storage"][_id]
 			_recorder = VideoRecorder(width=cameras[_id]._width, height=cameras[_id]._height, queue=cameras[_id].queue)
