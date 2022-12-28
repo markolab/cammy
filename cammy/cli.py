@@ -35,8 +35,10 @@ def aravis_load_settings():
 
 # TODO:
 # 1) MAKE SURE FILE GETS SAVED IN DIRECTORY WITH STANDARD ISO FORMAT
-# 2) TEST TO ENSURE EVERYTHIN GETS CLOSED AND FLUSHED PROPERLY
+# 2) TEST TO ENSURE EVERYTHING GETS CLOSED AND FLUSHED PROPERLY
 # 3) ANYTHING TO ADD TO FILE FORMAT?
+# 4) METADATA POP UP
+# 5) ADD STATUS BAR TO SHOW NUMBER OF FRAMES DROPPED RELATIVE TO TOTAL
 @cli.command(name="simple-preview")
 @click.option("--all-cameras", is_flag=True)
 @click.option("--interface", type=click.Choice(["aravis", "fake_custom", "all"]), default="all")
@@ -73,7 +75,7 @@ def simple_preview(
 	if all_cameras:
 		ids = get_all_camera_ids(interface, n_cams=n_fake_cameras)
 	else:
-		NotImplementedError()
+		raise NotImplementedError()
 
 	for _id, _interface in ids.items():
 		cameras[_id] = initialize_camera(_id, _interface, camera_dct.get(_id), jumbo_frames=jumbo_frames)
@@ -81,6 +83,7 @@ def simple_preview(
 	recorders = []
 	if acquire:
 		use_queues = get_queues(list(ids.keys()))
+		show_fields = toml.load("metadata.toml")["show_fields"]
 		for _id, _cam in cameras.items():
 			cameras[_id].queue = use_queues["storage"][_id]
 			_recorder = VideoRecorder(width=cameras[_id]._width, height=cameras[_id]._height, queue=cameras[_id].queue)
@@ -88,6 +91,7 @@ def simple_preview(
 			_recorder.start()
 			recorders.append(_recorder)
 	else:
+		show_fields = {}
 		use_queues = {}
 
 	dpg.create_context()
@@ -120,6 +124,12 @@ def simple_preview(
 	try:
 		while dpg.is_dearpygui_running():
 			dat = {}
+			if acquire:
+				with dpg.window(modal=True, width=300, height=500):
+					for k, v in show_fields.items():
+						with dpg.group(horizontal=True):
+							dpg.add_text(k)
+							dpg.add_input_text(default_value=v, tag=k)
 			for _id, _cam in cameras.items():
 				new_frame = None
 				new_ts = None

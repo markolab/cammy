@@ -59,9 +59,10 @@ class VideoRecorder(BaseRecord):
 			self._pipe.stdin.write(vdata.astype("uint16").tostring())
 		else:
 			raise RuntimeError("Frames must be 2d or 3d")
-		for _field in self.timestamp_fields:
-			self._tstamp_file.write(f"{tstamps[_field]}\t")
-		self._tstamp_file.write("\n")
+		if tstamps is not None:
+			for _field in self.timestamp_fields:
+				self._tstamp_file.write(f"{tstamps[_field]}\t")
+			self._tstamp_file.write("\n")
 
 
 	def open_writer(self):

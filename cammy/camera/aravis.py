@@ -55,8 +55,8 @@ class AravisCamera(CammyCamera):
 		self.id = id
 		self.stream = self.camera.create_stream()
 		self.queue = queue
-		self.missed_frames = 0
-
+		self._missed_frames = 0
+		self._total_frames = 0
 		for i in range(buffer_size):
 			self.stream.push_buffer(Aravis.Buffer.new_allocate(self._payload))
 
@@ -65,13 +65,13 @@ class AravisCamera(CammyCamera):
 	def try_pop_frame(self):
 		buffer = self.stream.try_pop_buffer()
 		if buffer:
+			self._total_frames += 1
 			status = buffer.get_status()
 			if status == Aravis.BufferStatus.TIMEOUT:
-				print("missed frame")
-				self.missed_frames += 1
+				logging.debug("missed frame")
+				self._missed_frames += 1
 				frame = None
 				timestamps = None
-				
 			elif status == Aravis.BufferStatus.SUCCESS:
 				frame = self._array_from_buffer_address(buffer)
 				timestamp = buffer.get_timestamp()
@@ -107,7 +107,7 @@ class AravisCamera(CammyCamera):
 		genicam = self.device.get_genicam()
 		node = genicam.get_node(name)
 		if not node:
-			raise AravisException("Feature {} does not seem to exist in camera".format(name))
+			raise RuntimeWarning("Feature {} does not seem to exist in camera".format(name))i
 		return node.get_node_name()
 
 	def get_feature(self, name):
