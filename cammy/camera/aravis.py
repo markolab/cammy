@@ -107,7 +107,7 @@ class AravisCamera(CammyCamera):
 		genicam = self.device.get_genicam()
 		node = genicam.get_node(name)
 		if not node:
-			raise RuntimeWarning("Feature {} does not seem to exist in camera".format(name))i
+			raise RuntimeWarning("Feature {} does not seem to exist in camera".format(name))
 		return node.get_node_name()
 
 	def get_feature(self, name):
