@@ -124,17 +124,20 @@ def simple_preview(
 	dpg.show_metrics()
 	dpg.show_viewport()
 
+	if acquire:
+		# CHANGE TO POPUP
+		with dpg.popup(dpg.last_item(), modal=True):
+			for k, v in show_fields.items():
+				print(k)
+				print(v)
+				with dpg.group(horizontal=True):
+					dpg.add_text(k)
+					dpg.add_input_text(default_value=v)
+
 	try:
 		while dpg.is_dearpygui_running():
 			dat = {}
-			if acquire:
-				with dpg.window(modal=True, width=300, height=500):
-					for k, v in show_fields.items():
-						print(k)
-						print(v)
-						with dpg.group(horizontal=True):
-							dpg.add_text(k)
-							dpg.add_input_text(default_value=v)
+			
 			for _id, _cam in cameras.items():
 				new_frame = None
 				new_ts = None
