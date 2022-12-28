@@ -51,4 +51,6 @@ class CammyCamera:
 	def get_pixel_format(self):
 		if self.camera:
 			return self.camera.get_pixel_format()
-	
+
+	def get_all_features(self):
+		return {}	

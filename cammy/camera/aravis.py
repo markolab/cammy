@@ -145,4 +145,9 @@ class AravisCamera(CammyCamera):
 		
 		newval = self.get_feature(name)
 		self.logger.info(f"{name} set to {newval}")
-		
+
+
+	def get_all_features(self):
+		all_features = {}
+		genicam = self.device.get_genicam()
+		print(genicam)
