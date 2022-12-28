@@ -150,7 +150,6 @@ def simple_preview(
 		show_fields = {}
 		use_queues = {}
 
-
 	with dpg.texture_registry(show=False):
 		for _id, _cam in cameras.items():
 			blank_data = np.zeros((_cam._height, _cam._width, 4), dtype="float32")
