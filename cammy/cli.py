@@ -130,9 +130,11 @@ def simple_preview(
 			if acquire:
 				with dpg.window(modal=True, width=300, height=500):
 					for k, v in show_fields.items():
+						print(k)
+						print(v)
 						with dpg.group(horizontal=True):
 							dpg.add_text(k)
-							dpg.add_input_text(default_value=v, tag=k)
+							dpg.add_input_text(default_value=v)
 			for _id, _cam in cameras.items():
 				new_frame = None
 				new_ts = None
