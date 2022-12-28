@@ -170,7 +170,8 @@ def simple_preview(
 		_cam.count = 0
 
 	dpg.create_viewport(title="Live preview", width=1000, height=1000)
-	# dpg.show_metrics()
+	dpg.set_viewport_vsync(False)
+	dpg.show_metrics()
 	dpg.setup_dearpygui()
 	dpg.show_viewport()
 
