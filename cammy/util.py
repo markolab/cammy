@@ -15,11 +15,12 @@ def get_all_camera_ids(interface="aravis", n_cams=1):
 	if (interface == "aravis") or (interface == "all"):
 		Aravis.update_device_list()
 		n_cams = Aravis.get_n_devices()
-		ids = {Aravis.get_device_id(i): "aravis" for i in range(n_cams)}
+		use_ids = [Aravis.get_device_id(i) for i in range(n_cams)] 
 	elif (interface == "fake") or (interface == "fake_custom"):
-		ids = [f"Fake_{i + 1}" for i in range(n_cams)]
+		use_ids = {f"Fake_{i + 1}" for i in range(n_cams)}
 	else:
 		raise RuntimeError(f"Did not understand interface {interface}")
+	ids = {_id: interface for _id in use_ids}
 	return ids
 
 

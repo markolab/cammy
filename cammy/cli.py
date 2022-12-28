@@ -33,13 +33,10 @@ def aravis_load_settings():
 	raise NotImplementedError
 
 
-
 # TODO:
-# 1) MAKE SURE FILE GETS SAVED IN DIRECTORY WITH STANDARD ISO FORMAT
-# 2) TEST TO ENSURE EVERYTHING GETS CLOSED AND FLUSHED PROPERLY
-# 3) ANYTHING TO ADD TO FILE FORMAT?
-# 4) METADATA POP UP
-# 5) ADD STATUS BAR TO SHOW NUMBER OF FRAMES DROPPED RELATIVE TO TOTAL
+# 1) TEST TO ENSURE EVERYTHING GETS CLOSED AND FLUSHED PROPERLY
+# 2) ANYTHING TO ADD TO FILE FORMAT?
+# 3) ADD STATUS BAR TO SHOW NUMBER OF FRAMES DROPPED RELATIVE TO TOTAL
 @cli.command(name="simple-preview")
 @click.option("--all-cameras", is_flag=True)
 @click.option("--interface", type=click.Choice(["aravis", "fake_custom", "all"]), default="all")
@@ -61,6 +58,10 @@ def simple_preview(
 ):
 	import dearpygui.dearpygui as dpg
 	import cv2
+	import socket
+	import datetime
+
+	hostname = socket.gethostname()
 
 	if camera_options is not None:
 		camera_dct = toml.load(camera_options)
@@ -79,17 +80,69 @@ def simple_preview(
 		raise NotImplementedError()
 
 	for _id, _interface in ids.items():
-		cameras[_id] = initialize_camera(_id, _interface, camera_dct.get(_id), jumbo_frames=jumbo_frames)
+		cameras[_id] = initialize_camera(
+			_id, _interface, camera_dct.get(_id), jumbo_frames=jumbo_frames
+		)
 
+
+
+	dpg.create_context()
 	recorders = []
+	
 	if acquire:
+
 		use_queues = get_queues(list(ids.keys()))
 		basedir = os.path.dirname(os.path.abspath(__file__))
 		metadata_path = os.path.join(basedir, "metadata.toml")
 		show_fields = toml.load(metadata_path)["show_fields"]
+		init_timestamp = datetime.datetime.now()
+
+		recording_metadata = {
+			'data_type': 'UInt16[]',
+			'codec': 'ffv1',
+			'pixel_format': 'gray16le',
+			'start_time': init_timestamp.isoformat()
+		}
+		init_timestamp_str = init_timestamp.strftime("%Y%m%d%H%M%S-%f")
+
+		save_path = f'session_{init_timestamp_str} ({hostname})'
+		if os.path.exists(save_path):
+			raise RuntimeError(f"Directory {save_path} already exists")
+		else:
+			os.makedirs(save_path)
+
+		# CHANGE TO POPUP
+		settings_tags = {}
+		settings_vals = {}
+		with dpg.window(
+			width=500, height=300, no_resize=True, tag="settings"
+		):
+			for k, v in show_fields.items():
+				settings_tags[k] = dpg.add_input_text(default_value=v, label=k)
+			dpg.add_spacing(count=5)
+			def button_callback(sender, app_data):
+				for k, v in settings_tags.items():
+					settings_vals[k] = dpg.get_value(v)
+				dpg.stop_dearpygui()
+			dpg.add_button(label="START EXPERIMENT", callback=button_callback)
+		
+		dpg.create_viewport(width=300, height=300, title="Settings")
+		dpg.setup_dearpygui()
+		dpg.show_viewport()
+		dpg.set_primary_window("settings", True)
+		dpg.start_dearpygui()
+		dpg.destroy_context()
+
+		# start a new context for acquisition
+		dpg.create_context()
+
+		# dump settings to toml file (along with start time of recording and hostname)
+
 		for _id, _cam in cameras.items():
 			cameras[_id].queue = use_queues["storage"][_id]
-			_recorder = VideoRecorder(width=cameras[_id]._width, height=cameras[_id]._height, queue=cameras[_id].queue)
+			_recorder = VideoRecorder(
+				width=cameras[_id]._width, height=cameras[_id]._height, queue=cameras[_id].queue, filename=os.path.join(save_path, f"{_id}.avi")
+			)
 			_recorder.daemon = True
 			_recorder.start()
 			recorders.append(_recorder)
@@ -97,11 +150,8 @@ def simple_preview(
 		show_fields = {}
 		use_queues = {}
 
-	dpg.create_context()
-	dpg.create_viewport(title="Custom Title", width=1000, height=1000)
-	dpg.setup_dearpygui()
 
-	with dpg.texture_registry(show=True):
+	with dpg.texture_registry(show=False):
 		for _id, _cam in cameras.items():
 			blank_data = np.zeros((_cam._height, _cam._width, 4), dtype="float32")
 			dpg.add_raw_texture(
@@ -111,7 +161,6 @@ def simple_preview(
 				tag=f"texture_{_id}",
 				format=dpg.mvFormat_Float_rgba,
 			)
-
 	for _id, _cam in cameras.items():
 		with dpg.window(label=f"Camera {_id}"):
 			dpg.add_image(f"texture_{_id}")
@@ -121,25 +170,14 @@ def simple_preview(
 	for _cam in cameras.values():
 		_cam.count = 0
 
-
-	if acquire:
-		# CHANGE TO POPUP
-		with dpg.window(label="settings"):
-			with dpg.popup(dpg.last_item(), modal=True):
-				for k, v in show_fields.items():
-					print(k)
-					print(v)
-					with dpg.group(horizontal=True):
-						dpg.add_text(k)
-						dpg.add_input_text(default_value=v)
-
-	dpg.show_metrics()
+	dpg.create_viewport(title="Live preview", width=1000, height=1000)
+	# dpg.show_metrics()
+	dpg.setup_dearpygui()
 	dpg.show_viewport()
-	
+
 	try:
 		while dpg.is_dearpygui_running():
 			dat = {}
-			
 			for _id, _cam in cameras.items():
 				new_frame = None
 				new_ts = None
@@ -165,7 +203,7 @@ def simple_preview(
 			# for every camera ID wait until the queue has been written out
 			for k, v in use_queues["storage"].items():
 				while v.qsize() > 0:
-					time.sleep(.1)
+					time.sleep(0.1)
 			for _recorder in recorders:
 				_recorder.is_running = 0
 				time.sleep(1)
