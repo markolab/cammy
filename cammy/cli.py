@@ -213,7 +213,7 @@ def simple_preview(
                     ) * 100
                     dpg.set_value(
                         miss_status[_id],
-                        f"{cameras[_id].missed_frames} missed / {cameras[_id].total_frames} total ({percent_missed}% missed)",
+                        f"{cameras[_id].missed_frames} missed / {cameras[_id].total_frames} total ({percent_missed:.1f}% missed)",
                     )
             dpg.render_dearpygui_frame()
     finally:
