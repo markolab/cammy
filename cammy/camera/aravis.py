@@ -4,7 +4,7 @@ import ctypes
 import numpy as np
 import logging
 from cammy.util import get_pixel_format_aravis
-from cammy.camera.camera import CammyCamera
+from cammy.camera.base import CammyCamera
 from typing import Optional
 
 gi.require_version("Aravis", "0.8")

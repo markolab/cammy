@@ -1,6 +1,6 @@
 import numpy as np
 import time
-from cammy.camera.camera import CammyCamera
+from cammy.camera.base import CammyCamera
 from typing import Optional
 
 
