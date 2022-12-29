@@ -13,7 +13,6 @@ setup(
         "tqdm",
         "numpy",
         "click",
-        "mypy",
         "black",
         "toml",
         "opencv-python",
