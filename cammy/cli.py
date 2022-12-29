@@ -209,7 +209,7 @@ def simple_preview(
                     dpg.set_value(f"texture_{cameras[_id].id}", plt_val)
                     cameras[_id].count += 1
                     percent_missed = (
-                        float(cameras[_id].missed_frames) / camera[_id].total_frames
+                        float(cameras[_id].missed_frames) / cameras[_id].total_frames
                     ) * 100
                     dpg.set_value(
                         miss_status[_id],
