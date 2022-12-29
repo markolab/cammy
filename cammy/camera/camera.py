@@ -12,6 +12,8 @@ class CammyCamera:
 		self.id = id
 		self.camera = None
 		self.queue = None
+		self.missed_frames = 0
+		self.total_frames = 0
 
 	def start_acquisition(self):
 		if self.camera:
@@ -51,4 +53,6 @@ class CammyCamera:
 	def get_pixel_format(self):
 		if self.camera:
 			return self.camera.get_pixel_format()
-	
+
+	def get_all_features(self):
+		return {}	

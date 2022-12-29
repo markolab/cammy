@@ -63,6 +63,8 @@ class FakeCamera(CammyCamera):
 		self._last_frame_grab = time.time()
 		self.fps = fps
 		self.frame_count = 0
+		self.missed_frames = 0
+		self.total_frames = 0
 
 		if pixel_format == "MONO_16":
 			self._use_dtype = np.uint16
