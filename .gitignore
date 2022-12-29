@@ -2,10 +2,15 @@
 __pycache__/
 *.py[cod]
 *$py.class
+
 # test files
 *.avi
+
 # C extensions
 *.so
+
+# vim
+*.swp
 
 # Distribution / packaging
 .Python
