@@ -50,6 +50,8 @@ class AravisCamera(CammyCamera):
 		[x, y, width, height] = self.camera.get_region()
 
 		self._payload = self.camera.get_payload()  # size of payload
+		self._genicam = genicam = self.device.get_genicam() # genicam interface
+		
 		self._width = width
 		self._height = height	# stage stream
 		self.id = id
@@ -104,8 +106,8 @@ class AravisCamera(CammyCamera):
 
 	# https://github.com/SintefManufacturing/python-aravis/blob/master/aravis.py#L79
 	def get_feature_type(self, name):
-		genicam = self.device.get_genicam()
-		node = genicam.get_node(name)
+		# genicam = self.device.get_genicam()
+		node = self._genicam.get_node(name)
 		if not node:
 			raise RuntimeWarning("Feature {} does not seem to exist in camera".format(name))
 		return node.get_node_name()
@@ -158,8 +160,7 @@ class AravisCamera(CammyCamera):
 
 
 	def get_all_features(self, node_str="Root", return_dct={}):
-		genicam = self.device.get_genicam()
-		node = genicam.get_node(node_str)
+		node = self._genicam.get_node(node_str)
 		if node.get_node_name() == "Category":
 			features = node.get_features()
 			for _feature in features:
