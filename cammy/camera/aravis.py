@@ -3,7 +3,6 @@ import os
 import ctypes
 import numpy as np
 import logging
-import sys
 from cammy.util import get_pixel_format_aravis
 from cammy.camera.camera import CammyCamera
 from typing import Optional

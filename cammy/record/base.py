@@ -1,7 +1,6 @@
 import multiprocessing
 import queue
 from typing import Optional
-import sys
 
 
 # simple data writer, should be general enough to take 1d/2d/etc. data

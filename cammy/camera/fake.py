@@ -1,7 +1,5 @@
 import numpy as np
-import logging
 import time
-import cv2
 from cammy.camera.camera import CammyCamera
 from typing import Optional
 
