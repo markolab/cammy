@@ -115,16 +115,26 @@ class AravisCamera(CammyCamera):
 		return value of a feature. independantly of its type
 		"""
 		ntype = self.get_feature_type(name)
+
 		if ntype in ("Enumeration", "String", "StringReg"):
-			return self.device.get_string_feature_value(name)
+			grab_func = self.device.get_string_feature_value
 		elif ntype == "Integer":
-			return self.device.get_integer_feature_value(name)
+			grab_func = self.device.get_integer_feature_value
 		elif ntype == "Float":
-			return self.device.get_float_feature_value(name)
+			grab_func = self.device.get_float_feature_value
 		elif ntype == "Boolean":
-			return self.device.get_integer_feature_value(name)
+			grab_func = self.device.get_boolean_feature_value
 		else:
 			self.logger.warning("Feature type not implemented: %s", ntype)
+			return None
+		
+		try:
+			return grab_func(name)
+		except Exception as e:
+			self.logger.warning(e)
+			return None
+
+
 
 
 	def set_feature(self, name, val):
@@ -147,7 +157,14 @@ class AravisCamera(CammyCamera):
 		self.logger.info(f"{name} set to {newval}")
 
 
-	def get_all_features(self):
-		all_features = {}
+	def get_all_features(self, node_str="Root", return_dct={}):
 		genicam = self.device.get_genicam()
-		print(genicam)
+		node = genicam.get_node(node_str)
+		if node.get_node_name() == "Category":
+			features = node.get_features()
+			for _feature in features:
+				self.get_all_features(_feature, return_dct=return_dct)
+		elif node is not None:
+			return_dct[node_str] = self.get_feature(node_str)
+		
+		return return_dct

@@ -79,11 +79,14 @@ def simple_preview(
 	else:
 		raise NotImplementedError()
 
+	cameras_metadata = {}
 	for _id, _interface in ids.items():
 		cameras[_id] = initialize_camera(
 			_id, _interface, camera_dct.get(_id), jumbo_frames=jumbo_frames
 		)
-		print(cameras[_id].get_all_features())
+		feature_dct = cameras[_id].get_all_features()
+		feature_dct = dict(sorted(feature_dct.items()))
+		cameras_metadata[_id] = feature_dct
 
 
 
@@ -97,22 +100,27 @@ def simple_preview(
 		metadata_path = os.path.join(basedir, "metadata.toml")
 		show_fields = toml.load(metadata_path)["show_fields"]
 		init_timestamp = datetime.datetime.now()
-
+		
 		recording_metadata = {
 			'data_type': 'UInt16[]',
 			'codec': 'ffv1',
 			'pixel_format': 'gray16le',
-			'start_time': init_timestamp.isoformat()
+			'start_time': init_timestamp.isoformat(),
+			'cameras': ids,
+			'camera_metadata': cameras_metadata
 		}
+		
 		init_timestamp_str = init_timestamp.strftime("%Y%m%d%H%M%S-%f")
 
 		save_path = f'session_{init_timestamp_str} ({hostname})'
 		if os.path.exists(save_path):
 			raise RuntimeError(f"Directory {save_path} already exists")
 		else:
+			# dump in metadata
 			os.makedirs(save_path)
+			with open(os.path.join(save_path, "metadata.toml"), "w") as f:
+				toml.dump(recording_metadata, f)
 
-		# CHANGE TO POPUP
 		settings_tags = {}
 		settings_vals = {}
 		with dpg.window(
