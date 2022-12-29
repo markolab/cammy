@@ -12,6 +12,8 @@ class CammyCamera:
 		self.id = id
 		self.camera = None
 		self.queue = None
+		self.missed_frames = 0
+		self.total_frames = 0
 
 	def start_acquisition(self):
 		if self.camera:

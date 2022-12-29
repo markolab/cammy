@@ -88,11 +88,9 @@ def simple_preview(
 		feature_dct = dict(sorted(feature_dct.items()))
 		cameras_metadata[_id] = feature_dct
 
-
-
 	dpg.create_context()
 	recorders = []
-	
+
 	if acquire:
 
 		use_queues = get_queues(list(ids.keys()))
@@ -100,19 +98,19 @@ def simple_preview(
 		metadata_path = os.path.join(basedir, "metadata.toml")
 		show_fields = toml.load(metadata_path)["show_fields"]
 		init_timestamp = datetime.datetime.now()
-		
+
 		recording_metadata = {
-			'data_type': 'UInt16[]',
-			'codec': 'ffv1',
-			'pixel_format': 'gray16le',
-			'start_time': init_timestamp.isoformat(),
-			'cameras': ids,
-			'camera_metadata': cameras_metadata
+			"data_type": "UInt16[]",
+			"codec": "ffv1",
+			"pixel_format": "gray16le",
+			"start_time": init_timestamp.isoformat(),
+			"cameras": ids,
+			"camera_metadata": cameras_metadata,
 		}
-		
+
 		init_timestamp_str = init_timestamp.strftime("%Y%m%d%H%M%S-%f")
 
-		save_path = f'session_{init_timestamp_str} ({hostname})'
+		save_path = f"session_{init_timestamp_str} ({hostname})"
 		if os.path.exists(save_path):
 			raise RuntimeError(f"Directory {save_path} already exists")
 		else:
@@ -123,18 +121,18 @@ def simple_preview(
 
 		settings_tags = {}
 		settings_vals = {}
-		with dpg.window(
-			width=500, height=300, no_resize=True, tag="settings"
-		):
+		with dpg.window(width=500, height=300, no_resize=True, tag="settings"):
 			for k, v in show_fields.items():
 				settings_tags[k] = dpg.add_input_text(default_value=v, label=k)
 			dpg.add_spacing(count=5)
+
 			def button_callback(sender, app_data):
 				for k, v in settings_tags.items():
 					settings_vals[k] = dpg.get_value(v)
 				dpg.stop_dearpygui()
+
 			dpg.add_button(label="START EXPERIMENT", callback=button_callback)
-		
+
 		dpg.create_viewport(width=300, height=300, title="Settings")
 		dpg.setup_dearpygui()
 		dpg.show_viewport()
@@ -150,7 +148,10 @@ def simple_preview(
 		for _id, _cam in cameras.items():
 			cameras[_id].queue = use_queues["storage"][_id]
 			_recorder = VideoRecorder(
-				width=cameras[_id]._width, height=cameras[_id]._height, queue=cameras[_id].queue, filename=os.path.join(save_path, f"{_id}.avi")
+				width=cameras[_id]._width,
+				height=cameras[_id]._height,
+				queue=cameras[_id].queue,
+				filename=os.path.join(save_path, f"{_id}.avi"),
 			)
 			_recorder.daemon = True
 			_recorder.start()
@@ -170,8 +171,10 @@ def simple_preview(
 				format=dpg.mvFormat_Float_rgba,
 			)
 	for _id, _cam in cameras.items():
+		miss_status = {}
 		with dpg.window(label=f"Camera {_id}"):
 			dpg.add_image(f"texture_{_id}")
+			miss_status[_id] = dpg.add_text(f"0 missed frames / 0 total")
 			# add sliders/text boxes for exposure time and fps
 
 	[_cam.start_acquisition() for _cam in cameras.values()]
@@ -205,6 +208,7 @@ def simple_preview(
 					cv2.putText(plt_val, str(cameras[_id].count), txt_pos, font, 1, (1, 1, 1, 1))
 					dpg.set_value(f"texture_{cameras[_id].id}", plt_val)
 					cameras[_id].count += 1
+					dpg.set_value(miss_status[_id], f"{cameras[_id].missed_frames} missed / {cameras[_id].total_frames} total")
 			dpg.render_dearpygui_frame()
 	finally:
 		[_cam.stop_acquisition() for _cam in cameras.values()]
