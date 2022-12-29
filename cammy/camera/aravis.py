@@ -147,9 +147,9 @@ class AravisCamera(CammyCamera):
         elif ntype == "Float":
             status = self.device.set_float_feature_value(name, float(val))
         elif ntype == "Boolean":
-            status = self.device.set_integer_feature_value(name, int(val))
+            status = self.device.set_boolean_feature_value(name, int(val))
         else:
-            self.logger.warning("Feature type not implemented: %s", ntype)
+            self.logger.debug("Feature type not implemented: %s", ntype)
 
         newval = self.get_feature(name)
         self.logger.info(f"{name} set to {newval}")
