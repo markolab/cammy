@@ -126,13 +126,13 @@ class AravisCamera(CammyCamera):
         elif ntype == "Boolean":
             grab_func = self.device.get_boolean_feature_value
         else:
-            self.logger.warning("Feature type not implemented: %s", ntype)
+            self.logger.debug("Feature type not implemented: %s", ntype)
             return None
 
         try:
             return grab_func(name)
         except Exception as e:
-            self.logger.warning(e)
+            self.logger.debug(e)
             return None
 
     def set_feature(self, name, val):
