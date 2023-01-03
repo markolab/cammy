@@ -175,8 +175,8 @@ def simple_preview(
         with dpg.window(label=f"Camera {_id}"):
             dpg.add_image(f"texture_{_id}")
             with dpg.group(horizontal=True):
-                dpg.add_slider_float(tag=f"texture_{id}_min", default_value=1800)
-                dpg.add_slider_float(tag=f"texture_{id}_max", default_value=2200) 
+                dpg.add_slider_float(tag=f"texture_{id}_min", default_value=1800, width=_cam._width / 3, min_value=0, max_value=5000)
+                dpg.add_slider_float(tag=f"texture_{id}_max", default_value=2200, width=_cam._width / 3, min_value=0, max_value=5000) 
             miss_status[_id] = dpg.add_text(f"0 missed frames / 0 total")
             # add sliders/text boxes for exposure time and fps
 

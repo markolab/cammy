@@ -46,7 +46,7 @@ def get_queues(ids=None) -> dict:
 
 
 
-def intensity_to_rgba(frame, minval=1900, maxval=2100, colormap=cv2.COLORMAP_TURBO):
+def intensity_to_rgba(frame, minval=1800, maxval=2200, colormap=cv2.COLORMAP_TURBO):
 	new_frame = np.ones((frame.shape[0], frame.shape[1], 4))
 	disp_frame = frame.copy().astype("float")
 	disp_frame -= minval
