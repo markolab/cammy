@@ -36,7 +36,7 @@ def aravis_load_settings():
 # TODO:
 # 1) TEST TO ENSURE EVERYTHING GETS CLOSED AND FLUSHED PROPERLY
 # 2) ANYTHING TO ADD TO FILE FORMAT?
-# 3) ADD STATUS BAR TO SHOW NUMBER OF FRAMES DROPPED RELATIVE TO TOTAL
+# 3) INCLUDE FRAME NUMBER IN TIMESTAMPS?
 @cli.command(name="simple-preview")
 @click.option("--all-cameras", is_flag=True)
 @click.option("--interface", type=click.Choice(["aravis", "fake_custom", "all"]), default="all")
@@ -174,6 +174,9 @@ def simple_preview(
         miss_status = {}
         with dpg.window(label=f"Camera {_id}"):
             dpg.add_image(f"texture_{_id}")
+            with dpg.group(horizontal=True):
+                dpg.add_slider_float(tag=f"texture_{id}_min", default_value=1800)
+                dpg.add_slider_float(tag=f"texture_{id}_max", default_value=2200) 
             miss_status[_id] = dpg.add_text(f"0 missed frames / 0 total")
             # add sliders/text boxes for exposure time and fps
 
@@ -204,7 +207,9 @@ def simple_preview(
 
             for _id, _dat in dat.items():
                 if _dat[0] is not None:
-                    plt_val = intensity_to_rgba(_dat[0]).astype("float32")
+                    disp_min = dpg.get_value(f"texture_{id}_min")
+                    disp_max = dpg.get_value(f"texture_{id}_max")
+                    plt_val = intensity_to_rgba(_dat[0], minval=disp_min, maxval=disp_max).astype("float32")
                     cv2.putText(plt_val, str(cameras[_id].count), txt_pos, font, 1, (1, 1, 1, 1))
                     dpg.set_value(f"texture_{cameras[_id].id}", plt_val)
                     cameras[_id].count += 1
