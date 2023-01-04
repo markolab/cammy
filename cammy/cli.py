@@ -19,7 +19,7 @@ from typing import Optional
 from cammy.util import get_all_camera_ids, intensity_to_rgba, get_queues, initialize_camera
 from cammy.camera.aravis import AravisCamera
 from cammy.camera.fake import FakeCamera
-from cammy.record.video import VideoRecorder
+from cammy.record.video import FfmpegVideoRecorder
 
 
 @click.group()
@@ -43,6 +43,7 @@ def aravis_load_settings():
 @click.option("--n-fake-cameras", type=int, default=1)
 @click.option("--acquire", is_flag=True)
 @click.option("--jumbo-frames", default=True, type=bool)
+@click.option("--save-engine", type=click.Choice(["ffmpeg", "raw"]), default="raw")
 @click.option(
 	"--camera-options",
 	type=click.Path(resolve_path=True, exists=True),
@@ -55,6 +56,7 @@ def simple_preview(
 	camera_options: Optional[str],
 	acquire: bool,
 	jumbo_frames: bool,
+	save_engine: str,
 ):
 	import dearpygui.dearpygui as dpg
 	import cv2
@@ -147,12 +149,21 @@ def simple_preview(
 
 		for _id, _cam in cameras.items():
 			cameras[_id].queue = use_queues["storage"][_id]
-			_recorder = VideoRecorder(
-				width=cameras[_id]._width,
-				height=cameras[_id]._height,
-				queue=cameras[_id].queue,
-				filename=os.path.join(save_path, f"{_id}.mkv"),
-			)
+			if save_engine == "ffmpeg":
+				_recorder = FfmpegVideoRecorder(
+					width=cameras[_id]._width,
+					height=cameras[_id]._height,
+					queue=cameras[_id].queue,
+					filename=os.path.join(save_path, f"{_id}.mkv"),
+				)
+			elif save_engine == "raw":
+				_recorder = RawVideoRecorder(
+					queue=cameras[_id].queue,
+					filename=os.path.join(save_path, f"{_id}.dat")
+				)
+			else:
+				raise RuntimeError(f"Did not understanding VideoRecorder option {save_engine}")
+		
 			_recorder.daemon = True
 			_recorder.start()
 			recorders.append(_recorder)

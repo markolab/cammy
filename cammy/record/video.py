@@ -5,7 +5,7 @@ import logging
 import os
 
 # TODO: write raw bytes or make this play nice with aravis
-class VideoRecorder(BaseRecord):
+class FfmpegVideoRecorder(BaseRecord):
 	def __init__(
 		self,
 		width=600,
@@ -86,4 +86,55 @@ class VideoRecorder(BaseRecord):
 
 	def close_writer(self):
 		self._pipe.stdin.close()
+		self._tstamp_file.close()
+
+
+class RawVideoRecorder(BaseRecord):
+	def __init__(
+		self,
+		filename="test.dat",
+		timestamp_fields=["device_timestamp", "system_timestamp"],
+		queue=None,
+	):
+
+		super(BaseRecord, self).__init__()
+		self.logger = logging.getLogger(self.__class__.__name__)
+
+		self.queue = queue
+		self.id = id
+		basefile = os.path.splitext(filename)[0]
+		filename_timestamps = f"{basefile}.txt"
+		
+		self.filenames = {"video": filename, "timestamps": filename_timestamps}
+		self.timestamp_fields = timestamp_fields
+
+
+	def write_data(self, data):
+		vdata, tstamps = data
+		if vdata.ndim == 3:
+			for _frame in vdata:
+				self._video_file.write(_frame.astype("uint16").tobytes())
+		elif vdata.ndim == 2:
+			self._video_file.write(vdata.astype("uint16").tobytes())
+		else:
+			raise RuntimeError("Frames must be 2d or 3d")
+		
+		if tstamps is not None:
+			for _field in self.timestamp_fields:
+				self._tstamp_file.write(f"{tstamps[_field]}\t")
+			self._tstamp_file.write("\n")
+
+
+	def open_writer(self):
+		video_file = open(self.filenames["video"], "wb")
+		tstamp_file = open(self.filenames["timestamps"], "w")
+		for _field in self.timestamp_fields:
+			tstamp_file.write(f"{_field}\t")
+		tstamp_file.write("\n")
+		self._video_file = video_file
+		self._tstamp_file = tstamp_file
+		
+
+	def close_writer(self):
+		self._video_file.close()
 		self._tstamp_file.close()
