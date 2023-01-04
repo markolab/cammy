@@ -19,7 +19,7 @@ from typing import Optional
 from cammy.util import get_all_camera_ids, intensity_to_rgba, get_queues, initialize_camera
 from cammy.camera.aravis import AravisCamera
 from cammy.camera.fake import FakeCamera
-from cammy.record.video import FfmpegVideoRecorder
+from cammy.record.video import FfmpegVideoRecorder, RawVideoRecorder
 
 
 @click.group()
