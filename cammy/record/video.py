@@ -4,7 +4,7 @@ import numpy as np
 import logging
 import os
 
-
+# TODO: write raw bytes or make this play nice with aravis
 class VideoRecorder(BaseRecord):
 	def __init__(
 		self,
@@ -13,10 +13,10 @@ class VideoRecorder(BaseRecord):
 		threads=8,
 		fps=30,
 		pixel_format="gray16le",
-		codec="ffv1",
+		codec="ffv1" ,
 		slices=24,
-		slicecrc=1,
-		filename="test.avi",
+		slicecrc=0,
+		filename="test.mkv",
 		timestamp_fields=["device_timestamp", "system_timestamp"],
 		queue=None,
 	):
@@ -24,7 +24,10 @@ class VideoRecorder(BaseRecord):
 		super(BaseRecord, self).__init__()
 		self.logger = logging.getLogger(self.__class__.__name__)
 
-		command = ['ffmpeg',
+		command = [
+				'nice',
+				'-n', '20',
+				'ffmpeg',
                '-y',
                '-loglevel', 'fatal',
                '-framerate', str(fps),
@@ -33,6 +36,8 @@ class VideoRecorder(BaseRecord):
                '-pix_fmt', pixel_format,
                '-i', '-',
                '-an',
+			#    '-g', '1',
+			#    '-context', '1',
                '-vcodec', codec,
                '-threads', str(threads),
                '-slices', str(slices),
@@ -54,11 +59,15 @@ class VideoRecorder(BaseRecord):
 		vdata, tstamps = data
 		if vdata.ndim == 3:
 			for _frame in vdata:
-				self._pipe.stdin.write(_frame.astype("uint16").tostring())
+				self._pipe.stdin.write(_frame.astype("uint16").tobytes())
 		elif vdata.ndim == 2:
-			self._pipe.stdin.write(vdata.astype("uint16").tostring())
+			self._pipe.stdin.write(vdata.astype("uint16").tobytes())
 		else:
 			raise RuntimeError("Frames must be 2d or 3d")
+		# print(self._pipe.stdout.read())
+		# stderr_output = self._pipe.stderr.read()
+		# if len(stderr_output) > 0:
+		# 	print(str(stderr_output, "utf-8"))
 		if tstamps is not None:
 			for _field in self.timestamp_fields:
 				self._tstamp_file.write(f"{tstamps[_field]}\t")
