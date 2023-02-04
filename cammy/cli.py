@@ -230,7 +230,7 @@ def simple_preview(
 					height, width = _dat[0].shape
 					disp_img = cv2.resize(_dat[0], (width // display_downsize, height // display_downsize))
 					plt_val = intensity_to_rgba(disp_img, minval=disp_min, maxval=disp_max).astype("float32")
-					cv2.putText(plt_val, str(cameras[_id].count), txt_pos, font, 1, (1, 1, 1, 1))
+					cv2.putText(plt_val, str(cameras[_id].frame_count), txt_pos, font, 1, (1, 1, 1, 1))
 					dpg.set_value(f"texture_{cameras[_id].id}", plt_val)
 					cameras[_id].count += 1
 					miss_frames = float(cameras[_id].missed_frames)
