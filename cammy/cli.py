@@ -89,6 +89,7 @@ def simple_preview(
 		feature_dct = cameras[_id].get_all_features()
 		feature_dct = dict(sorted(feature_dct.items()))
 		cameras_metadata[_id] = feature_dct
+		break
 
 	dpg.create_context()
 	recorders = []
@@ -103,12 +104,15 @@ def simple_preview(
 
 		recording_metadata = {
 			"data_type": "UInt16[]",
-			"codec": "ffv1",
-			"pixel_format": "gray16le",
+			"codec": "raw",
 			"start_time": init_timestamp.isoformat(),
 			"cameras": ids,
 			"camera_metadata": cameras_metadata,
 		}
+
+		if save_engine == "ffmpeg":
+			recording_metadata["codec"] = "ffv1"
+			recording_metadata["pixel_format"] = "gray16le"
 
 		init_timestamp_str = init_timestamp.strftime("%Y%m%d%H%M%S-%f")
 
@@ -181,13 +185,14 @@ def simple_preview(
 				tag=f"texture_{_id}",
 				format=dpg.mvFormat_Float_rgba,
 			)
+	
+	miss_status = {}
 	for _id, _cam in cameras.items():
-		miss_status = {}
 		with dpg.window(label=f"Camera {_id}"):
 			dpg.add_image(f"texture_{_id}")
 			with dpg.group(horizontal=True):
-				dpg.add_slider_float(tag=f"texture_{id}_min", default_value=1800, width=_cam._width / 3, min_value=0, max_value=5000)
-				dpg.add_slider_float(tag=f"texture_{id}_max", default_value=2200, width=_cam._width / 3, min_value=0, max_value=5000) 
+				dpg.add_slider_float(tag=f"texture_{_id}_min", default_value=1800, width=_cam._width / 3, min_value=0, max_value=5000)
+				dpg.add_slider_float(tag=f"texture_{_id}_max", default_value=2200, width=_cam._width / 3, min_value=0, max_value=5000) 
 			miss_status[_id] = dpg.add_text(f"0 missed frames / 0 total")
 			# add sliders/text boxes for exposure time and fps
 
@@ -201,6 +206,7 @@ def simple_preview(
 	dpg.setup_dearpygui()
 	dpg.show_viewport()
 
+	print(miss_status)
 	try:
 		while dpg.is_dearpygui_running():
 			dat = {}
@@ -218,8 +224,8 @@ def simple_preview(
 
 			for _id, _dat in dat.items():
 				if _dat[0] is not None:
-					disp_min = dpg.get_value(f"texture_{id}_min")
-					disp_max = dpg.get_value(f"texture_{id}_max")
+					disp_min = dpg.get_value(f"texture_{_id}_min")
+					disp_max = dpg.get_value(f"texture_{_id}_max")
 					plt_val = intensity_to_rgba(_dat[0], minval=disp_min, maxval=disp_max).astype("float32")
 					cv2.putText(plt_val, str(cameras[_id].count), txt_pos, font, 1, (1, 1, 1, 1))
 					dpg.set_value(f"texture_{cameras[_id].id}", plt_val)
