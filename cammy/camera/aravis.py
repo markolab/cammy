@@ -80,7 +80,7 @@ class AravisCamera(CammyCamera):
                 if self.queue is not None:
                     self.queue.put((frame, timestamps))
             else:
-                raise RuntimeError("Did not understand status")
+                raise RuntimeError(f"Did not understand status: {status}")
             self.stream.push_buffer(buffer)
             return frame, timestamps
         else:

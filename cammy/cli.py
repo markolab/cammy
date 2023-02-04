@@ -5,6 +5,7 @@ import logging
 import sys
 import os
 import time
+import cv2 
 
 logging.basicConfig(
 	stream=sys.stdout,
@@ -44,6 +45,7 @@ def aravis_load_settings():
 @click.option("--acquire", is_flag=True)
 @click.option("--jumbo-frames", default=True, type=bool)
 @click.option("--save-engine", type=click.Choice(["ffmpeg", "raw"]), default="raw")
+@click.option("--display-downsize", type=int, default=1)
 @click.option(
 	"--camera-options",
 	type=click.Path(resolve_path=True, exists=True),
@@ -57,6 +59,7 @@ def simple_preview(
 	acquire: bool,
 	jumbo_frames: bool,
 	save_engine: str,
+	display_downsize: int,
 ):
 	import dearpygui.dearpygui as dpg
 	import cv2
@@ -89,7 +92,6 @@ def simple_preview(
 		feature_dct = cameras[_id].get_all_features()
 		feature_dct = dict(sorted(feature_dct.items()))
 		cameras_metadata[_id] = feature_dct
-		break
 
 	dpg.create_context()
 	recorders = []
@@ -177,10 +179,10 @@ def simple_preview(
 
 	with dpg.texture_registry(show=False):
 		for _id, _cam in cameras.items():
-			blank_data = np.zeros((_cam._height, _cam._width, 4), dtype="float32")
+			blank_data = np.zeros((_cam._height // display_downsize, _cam._width // display_downsize, 4), dtype="float32")
 			dpg.add_raw_texture(
-				_cam._width,
-				_cam._height,
+				_cam._width / display_downsize,
+				_cam._height / display_downsize,
 				blank_data,
 				tag=f"texture_{_id}",
 				format=dpg.mvFormat_Float_rgba,
@@ -191,8 +193,8 @@ def simple_preview(
 		with dpg.window(label=f"Camera {_id}"):
 			dpg.add_image(f"texture_{_id}")
 			with dpg.group(horizontal=True):
-				dpg.add_slider_float(tag=f"texture_{_id}_min", default_value=1800, width=_cam._width / 3, min_value=0, max_value=5000)
-				dpg.add_slider_float(tag=f"texture_{_id}_max", default_value=2200, width=_cam._width / 3, min_value=0, max_value=5000) 
+				dpg.add_slider_float(tag=f"texture_{_id}_min", default_value=1800, width=(_cam._width // display_downsize) / 3, min_value=0, max_value=5000)
+				dpg.add_slider_float(tag=f"texture_{_id}_max", default_value=2200, width=(_cam._width // display_downsize) / 3, min_value=0, max_value=5000) 
 			miss_status[_id] = dpg.add_text(f"0 missed frames / 0 total")
 			# add sliders/text boxes for exposure time and fps
 
@@ -206,7 +208,6 @@ def simple_preview(
 	dpg.setup_dearpygui()
 	dpg.show_viewport()
 
-	print(miss_status)
 	try:
 		while dpg.is_dearpygui_running():
 			dat = {}
@@ -226,7 +227,9 @@ def simple_preview(
 				if _dat[0] is not None:
 					disp_min = dpg.get_value(f"texture_{_id}_min")
 					disp_max = dpg.get_value(f"texture_{_id}_max")
-					plt_val = intensity_to_rgba(_dat[0], minval=disp_min, maxval=disp_max).astype("float32")
+					height, width = _dat[0].shape
+					disp_img = cv2.resize(_dat[0], (width // display_downsize, height // display_downsize))
+					plt_val = intensity_to_rgba(disp_img, minval=disp_min, maxval=disp_max).astype("float32")
 					cv2.putText(plt_val, str(cameras[_id].count), txt_pos, font, 1, (1, 1, 1, 1))
 					dpg.set_value(f"texture_{cameras[_id].id}", plt_val)
 					cameras[_id].count += 1
