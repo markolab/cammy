@@ -3,6 +3,7 @@ import os
 import ctypes
 import numpy as np
 import logging
+import time
 from cammy.util import get_pixel_format_aravis
 from cammy.camera.base import CammyCamera
 from typing import Optional
@@ -53,6 +54,10 @@ class AravisCamera(CammyCamera):
 
         self._width = width
         self._height = height  # stage stream
+        self._tick_frequency = 1e9 # TODO: replace with actual tick frequency from gv interface
+        self.fps = np.nan
+        self.frame_count = 0
+        self._last_framegrab = np.nan
         self.id = id
         self.stream = self.camera.create_stream()
         self.queue = queue
@@ -72,11 +77,20 @@ class AravisCamera(CammyCamera):
                 self.missed_frames += 1
                 frame = None
                 timestamps = None
+            elif status == Aravis.BufferStatus.SIZE_MISMATCH:
+                logging.debug("buffer size mismatch")
+                self.missed_frames += 1
+                frame = None
+                timestamps = None
             elif status == Aravis.BufferStatus.SUCCESS:
                 frame = self._array_from_buffer_address(buffer)
                 timestamp = buffer.get_timestamp()
                 system_timestamp = buffer.get_system_timestamp()
                 timestamps = {"device_timestamp": timestamp, "system_timestamp": system_timestamp}
+                grab_time = timestamp
+                self.frame_count += 1
+                self.fps = 1 / ((grab_time - self._last_framegrab) / self._tick_frequency)
+                self._last_framegrab = grab_time
                 if self.queue is not None:
                     self.queue.put((frame, timestamps))
             else:

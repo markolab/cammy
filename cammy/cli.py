@@ -233,12 +233,13 @@ def simple_preview(
 					cv2.putText(plt_val, str(cameras[_id].count), txt_pos, font, 1, (1, 1, 1, 1))
 					dpg.set_value(f"texture_{cameras[_id].id}", plt_val)
 					cameras[_id].count += 1
-					percent_missed = (
-						float(cameras[_id].missed_frames) / cameras[_id].total_frames
-					) * 100
+					miss_frames = float(cameras[_id].missed_frames)
+					total_frames = float(cameras[_id].total_frames)
+					cam_fps = cameras[_id].fps
+					percent_missed = (miss_frames / total_frames) * 100
 					dpg.set_value(
 						miss_status[_id],
-						f"{cameras[_id].missed_frames} missed / {cameras[_id].total_frames} total ({percent_missed:.1f}% missed)",
+						f"{miss_frames} missed / {total_frames} total ({percent_missed:.1f}% missed)\n{cam_fps} FPS",
 					)
 					# for k, v in use_queues["storage"].items():
 					# 	print(v.qsize())
