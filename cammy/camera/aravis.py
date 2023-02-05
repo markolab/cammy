@@ -33,8 +33,8 @@ class AravisCamera(CammyCamera):
             Aravis.enable_interface("Fake")
 
         self.camera = Aravis.Camera.new(id)
-        if jumbo_frames:
-            print(self.camera.get_packet_size())
+
+        if jumbo_frames and self.camera.is_gv_device():
             self.camera.gv_set_packet_size(8000)
         self.device = self.camera.get_device()
         # self.camera = Aravis.Camera() # THIS IS JUST FOR PYLANCE
