@@ -23,6 +23,7 @@ from cammy.util import (
     get_queues,
     initialize_camera,
     get_pixel_format_bit_depth,
+    mpl_to_cv2_colormap,
 )
 from cammy.camera.aravis import AravisCamera
 from cammy.camera.fake import FakeCamera
@@ -51,8 +52,12 @@ slider_defaults_max = {
     "min_value": 0,
     "max_value": 5000,
 }
-
-gui_ncols = 2 # number of cols before we start new row 
+colormap_default = "gray"
+gui_ncols = 2  # number of cols before we start new row
+# for labeling videos
+font = cv2.FONT_HERSHEY_SIMPLEX
+white = (255, 255, 255)
+txt_pos = (25, 25)
 
 
 # TODO:
@@ -68,6 +73,7 @@ gui_ncols = 2 # number of cols before we start new row
 @click.option("--jumbo-frames", default=True, type=bool)
 @click.option("--save-engine", type=click.Choice(["ffmpeg", "raw"]), default="raw")
 @click.option("--display-downsize", type=int, default=1)
+@click.option("--display-colormap", type=str, default=None)
 @click.option(
     "--camera-options",
     type=click.Path(resolve_path=True, exists=True),
@@ -82,6 +88,7 @@ def simple_preview(
     jumbo_frames: bool,
     save_engine: str,
     display_downsize: int,
+    display_colormap: Optional[str],
 ):
     import dearpygui.dearpygui as dpg
     import cv2
@@ -90,15 +97,15 @@ def simple_preview(
 
     hostname = socket.gethostname()
 
+    if display_colormap is None:
+        display_colormap = mpl_to_cv2_colormap(colormap_default)
+    else:
+        display_colormap = mpl_to_cv2_colormap(display_colormap)
+
     if camera_options is not None:
         camera_dct = toml.load(camera_options)
     else:
         camera_dct = {}
-
-    # for labeling videos
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    white = (255, 255, 255)
-    txt_pos = (25, 25)
 
     cameras = {}
     if all_cameras:
@@ -237,7 +244,9 @@ def simple_preview(
             if k in _id:
                 use_config = v
 
-        with dpg.window(label=f"Camera {_id}", tag=f"Camera {_id}", pos=(gui_x_offset,gui_y_offset)):
+        with dpg.window(
+            label=f"Camera {_id}", tag=f"Camera {_id}", pos=(gui_x_offset, gui_y_offset)
+        ):
             dpg.add_image(f"texture_{_id}")
             with dpg.group(horizontal=True):
                 dpg.add_slider_float(
@@ -261,10 +270,10 @@ def simple_preview(
     for _id, _cam in cameras.items():
         cur_key = f"Camera {_id}"
         dpg.set_item_pos(cur_key, (gui_x_offset, gui_y_offset))
-        
+
         width = _cam._width // display_downsize + 25
         height = _cam._height // display_downsize + 100
-        
+
         row_pos += 1
         if row_pos == gui_ncols:
             row_pos = 0
@@ -275,7 +284,6 @@ def simple_preview(
 
         gui_x_max = int(np.maximum(gui_x_offset + width, gui_x_max))
         gui_y_max = int(np.maximum(gui_y_offset, gui_y_max))
-
 
     [_cam.start_acquisition() for _cam in cameras.values()]
     for _cam in cameras.values():
@@ -311,9 +319,9 @@ def simple_preview(
                     disp_img = cv2.resize(
                         _dat[0], (width // display_downsize, height // display_downsize)
                     )
-                    plt_val = intensity_to_rgba(disp_img, minval=disp_min, maxval=disp_max).astype(
-                        "float32"
-                    )
+                    plt_val = intensity_to_rgba(
+                        disp_img, minval=disp_min, maxval=disp_max, colormap=display_colormap
+                    ).astype("float32")
                     cv2.putText(
                         plt_val, str(cameras[_id].frame_count), txt_pos, font, 1, (1, 1, 1, 1)
                     )
