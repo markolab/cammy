@@ -162,6 +162,7 @@ class AravisCamera(CammyCamera):
             status = self.device.set_boolean_feature_value(name, int(val))
         else:
             self.logger.debug("Feature type not implemented: %s", ntype)
+            status = None
 
         newval = self.get_feature(name)
         self.logger.info(f"{name} set to {newval}")
