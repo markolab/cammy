@@ -228,46 +228,61 @@ def simple_preview(
             )
 
     miss_status = {}
+    gui_x_offset = 0
+    gui_y_offset = 0
+    gui_row_pos = 1
     for _id, _cam in cameras.items():
         use_config = {}
         for k, v in camera_dct["display"].items():
             if k in _id:
                 use_config = v
-        with dpg.window(label=f"Camera {_id}"):
+
+        with dpg.window(label=f"Camera {_id}", tag=f"Camera {_id}", pos=(gui_x_offset,gui_y_offset)):
             dpg.add_image(f"texture_{_id}")
             with dpg.group(horizontal=True):
                 dpg.add_slider_float(
                     tag=f"texture_{_id}_min",
                     width=(_cam._width // display_downsize) / 3,
-                    **{**slider_defaults_min, **use_config},
+                    **{**slider_defaults_min, **use_config["slider_defaults_min"]},
                 )
                 dpg.add_slider_float(
                     tag=f"texture_{_id}_max",
                     width=(_cam._width // display_downsize) / 3,
-                    **{**slider_defaults_max, **use_config},
+                    **{**slider_defaults_max, **use_config["slider_defaults_max"]},
                 )
             miss_status[_id] = dpg.add_text(f"0 missed frames / 0 total")
             # add sliders/text boxes for exposure time and fps
-    
+
     gui_x_offset = 0
     gui_y_offset = 0
-    row_pos = 1
-    for _id in cameras.keys():
+    gui_x_max = 0
+    gui_y_max = 0
+    row_pos = 0
+    for _id, _cam in cameras.items():
         cur_key = f"Camera {_id}"
         dpg.set_item_pos(cur_key, (gui_x_offset, gui_y_offset))
-        width, height = dpg.get_item_width(cur_key), dpg.get_item_height(cur_key)
+        
+        width = _cam._width // display_downsize + 25
+        height = _cam._height // display_downsize + 100
+        
         row_pos += 1
         if row_pos == gui_ncols:
-            row_pos = 1
+            row_pos = 0
+            gui_x_offset = 0
             gui_y_offset += height
         else:
             gui_x_offset += width
+
+        gui_x_max = int(np.maximum(gui_x_offset + width, gui_x_max))
+        gui_y_max = int(np.maximum(gui_y_offset, gui_y_max))
+
 
     [_cam.start_acquisition() for _cam in cameras.values()]
     for _cam in cameras.values():
         _cam.count = 0
 
-    dpg.create_viewport(title="Live preview", width=1000, height=1000)
+    dpg.create_viewport(title="Live preview", width=gui_x_max, height=gui_y_max)
+
     # dpg.set_viewport_vsync(False)
     dpg.show_metrics()
     dpg.setup_dearpygui()

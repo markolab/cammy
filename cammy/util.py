@@ -29,7 +29,7 @@ def get_pixel_format_bit_depth(pixel_format):
 		bit_depth = 16
 	elif pixel_format == "Mono12":
 		bit_depth = 12
-	elif pixel_format == "Monox8":
+	elif pixel_format == "Mono8":
 		bit_depth = 8
 	else:
 		raise RuntimeError(f"Did not understand pixel format {pixel_format}")
