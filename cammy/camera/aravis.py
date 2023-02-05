@@ -3,7 +3,6 @@ import os
 import ctypes
 import numpy as np
 import logging
-import time
 from cammy.camera.base import CammyCamera
 from typing import Optional
 
@@ -15,9 +14,6 @@ class AravisCamera(CammyCamera):
     def __init__(
         self,
         id: Optional[str],
-        exposure_time: float = 1000,
-        fps: float = 30,
-        pixel_format: str = "MONO_16",
         buffer_size: int = 1000,
         fake_camera: bool = False,
         auto_exposure: bool = False,

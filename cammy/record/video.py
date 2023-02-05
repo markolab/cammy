@@ -4,7 +4,6 @@ import numpy as np
 import logging
 import os
 
-# TODO: write raw bytes or make this play nice with aravis
 # TODO: update for variable bit depth
 class FfmpegVideoRecorder(BaseRecord):
 	def __init__(

@@ -64,15 +64,14 @@ txt_pos = (25, 25)
 # 1) TEST TO ENSURE EVERYTHING GETS CLOSED AND FLUSHED PROPERLY
 # 2) ANYTHING TO ADD TO FILE FORMAT?
 # 3) INCLUDE FRAME NUMBER IN TIMESTAMPS?
-# 4) HANDLE PIXEL FORMAT WITH LUT SLIDER, DATA WRITING
-@cli.command(name="simple-preview")
+@cli.command(name="run")
 @click.option("--all-cameras", is_flag=True)
 @click.option("--interface", type=click.Choice(["aravis", "fake_custom", "all"]), default="all")
 @click.option("--n-fake-cameras", type=int, default=1)
 @click.option("--acquire", is_flag=True)
 @click.option("--jumbo-frames", default=True, type=bool)
 @click.option("--save-engine", type=click.Choice(["ffmpeg", "raw"]), default="raw")
-@click.option("--display-downsize", type=int, default=1)
+@click.option("--display-downsample", type=int, default=1)
 @click.option("--display-colormap", type=str, default=None)
 @click.option(
     "--camera-options",
@@ -87,7 +86,7 @@ def simple_preview(
     acquire: bool,
     jumbo_frames: bool,
     save_engine: str,
-    display_downsize: int,
+    display_downsample: int,
     display_colormap: Optional[str],
 ):
     import dearpygui.dearpygui as dpg
@@ -152,7 +151,7 @@ def simple_preview(
                 elif v == 12:
                     write_dtype[k] = "gray12le"
                 elif v == 8:
-                    write_dtype[k] = "gray10le" # AFAIK ffv1 only supported down to 10 bit
+                    write_dtype[k] = "gray10le"  # AFAIK ffv1 only supported down to 10 bit
                 else:
                     raise RuntimeError(f"{k}: Did not recognize bit depth {v}")
             recording_metadata["codec"] = "ffv1"
@@ -207,7 +206,6 @@ def simple_preview(
         dpg.create_context()
 
         # dump settings to toml file (along with start time of recording and hostname)
-
         for _id, _cam in cameras.items():
             cameras[_id].queue = use_queues["storage"][_id]
             if save_engine == "ffmpeg":
@@ -216,7 +214,7 @@ def simple_preview(
                     height=cameras[_id]._height,
                     queue=cameras[_id].queue,
                     filename=os.path.join(save_path, f"{_id}.mkv"),
-                    pixel_format=write_dtype[_id]
+                    pixel_format=write_dtype[_id],
                 )
             elif save_engine == "raw":
                 _recorder = RawVideoRecorder(
@@ -237,21 +235,18 @@ def simple_preview(
     with dpg.texture_registry(show=False):
         for _id, _cam in cameras.items():
             blank_data = np.zeros(
-                (_cam._height // display_downsize, _cam._width // display_downsize, 4),
+                (_cam._height // display_downsample, _cam._width // display_downsample, 4),
                 dtype="float32",
             )
             dpg.add_raw_texture(
-                _cam._width / display_downsize,
-                _cam._height / display_downsize,
+                _cam._width / display_downsample,
+                _cam._height / display_downsample,
                 blank_data,
                 tag=f"texture_{_id}",
                 format=dpg.mvFormat_Float_rgba,
             )
 
     miss_status = {}
-    gui_x_offset = 0
-    gui_y_offset = 0
-    gui_row_pos = 1
     for _id, _cam in cameras.items():
         use_config = {}
         for k, v in camera_dct["display"].items():
@@ -265,12 +260,12 @@ def simple_preview(
             with dpg.group(horizontal=True):
                 dpg.add_slider_float(
                     tag=f"texture_{_id}_min",
-                    width=(_cam._width // display_downsize) / 3,
+                    width=(_cam._width // display_downsample) / 3,
                     **{**slider_defaults_min, **use_config["slider_defaults_min"]},
                 )
                 dpg.add_slider_float(
                     tag=f"texture_{_id}_max",
-                    width=(_cam._width // display_downsize) / 3,
+                    width=(_cam._width // display_downsample) / 3,
                     **{**slider_defaults_max, **use_config["slider_defaults_max"]},
                 )
             miss_status[_id] = dpg.add_text(f"0 missed frames / 0 total")
@@ -285,8 +280,8 @@ def simple_preview(
         cur_key = f"Camera {_id}"
         dpg.set_item_pos(cur_key, (gui_x_offset, gui_y_offset))
 
-        width = _cam._width // display_downsize + 25
-        height = _cam._height // display_downsize + 100
+        width = _cam._width // display_downsample + 25
+        height = _cam._height // display_downsample + 100
 
         row_pos += 1
         if row_pos == gui_ncols:
@@ -331,7 +326,7 @@ def simple_preview(
                     disp_max = dpg.get_value(f"texture_{_id}_max")
                     height, width = _dat[0].shape
                     disp_img = cv2.resize(
-                        _dat[0], (width // display_downsize, height // display_downsize)
+                        _dat[0], (width // display_downsample, height // display_downsample)
                     )
                     plt_val = intensity_to_rgba(
                         disp_img, minval=disp_min, maxval=disp_max, colormap=display_colormap
@@ -364,13 +359,6 @@ def simple_preview(
                 _recorder.is_running = 0
                 time.sleep(1)
         dpg.destroy_context()
-
-
-@cli.command(name="get-genicam-xml")
-@click.argument("device")
-def generate_config(device: str):
-    # uses aravis to aget a genicam xml with all features on camera
-    raise NotImplementedError
 
 
 if __name__ == "__main__":

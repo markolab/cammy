@@ -38,13 +38,13 @@ class BaseRecord(multiprocessing.Process):
 						continue
 					if dat is not None:
 						self.write_data(dat)
-				except (KeyboardInterrupt, SystemExit):
+				except (KeyboardInterrupt, SystemExit, BrokenPipeError):
 					while True:
 						try:
 							dat = self.queue.get_nowait()
 							if dat is not None:
 								self.write_data(dat)
-						except queue.Empty:
+						except (queue.Empty, SystemExit, BrokenPipeError):
 							break
 					self.close_writer()
 					print(f"Exiting recorder {self.id}")
