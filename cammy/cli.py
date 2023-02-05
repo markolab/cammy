@@ -254,7 +254,7 @@ def simple_preview(
                 use_config = v
 
         with dpg.window(
-            label=f"Camera {_id}", tag=f"Camera {_id}", pos=(gui_x_offset, gui_y_offset)
+            label=f"Camera {_id}", tag=f"Camera {_id}"
         ):
             dpg.add_image(f"texture_{_id}")
             with dpg.group(horizontal=True):
