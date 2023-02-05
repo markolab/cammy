@@ -1,17 +1,17 @@
-["genicam.Basler"]
+[genicam.Basler]
 PixelFormat = "Mono8"
 AcquisitionMode = "Continuous"
 BinningHorizontal = 2
 BinningVertical = 2
 ExposureTime = 10000
 
-["display.Basler.slider_defaults_min"]
+[display.Basler.slider_defaults_min]
 default_value = 0
 min_value = 0
 max_value = 256
 
 
-["display.Basler.slider_defaults_max"]
+[display.Basler.slider_defaults_max]
 default_value = 256
 min_value = 0
 max_value = 256

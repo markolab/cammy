@@ -116,7 +116,7 @@ def simple_preview(
         cameras[_id] = initialize_camera(_id, _interface, use_config, jumbo_frames=jumbo_frames)
         feature_dct = cameras[_id].get_all_features()
         feature_dct = dict(sorted(feature_dct.items()))
-        bit_depth[_id] = get_pixel_format_bit_depth(cameras[_id].get_pixel_format())
+        bit_depth[_id] = get_pixel_format_bit_depth(feature_dct["PixelFormat"])
         cameras_metadata[_id] = feature_dct
 
     dpg.create_context()

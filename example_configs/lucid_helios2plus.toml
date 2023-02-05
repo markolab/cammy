@@ -1,4 +1,4 @@
-["genicam.Lucid Vision Labs-HTP003S-001-224500508"]
+[genicam.Lucid]
 PixelFormat = "Mono16"
 # AcquisitionFrameRateEnable = true
 AcquisitionFrameRate = 100
@@ -8,13 +8,13 @@ ExposureTimeSelector = "Exp1000Us"
 AcquisitionMode = "Continuous"
 
 
-["display.Lucid Vision Labs-HTP003S-001-224500508.slider_defaults_min"]
+[display.Lucid.slider_defaults_min]
 default_value = 1800
 min_value = 0
 max_value = 5000
 
 
-["display.Lucid Vision Labs-HTP003S-001-224500508.slider_defaults_max"]
+[display.Lucid.slider_defaults_max]
 default_value = 2200
 min_value = 0
 max_value = 5000
