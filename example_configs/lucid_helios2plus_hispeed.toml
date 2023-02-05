@@ -1,9 +1,9 @@
 [genicam.Lucid]
-PixelFormat = "Mono16"
+PixelFormat = "Coord3D_C16"
 # AcquisitionFrameRateEnable = true
 AcquisitionFrameRate = 100
 Scan3dOperatingMode = "HighSpeedDistance625mmSingleFreq"
-Scan3dAmplitudeGain = 1
+Scan3dAmplitudeGain = 0
 ExposureTimeSelector = "Exp1000Us"
 AcquisitionMode = "Continuous"
 

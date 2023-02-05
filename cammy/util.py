@@ -25,7 +25,7 @@ def get_all_camera_ids(interface="aravis", n_cams=1):
 
 
 def get_pixel_format_bit_depth(pixel_format):
-    if pixel_format == "Mono16":
+    if pixel_format in ("Mono16", "Coord3D_C16"):
         bit_depth = 16
     elif pixel_format == "Mono12":
         bit_depth = 12
