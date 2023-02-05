@@ -38,6 +38,7 @@ def aravis_load_settings():
 # 1) TEST TO ENSURE EVERYTHING GETS CLOSED AND FLUSHED PROPERLY
 # 2) ANYTHING TO ADD TO FILE FORMAT?
 # 3) INCLUDE FRAME NUMBER IN TIMESTAMPS?
+# 4) HANDLE PIXEL FORMAT WITH LUT SLIDER
 @cli.command(name="simple-preview")
 @click.option("--all-cameras", is_flag=True)
 @click.option("--interface", type=click.Choice(["aravis", "fake_custom", "all"]), default="all")
