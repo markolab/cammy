@@ -239,7 +239,7 @@ def simple_preview(
 					percent_missed = (miss_frames / total_frames) * 100
 					dpg.set_value(
 						miss_status[_id],
-						f"{miss_frames} missed / {total_frames} total ({percent_missed:.1f}% missed)\n{cam_fps} FPS",
+						f"{miss_frames} missed / {total_frames} total ({percent_missed:.1f}% missed)\n{cam_fps:.1f} FPS",
 					)
 					# for k, v in use_queues["storage"].items():
 					# 	print(v.qsize())
