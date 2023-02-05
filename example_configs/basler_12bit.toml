@@ -1,5 +1,5 @@
 [genicam.Basler]
-PixelFormat = "Mono8"
+PixelFormat = "Mono12"
 AcquisitionMode = "Continuous"
 BinningHorizontal = 2
 BinningVertical = 2
