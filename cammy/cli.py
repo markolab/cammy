@@ -128,9 +128,8 @@ def simple_preview(
 
     dpg.create_context()
     recorders = []
-
+    write_dtype = {}
     if acquire:
-
         use_queues = get_queues(list(ids.keys()))
         basedir = os.path.dirname(os.path.abspath(__file__))
         metadata_path = os.path.join(basedir, "metadata.toml")
@@ -146,8 +145,31 @@ def simple_preview(
         }
 
         if save_engine == "ffmpeg":
+            # TODO: update and test dtypes per cam and support 8/12 bit
+            for k, v in bit_depth.items():
+                if v == 16:
+                    write_dtype[k] = "gray16le"
+                elif v == 12:
+                    write_dtype[k] = "gray12le"
+                elif v == 8:
+                    write_dtype[k] = "gray10le" # AFAIK ffv1 only supported down to 10 bit
+                else:
+                    raise RuntimeError(f"{k}: Did not recognize bit depth {v}")
             recording_metadata["codec"] = "ffv1"
-            recording_metadata["pixel_format"] = "gray16le"  # TODO: update
+            recording_metadata["pixel_format"] = write_dtype
+        elif save_engine == "raw":
+            for k, v in bit_depth.items():
+                if v == 16:
+                    write_dtype[k] = "uint16"
+                elif v == 12:
+                    write_dtype[k] = "uint16"
+                elif v == 8:
+                    write_dtype[k] = "uint8"
+                else:
+                    raise RuntimeError(f"{k}: Did not recognize bit depth {v}")
+            recording_metadata["pixel_format"] = write_dtype
+        else:
+            raise RuntimeError(f"Did not understanding save engine {save_engine}")
 
         init_timestamp_str = init_timestamp.strftime("%Y%m%d%H%M%S-%f")
 
@@ -187,15 +209,6 @@ def simple_preview(
         # dump settings to toml file (along with start time of recording and hostname)
 
         for _id, _cam in cameras.items():
-
-            if bit_depth[_id] == 16:
-                write_dtype = "uint16"
-            elif bit_depth[_id] == 12:
-                write_dtype = "uint16"
-            elif bit_depth[_id] == 8:
-                write_dtype = "uint8"
-            else:
-                raise RuntimeError(f"Did not recognize bit depth {bit_depth[_id]}")
             cameras[_id].queue = use_queues["storage"][_id]
             if save_engine == "ffmpeg":
                 _recorder = FfmpegVideoRecorder(
@@ -203,12 +216,13 @@ def simple_preview(
                     height=cameras[_id]._height,
                     queue=cameras[_id].queue,
                     filename=os.path.join(save_path, f"{_id}.mkv"),
+                    pixel_format=write_dtype[_id]
                 )
             elif save_engine == "raw":
                 _recorder = RawVideoRecorder(
                     queue=cameras[_id].queue,
                     filename=os.path.join(save_path, f"{_id}.dat"),
-                    write_dtype=write_dtype,
+                    write_dtype=write_dtype[_id],
                 )
             else:
                 raise RuntimeError(f"Did not understanding VideoRecorder option {save_engine}")

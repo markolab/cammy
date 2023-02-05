@@ -34,6 +34,7 @@ class AravisCamera(CammyCamera):
 
         self.camera = Aravis.Camera.new(id)
         if jumbo_frames:
+            print(self.camera.get_packet_size())
             self.camera.gv_set_packet_size(8000)
         self.device = self.camera.get_device()
         # self.camera = Aravis.Camera() # THIS IS JUST FOR PYLANCE
@@ -50,7 +51,7 @@ class AravisCamera(CammyCamera):
 
         self._payload = self.camera.get_payload()  # size of payload
         self._genicam = genicam = self.device.get_genicam()  # genicam interface
-
+        
         self._width = width
         self._height = height  # stage stream
         self._tick_frequency = 1e9 # TODO: replace with actual tick frequency from gv interface
