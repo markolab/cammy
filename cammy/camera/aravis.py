@@ -4,7 +4,6 @@ import ctypes
 import numpy as np
 import logging
 import time
-from cammy.util import get_pixel_format_aravis
 from cammy.camera.base import CammyCamera
 from typing import Optional
 

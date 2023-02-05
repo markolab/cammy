@@ -24,25 +24,12 @@ def get_all_camera_ids(interface="aravis", n_cams=1):
 	return ids
 
 
-def get_pixel_format_aravis(pixel_format):
-	if pixel_format == "MONO_16":
-		arv_format = Aravis.PIXEL_FORMAT_MONO_16
-	elif pixel_format == "MONO_12":
-		arv_format = Aravis.PIXEL_FORMAT_MONO_12
-	elif pixel_format == "MONO_8":
-		arv_format = Aravis.PIXEL_FORMAT_MONO_8
-	else:
-		raise RuntimeError(f"Did not understand pixel format {pixel_format}")
-
-	return arv_format
-
-
 def get_pixel_format_bit_depth(pixel_format):
-	if pixel_format == "MONO_16":
+	if pixel_format == "Mono16":
 		bit_depth = 16
-	elif pixel_format == "MONO_12":
+	elif pixel_format == "Mono12":
 		bit_depth = 12
-	elif pixel_format == "MONO_8":
+	elif pixel_format == "Monox8":
 		bit_depth = 8
 	else:
 		raise RuntimeError(f"Did not understand pixel format {pixel_format}")
