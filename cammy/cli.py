@@ -283,6 +283,9 @@ def simple_preview(
         width = _cam._width // display_downsample + 25
         height = _cam._height // display_downsample + 100
 
+        gui_x_max = int(np.maximum(gui_x_offset + width, gui_x_max))
+        gui_y_max = int(np.maximum(gui_y_offset + height, gui_y_max))
+        
         row_pos += 1
         if row_pos == gui_ncols:
             row_pos = 0
@@ -290,9 +293,6 @@ def simple_preview(
             gui_y_offset += height
         else:
             gui_x_offset += width
-
-        gui_x_max = int(np.maximum(gui_x_offset + width, gui_x_max))
-        gui_y_max = int(np.maximum(gui_y_offset, gui_y_max))
 
     [_cam.start_acquisition() for _cam in cameras.values()]
     for _cam in cameras.values():
