@@ -1,30 +1,17 @@
-["Basler-267601741000-24383488"]
+["genicam.Basler"]
 PixelFormat = "Mono8"
 AcquisitionMode = "Continuous"
-BinningHorizontal = 4
-BinningVertical = 4
-ExposureTime = 1000
+BinningHorizontal = 2
+BinningVertical = 2
+ExposureTime = 10000
+
+["display.Basler.slider_defaults_min"]
+default_value = 0
+min_value = 0
+max_value = 256
 
 
-["Basler-267601746219-24404505"]
-PixelFormat = "Mono8"
-AcquisitionMode = "Continuous"
-BinningHorizontal = 4
-BinningVertical = 4
-ExposureTime = 1000
-
-
-["Basler-267601746223-24404515"]
-PixelFormat = "Mono8"
-AcquisitionMode = "Continuous"
-BinningHorizontal = 4
-BinningVertical = 4
-ExposureTime = 1000
-
-
-["Basler-2676017611A4-24514980"]
-PixelFormat = "Mono8"
-AcquisitionMode = "Continuous"
-BinningHorizontal = 4
-BinningVertical = 4
-ExposureTime = 1000
+["display.Basler.slider_defaults_max"]
+default_value = 256
+min_value = 0
+max_value = 256

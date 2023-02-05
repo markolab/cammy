@@ -5,6 +5,7 @@ import logging
 import os
 
 # TODO: write raw bytes or make this play nice with aravis
+# TODO: update for variable bit depth
 class FfmpegVideoRecorder(BaseRecord):
 	def __init__(
 		self,
@@ -94,6 +95,7 @@ class RawVideoRecorder(BaseRecord):
 		self,
 		filename="test.dat",
 		timestamp_fields=["device_timestamp", "system_timestamp"],
+		write_dtype="uint16",
 		queue=None,
 	):
 
@@ -107,15 +109,16 @@ class RawVideoRecorder(BaseRecord):
 		
 		self.filenames = {"video": filename, "timestamps": filename_timestamps}
 		self.timestamp_fields = timestamp_fields
+		self.write_dtype = write_dtype
 
 
 	def write_data(self, data):
 		vdata, tstamps = data
 		if vdata.ndim == 3:
 			for _frame in vdata:
-				self._video_file.write(_frame.astype("uint16").tobytes())
+				self._video_file.write(_frame.astype(self.write_dtype).tobytes())
 		elif vdata.ndim == 2:
-			self._video_file.write(vdata.astype("uint16").tobytes())
+			self._video_file.write(vdata.astype(self.write_dtype).tobytes())
 		else:
 			raise RuntimeError("Frames must be 2d or 3d")
 		
