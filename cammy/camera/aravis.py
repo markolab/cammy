@@ -83,9 +83,9 @@ class AravisCamera(CammyCamera):
                 timestamp = buffer.get_timestamp()
                 system_timestamp = buffer.get_system_timestamp()
                 timestamps = {"device_timestamp": timestamp, "system_timestamp": system_timestamp}
-                grab_time = timestamp
+                grab_time = system_timestamp
                 self.frame_count += 1
-                self.fps = 1 / ((grab_time - self._last_framegrab) / self._tick_frequency)
+                self.fps = 1 / (((grab_time - self._last_framegrab) / self._tick_frequency) + 1e-12)
                 self._last_framegrab = grab_time
                 if self.queue is not None:
                     self.queue.put((frame, timestamps))
