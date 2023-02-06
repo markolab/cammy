@@ -151,17 +151,25 @@ class AravisCamera(CammyCamera):
         ntype = self.get_feature_type(name)
         if ntype in ("String", "Enumeration", "StringReg"):
             status = self.device.set_string_feature_value(name, val)
+            newval = self.get_feature(name)
         elif ntype == "Integer":
             status = self.device.set_integer_feature_value(name, int(val))
+            newval = self.get_feature(name)
         elif ntype == "Float":
             status = self.device.set_float_feature_value(name, float(val))
+            newval = self.get_feature(name)
         elif ntype == "Boolean":
             status = self.device.set_boolean_feature_value(name, int(val))
+            newval = self.get_feature(name)
+        elif ntype == "Converter":
+            node = self._genicam.get_node(name)
+            status = node.set_value_from_string(val)
+            newval = node.get_value_as_string()
         else:
             self.logger.debug("Feature type not implemented: %s", ntype)
             status = None
+            newval = None
 
-        newval = self.get_feature(name)
         self.logger.info(f"{name} set to {newval}")
 
     def get_all_features(self, node_str="Root", return_dct={}):

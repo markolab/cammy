@@ -119,6 +119,7 @@ def simple_preview(
         for k, v in camera_dct["genicam"].items():
             if k in _id:
                 use_config = v
+                break
         cameras[_id] = initialize_camera(_id, _interface, use_config, jumbo_frames=jumbo_frames)
         feature_dct = cameras[_id].get_all_features()
         feature_dct = dict(sorted(feature_dct.items()))

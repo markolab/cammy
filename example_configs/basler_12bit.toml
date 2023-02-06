@@ -3,7 +3,7 @@ PixelFormat = "Mono12"
 AcquisitionMode = "Continuous"
 BinningHorizontal = 2
 BinningVertical = 2
-ExposureTime = 10000
+ExposureTime = "2000"
 
 [display.Basler.slider_defaults_min]
 default_value = 0
