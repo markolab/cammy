@@ -112,8 +112,24 @@ def simple_preview(
     else:
         raise NotImplementedError()
 
+
     cameras_metadata = {}
     bit_depth = {}
+
+    # TODO: TURN INTO AN AUTOMATIC CHECK, IF NO FRAMES ARE GETTING
+    # ACQUIRED, PAUSE FOR 1 SEC AND RE-INITIALIZE
+    cameras = {}
+    for _id, _interface in ids.items():
+        use_config = None
+        for k, v in camera_dct["genicam"].items():
+            if k in _id:
+                use_config = v
+                break
+        cameras[_id] = initialize_camera(_id, _interface, use_config, jumbo_frames=jumbo_frames) 
+    del cameras
+    time.sleep(2)
+
+    cameras = {}
     for _id, _interface in ids.items():
         use_config = None
         for k, v in camera_dct["genicam"].items():
@@ -126,13 +142,8 @@ def simple_preview(
         bit_depth[_id] = get_pixel_format_bit_depth(feature_dct["PixelFormat"])
         cameras_metadata[_id] = feature_dct
 
-    # TODO: TURN INTO AN AUTOMATIC CHECK, IF NO FRAMES ARE GETTING
-    # ACQUIRED, PAUSE FOR 1 SEC AND RE-INITIALIZE
-    del cameras
-    time.sleep(1)
-    cameras = {}
-    for _id, _interface in ids.items():
-        cameras[_id] = initialize_camera(_id, _interface, use_config, jumbo_frames=jumbo_frames) 
+
+    
     dpg.create_context()
     recorders = []
     write_dtype = {}
@@ -309,7 +320,7 @@ def simple_preview(
     dpg.create_viewport(title="Live preview", width=gui_x_max, height=gui_y_max)
 
     # dpg.set_viewport_vsync(False)
-    dpg.show_metrics()
+    # dpg.show_metrics()
     dpg.setup_dearpygui()
     dpg.show_viewport()
 
