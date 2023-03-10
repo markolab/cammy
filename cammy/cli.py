@@ -21,7 +21,8 @@ from cammy.util import (
     get_all_camera_ids,
     intensity_to_rgba,
     get_queues,
-    initialize_camera,
+    initialize_cameras,
+    get_output_format,
     get_pixel_format_bit_depth,
     mpl_to_cv2_colormap,
 )
@@ -112,36 +113,20 @@ def simple_preview(
     else:
         raise NotImplementedError()
 
-    cameras_metadata = {}
-    bit_depth = {}
-
     # TODO: TURN INTO AN AUTOMATIC CHECK, IF NO FRAMES ARE GETTING
     # ACQUIRED, PAUSE FOR 1 SEC AND RE-INITIALIZE
-    cameras = {}
-    for _id, _interface in ids.items():
-        use_config = None
-        for k, v in camera_dct["genicam"].items():
-            if k in _id:
-                use_config = v
-                break
-        cameras[_id] = initialize_camera(_id, _interface, use_config, jumbo_frames=jumbo_frames)
-
+    cameras = initialize_cameras(ids, camera_dct, jumbo_frames=jumbo_frames)
     del cameras
     time.sleep(2)
 
-    cameras = {}
-    for _id, _interface in ids.items():
-        use_config = None
-        for k, v in camera_dct["genicam"].items():
-            if k in _id:
-                use_config = v
-                break
-        cameras[_id] = initialize_camera(_id, _interface, use_config, jumbo_frames=jumbo_frames) 
-        feature_dct = cameras[_id].get_all_features()
+    cameras_metadata = {}
+    bit_depth = {}
+    cameras = initialize_cameras(ids, camera_dct, jumbo_frames=jumbo_frames)
+    for k, v in cameras.items():
+        feature_dct = v.get_all_features()
         feature_dct = dict(sorted(feature_dct.items()))
-        bit_depth[_id] = get_pixel_format_bit_depth(feature_dct["PixelFormat"])
-        cameras_metadata[_id] = feature_dct
-
+        bit_depth[k] = get_pixel_format_bit_depth(feature_dct["PixelFormat"])
+        cameras_metadata[k] = feature_dct
 
     
     dpg.create_context()
@@ -162,32 +147,9 @@ def simple_preview(
             "camera_metadata": cameras_metadata,
         }
 
-        if save_engine == "ffmpeg":
-            # TODO: update and test dtypes per cam and support 8/12 bit
-            for k, v in bit_depth.items():
-                if v == 16:
-                    write_dtype[k] = "gray16le"
-                elif v == 12:
-                    write_dtype[k] = "gray12le"
-                elif v == 8:
-                    write_dtype[k] = "gray10le"  # AFAIK ffv1 only supported down to 10 bit
-                else:
-                    raise RuntimeError(f"{k}: Did not recognize bit depth {v}")
-            recording_metadata["codec"] = "ffv1"
-            recording_metadata["pixel_format"] = write_dtype
-        elif save_engine == "raw":
-            for k, v in bit_depth.items():
-                if v == 16:
-                    write_dtype[k] = "uint16"
-                elif v == 12:
-                    write_dtype[k] = "uint16"
-                elif v == 8:
-                    write_dtype[k] = "uint8"
-                else:
-                    raise RuntimeError(f"{k}: Did not recognize bit depth {v}")
-            recording_metadata["pixel_format"] = write_dtype
-        else:
-            raise RuntimeError(f"Did not understanding save engine {save_engine}")
+        write_dtype, codec = get_output_format(save_engine, bit_depth)
+        recording_metadata["codec"] = codec
+        recording_metadata["pixel_format"] = write_dtype
 
         init_timestamp_str = init_timestamp.strftime("%Y%m%d%H%M%S-%f")
 

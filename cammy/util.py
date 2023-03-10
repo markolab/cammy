@@ -76,12 +76,55 @@ def initialize_camera(id, interface: str, config={}, **kwargs):
     if (interface == "aravis") or (interface == "all"):
         from cammy.camera.aravis import AravisCamera
         cam = AravisCamera(id=id, **kwargs)
-        if config is not None:
-            for k, v in config.items():
-                cam.set_feature(k, v)
+        for k, v in config.items():
+            cam.set_feature(k, v)
     elif interface == "fake_custom":
         from cammy.camera.fake import FakeCamera
         cam = FakeCamera(id=id)
     else:
         raise RuntimeError(f"Did not understand interface {interface}")
     return cam
+
+
+def initialize_cameras(ids, configs, **kwargs):
+
+    cameras = {}
+    for _id, _interface in ids.items():
+        use_config = {}
+        for k, v in configs["genicam"].items():
+            if k in _id:
+                use_config = {**use_config, **v}
+        cameras[_id] = initialize_camera(_id, _interface, use_config, **kwargs)
+
+    return cameras
+
+
+def get_output_format(save_engine, bit_depth):
+    write_dtype = {}
+    if save_engine == "ffmpeg":
+        # TODO: update and test dtypes per cam and support 8/12 bit
+        for k, v in bit_depth.items():
+            if v == 16:
+                write_dtype[k] = "gray16le"
+            elif v == 12:
+                write_dtype[k] = "gray12le"
+            elif v == 8:
+                write_dtype[k] = "gray10le"  # AFAIK ffv1 only supported down to 10 bit
+            else:
+                raise RuntimeError(f"{k}: Did not recognize bit depth {v}")
+        codec = "ffv1"
+    elif save_engine == "raw":
+        for k, v in bit_depth.items():
+            if v == 16:
+                write_dtype[k] = "uint16"
+            elif v == 12:
+                write_dtype[k] = "uint16"
+            elif v == 8:
+                write_dtype[k] = "uint8"
+            else:
+                raise RuntimeError(f"{k}: Did not recognize bit depth {v}")
+        codec = "n/a"
+    else:
+        raise RuntimeError(f"Did not understand save engine {save_engine}")
+    
+    return write_dtype, codec
