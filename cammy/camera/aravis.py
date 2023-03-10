@@ -35,12 +35,12 @@ class AravisCamera(CammyCamera):
         self.device = self.camera.get_device()
         # self.camera = Aravis.Camera() # THIS IS JUST FOR PYLANCE
 
-        if not auto_exposure:
-            try:
-                self.camera.set_exposure_time_auto(0)
-                self.camera.set_gain_auto(0)
-            except (AttributeError, gi.repository.GLib.GError) as e:
-                print(e)
+        # if not auto_exposure:
+        #     try:
+        #         self.camera.set_exposure_time_auto(0)
+        #         self.camera.set_gain_auto(0)
+        #     except (AttributeError, gi.repository.GLib.GError) as e:
+        #         print(e)
 
         self.logger = logging.getLogger(self.__class__.__name__)
         [x, y, width, height] = self.camera.get_region()

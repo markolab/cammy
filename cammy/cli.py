@@ -112,7 +112,6 @@ def simple_preview(
     else:
         raise NotImplementedError()
 
-
     cameras_metadata = {}
     bit_depth = {}
 
@@ -125,7 +124,8 @@ def simple_preview(
             if k in _id:
                 use_config = v
                 break
-        cameras[_id] = initialize_camera(_id, _interface, use_config, jumbo_frames=jumbo_frames) 
+        cameras[_id] = initialize_camera(_id, _interface, use_config, jumbo_frames=jumbo_frames)
+
     del cameras
     time.sleep(2)
 
@@ -324,10 +324,11 @@ def simple_preview(
     dpg.setup_dearpygui()
     dpg.show_viewport()
 
-
-    [_cam.start_acquisition() for _cam in cameras.values()]
+    # 3/7/23 REMOVED EXTRA START_ACQUISITION, PUT GPIO IN WEIRD STATE
+    # [print(_cam.camera.get_trigger_source()) for _cam in cameras.values()]
     try:
         while dpg.is_dearpygui_running():
+            [print(_cam.get_feature("TriggerArmed")) for _cam in cameras.values()]
             dat = {}
             for _id, _cam in cameras.items():
                 new_frame = None
