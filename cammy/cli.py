@@ -290,7 +290,6 @@ def simple_preview(
     # [print(_cam.camera.get_trigger_source()) for _cam in cameras.values()]
     try:
         while dpg.is_dearpygui_running():
-            [print(_cam.get_feature("TriggerArmed")) for _cam in cameras.values()]
             dat = {}
             for _id, _cam in cameras.items():
                 new_frame = None
