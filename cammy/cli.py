@@ -288,6 +288,13 @@ def simple_preview(
 
     # 3/7/23 REMOVED EXTRA START_ACQUISITION, PUT GPIO IN WEIRD STATE
     # [print(_cam.camera.get_trigger_source()) for _cam in cameras.values()]
+    # if using a hardware trigger, send out signals now...
+    #
+    # TODO: wait for arduino ready signal, then use
+    # 1) https://stackoverflow.com/questions/13017840/using-pyserial-is-it-possible-to-wait-for-data
+    # 2) https://github.com/ksseverson57/campy/blob/master/campy/trigger/arduino.py
+    # 3) https://github.com/ksseverson57/campy/blob/master/campy/trigger/trigger.ino
+    # 4) be sure to use durations https://arduino.stackexchange.com/questions/12587/how-can-i-handle-the-millis-rollover
     try:
         while dpg.is_dearpygui_running():
             dat = {}
