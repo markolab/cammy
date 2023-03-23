@@ -21,6 +21,7 @@ class AravisCamera(CammyCamera):
         auto_exposure: bool = False,
         queue=None,
         jumbo_frames: bool = True,
+        include_counters: int = 2,
         **kwargs,
     ):
 
@@ -56,6 +57,7 @@ class AravisCamera(CammyCamera):
         self.fps = np.nan
         self.frame_count = 0
         self._last_framegrab = np.nan
+        self._include_counters = include_counters
         self.id = id
         self.stream = self.camera.create_stream()
         self.queue = queue
