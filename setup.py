@@ -18,6 +18,7 @@ setup(
         "opencv-python",
         "toml",
         "tqdm",
+        "pyserial",
     ],
     python_requires=">=3.9",
     entry_points={"console_scripts": ["cammy = cammy.cli:cli"]},

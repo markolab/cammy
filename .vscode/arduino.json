@@ -1,0 +1,7 @@
+{
+    "port": "/dev/tty.usbmodem1101",
+    "configuration": "opt=small,usbstack=arduino,debug=on",
+    "board": "adafruit:samd:adafruit_metro_m0",
+    "programmer": "adafruit_jlink",
+    "sketch": "trigger/trigger.ino"
+}
