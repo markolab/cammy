@@ -1,11 +1,11 @@
 // Note that this is heavily borrowed from https://github.com/ksseverson57/campy/blob/master/campy/trigger/trigger.ino
 
-int dig_out_pins[20];					 /* array to store digital pin IDS */
-int n_pins;								 /* number of digital pins */
-unsigned long frame_start, frame_period; /* micros ticks when frame began and when frame ends */
-float frame_rate = 0;					 /* frame rate specified by user */
-int pulse_width = 500;					 /*Camera trigger pulse width*/
-uint32_t baudrate = 115200;				 /* set by fiat */
+int dig_out_pins[20];								 /* array to store digital pin IDS */
+int n_pins;											 /* number of digital pins */
+unsigned long frame_start, frame_period, start_time; /* micros ticks when frame began and when frame ends */
+float frame_rate = 0;								 /* frame rate specified by user */
+int pulse_width = 500;								 /*Camera trigger pulse width*/
+uint32_t baudrate = 115200;							 /* set by fiat */
 
 void setup(void)
 {
@@ -126,7 +126,7 @@ void loop(void)
 
 	if (frame_rate > 0)
 	{
-		unsigned long start_time = micros();
+		start_time = micros();
 
 		set_pins_high(); /* pulse high at start */
 		while (micros() - start_time < pulse_width)

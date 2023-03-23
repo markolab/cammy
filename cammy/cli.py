@@ -72,6 +72,9 @@ txt_pos = (25, 25)
 @click.option("--save-engine", type=click.Choice(["ffmpeg", "raw"]), default="raw")
 @click.option("--display-downsample", type=int, default=1)
 @click.option("--display-colormap", type=str, default=None)
+@click.option("--hw-trigger", is_flag=True)
+@click.option("--hw-trigger-rate", type=float, default=100.)
+@click.option("--hw-trigger-pin-last", type=int, default=13)
 @click.option(
     "--camera-options",
     type=click.Path(resolve_path=True, exists=True),
@@ -87,6 +90,9 @@ def simple_preview(
     save_engine: str,
     display_downsample: int,
     display_colormap: Optional[str],
+    hw_trigger: bool,
+    hw_trigger_rate: float,
+    hw_trigger_pin_last: int,
 ):
     import dearpygui.dearpygui as dpg
     import cv2
@@ -119,14 +125,15 @@ def simple_preview(
 
     cameras_metadata = {}
     bit_depth = {}
+    trigger_pins = []
     cameras = initialize_cameras(ids, camera_dct, jumbo_frames=jumbo_frames)
-    for k, v in cameras.items():
+    for i, (k, v) in enumerate(cameras.items()):
         feature_dct = v.get_all_features()
         feature_dct = dict(sorted(feature_dct.items()))
         bit_depth[k] = get_pixel_format_bit_depth(feature_dct["PixelFormat"])
         cameras_metadata[k] = feature_dct
+        trigger_pins.append(hw_trigger_pin_last - i) # work backwards from last
 
-    
     dpg.create_context()
     recorders = []
     write_dtype = {}
@@ -287,6 +294,11 @@ def simple_preview(
     # 3/7/23 REMOVED EXTRA START_ACQUISITION, PUT GPIO IN WEIRD STATE
     # [print(_cam.camera.get_trigger_source()) for _cam in cameras.values()]
     # if using a hardware trigger, send out signals now...
+    if hw_trigger:
+        logging.info(f"Trigger pins: {trigger_pins}")
+        from trigger.trigger import TriggerDevice
+        trigger_dev = TriggerDevice(frame_rate=hw_trigger_rate, pins=trigger_pins)
+        trigger_dev.start()
     try:
         while dpg.is_dearpygui_running():
             dat = {}

@@ -1,21 +1,55 @@
+import serial
 import serial.tools.list_ports
 import click
+from typing import Iterable, Optional
 
-# TODO:
-# 1) simple function/class to initialize arduino and send command string
-# 2) if no com port specified, punt to select_serial_port
+
+class TriggerDevice:
+    def __init__(
+        self,
+        com: Optional[str] = None,
+        baudrate: int = 115200,
+        frame_rate: float = 100.0,
+        pins: Iterable[int] = [12, 13],
+    ) -> None:
+        if com is None:
+            com = select_serial_port()
+
+        self.com = com
+        self.baudrate = baudrate
+        self.dev = None
+        self.command_params = {"frame_rate": frame_rate, "pins": pins}
+
+    def open(self):
+        self.dev = serial.Serial(port=self.com, baudrate=self.baudrate, timeout=0.1)
+
+    def start(self):
+        command_list = (
+            [len(self.command_params["pins"])]
+            + self.command_params["pins"]
+            + [self.command_params["frame_rate"]]
+        )
+        command_string = ",".join(str(_) for _ in command_list)
+        
+        # open the device if we haven't yet
+        if self.dev is None:
+            self.open()
+
+        self.dev.write(command_string.encode())
+
+
 def select_serial_port():
     all_ports = serial.tools.list_ports.comports()
 
-    print('Select serial port to connect to microcontroller:')
-    print('-'*10)
+    print("Select serial port to connect to microcontroller:")
+    print("-" * 10)
     for idx, port in enumerate(all_ports):
-        print('[{}] {}'.format(idx, port.device))
-    print('-'*10)
+        print("[{}] {}".format(idx, port.device))
+    print("-" * 10)
 
     selection = None
     while selection is None:
-        selection = click.prompt('Enter a selection', type=int)
+        selection = click.prompt("Enter a selection", type=int)
         if selection > len(all_ports) or selection < 0:
             selection = None
 

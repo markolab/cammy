@@ -10,6 +10,8 @@ gi.require_version("Aravis", "0.8")
 from gi.repository import Aravis
 
 
+# TODO:
+# 1) Get data from counters and append to timestamp file
 class AravisCamera(CammyCamera):
     def __init__(
         self,
