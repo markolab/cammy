@@ -47,6 +47,7 @@ void set_digital_pins()
 		{
 		}
 		int pin_id = (unsigned int)Serial.parseFloat();
+		pinMode(pin_id, OUTPUT);
 		Serial.print(pin_id);
 		if (i + 1 < n_pins)
 		{

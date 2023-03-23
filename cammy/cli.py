@@ -9,7 +9,7 @@ import cv2
 
 logging.basicConfig(
     stream=sys.stdout,
-    level=logging.WARNING,
+    level=logging.INFO,
     format="[%(asctime)s]:%(levelname)s:%(name)s %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
@@ -296,7 +296,7 @@ def simple_preview(
     # if using a hardware trigger, send out signals now...
     if hw_trigger:
         logging.info(f"Trigger pins: {trigger_pins}")
-        from trigger.trigger import TriggerDevice
+        from cammy.trigger.trigger import TriggerDevice
         trigger_dev = TriggerDevice(frame_rate=hw_trigger_rate, pins=trigger_pins)
         trigger_dev.start()
     try:
