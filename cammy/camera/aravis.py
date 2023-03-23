@@ -21,7 +21,7 @@ class AravisCamera(CammyCamera):
         auto_exposure: bool = False,
         queue=None,
         jumbo_frames: bool = True,
-        include_counters: int = 2,
+        counters_name = [],
         **kwargs,
     ):
 
@@ -57,7 +57,10 @@ class AravisCamera(CammyCamera):
         self.fps = np.nan
         self.frame_count = 0
         self._last_framegrab = np.nan
-        self._include_counters = include_counters
+        if len(counters_name) > 0:
+            self._counters = {_counter: f"Counter{i}" for i, _counter in enumerate(counters_name)}
+        else:
+            self._counters = {}
         self.id = id
         self.stream = self.camera.create_stream()
         self.queue = queue
@@ -91,6 +94,9 @@ class AravisCamera(CammyCamera):
                 self.frame_count += 1
                 self.fps = 1 / (((grab_time - self._last_framegrab) / self._tick_frequency) + 1e-12)
                 self._last_framegrab = grab_time
+                for k, v in self._counters.items():
+                    self.set_feature("CounterSelector", v)
+                    timestamps[k] = self.get_feature("CounterValue")
                 if self.queue is not None:
                     self.queue.put((frame, timestamps))
             else:

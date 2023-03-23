@@ -16,7 +16,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-from typing import Optional
+from typing import Optional, Iterable
 from cammy.util import (
     get_all_camera_ids,
     intensity_to_rgba,
@@ -75,6 +75,7 @@ txt_pos = (25, 25)
 @click.option("--hw-trigger", is_flag=True)
 @click.option("--hw-trigger-rate", type=float, default=100.)
 @click.option("--hw-trigger-pin-last", type=int, default=13)
+@click.option("--counters-name", type=str, default=["Trigger", "Exposure"], multiple=True)
 @click.option(
     "--camera-options",
     type=click.Path(resolve_path=True, exists=True),
@@ -93,6 +94,7 @@ def simple_preview(
     hw_trigger: bool,
     hw_trigger_rate: float,
     hw_trigger_pin_last: int,
+    counters_name,
 ):
     import dearpygui.dearpygui as dpg
     import cv2
@@ -137,6 +139,14 @@ def simple_preview(
     dpg.create_context()
     recorders = []
     write_dtype = {}
+
+    if hw_trigger:
+        logging.info(f"Trigger pins: {trigger_pins}")
+        from cammy.trigger.trigger import TriggerDevice
+        trigger_dev = TriggerDevice(frame_rate=hw_trigger_rate, pins=trigger_pins)
+    else:
+        trigger_dev = None
+
     if acquire:
         use_queues = get_queues(list(ids.keys()))
         basedir = os.path.dirname(os.path.abspath(__file__))
@@ -194,6 +204,10 @@ def simple_preview(
         # dump settings to toml file (along with start time of recording and hostname)
         for _id, _cam in cameras.items():
             cameras[_id].queue = use_queues["storage"][_id]
+            if len(counters_name) > 0:
+                timestamp_fields = counters_name + ["device_timestamp", "system_timestamp"]
+            else:
+                timestamp_fields = ["device_timestamp", "system_timestamp"]
             if save_engine == "ffmpeg":
                 _recorder = FfmpegVideoRecorder(
                     width=cameras[_id]._width,
@@ -201,12 +215,14 @@ def simple_preview(
                     queue=cameras[_id].queue,
                     filename=os.path.join(save_path, f"{_id}.mkv"),
                     pixel_format=write_dtype[_id],
+                    timestamp_fields=timestamp_fields,
                 )
             elif save_engine == "raw":
                 _recorder = RawVideoRecorder(
                     queue=cameras[_id].queue,
                     filename=os.path.join(save_path, f"{_id}.dat"),
                     write_dtype=write_dtype[_id],
+                    timestamp_fields=timestamp_fields
                 )
             else:
                 raise RuntimeError(f"Did not understanding VideoRecorder option {save_engine}")
@@ -294,11 +310,9 @@ def simple_preview(
     # 3/7/23 REMOVED EXTRA START_ACQUISITION, PUT GPIO IN WEIRD STATE
     # [print(_cam.camera.get_trigger_source()) for _cam in cameras.values()]
     # if using a hardware trigger, send out signals now...
-    if hw_trigger:
-        logging.info(f"Trigger pins: {trigger_pins}")
-        from cammy.trigger.trigger import TriggerDevice
-        trigger_dev = TriggerDevice(frame_rate=hw_trigger_rate, pins=trigger_pins)
+    if hw_trigger and (trigger_dev is not None):
         trigger_dev.start()
+
     try:
         while dpg.is_dearpygui_running():
             dat = {}
