@@ -49,7 +49,7 @@ class AravisCamera(CammyCamera):
         [x, y, width, height] = self.camera.get_region()
 
         self._payload = self.camera.get_payload()  # size of payload
-        self._genicam = genicam = self.device.get_genicam()  # genicam interface
+        self._genicam = self.device.get_genicam()  # genicam interface
         
         self._width = width
         self._height = height  # stage stream

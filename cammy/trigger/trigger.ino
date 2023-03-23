@@ -9,9 +9,16 @@ uint32_t baudrate = 115200;							 /* set by fiat */
 
 void setup(void)
 {
+
+	/* set all pins to low while we're waiting for commands */
+
+	for (int i = 3; i < 14; i++ ) {
+		pinMode(i, OUTPUT);
+		digitalWrite(i, LOW);
+	}
 	Serial.begin(baudrate);
-	delay(1);
-	/* wait for a serial connection */
+	// delay(1);
+	// wait for a serial connection
 	while (!Serial)
 		;
 
@@ -24,6 +31,9 @@ void setup(void)
 	set_digital_pins();
 	set_frame_rate();
 	frame_period = frame_rate_to_period(frame_rate);
+
+	// wait until we get another byte 
+	// while (Serial.available() == 0) {}
 }
 
 void set_digital_pins()
@@ -114,6 +124,7 @@ void set_pins_high()
 	interrupts();
 }
 
+int counter = 0;
 void loop(void)
 {
 
@@ -123,9 +134,10 @@ void loop(void)
 		set_digital_pins();
 		set_frame_rate();
 		frame_period = frame_rate_to_period(frame_rate);
+		counter = 0;
 	}
 
-	if (frame_rate > 0)
+	if (frame_rate > 0 && counter < 10000)
 	{
 		start_time = micros();
 
@@ -138,5 +150,7 @@ void loop(void)
 		while (micros() - start_time < frame_period)
 		{
 		}
+		counter++;
+		Serial.println(counter);
 	}
 }

@@ -30,34 +30,21 @@ class BaseRecord(multiprocessing.Process):
 		self.open_writer()
 		while True:
 			if bool(self.is_running):
+				dat = None			
 				try:
-					dat = None
+					dat = self.queue.get_nowait()
+				except (queue.Empty, KeyboardInterrupt, EOFError):
+					continue
+				except (SystemExit, BrokenPipeError):
+					pass
+
+				if dat is not None:
 					try:
-						dat = self.queue.get_nowait()
-					except queue.Empty:
-						continue
-					if dat is not None:
 						self.write_data(dat)
-				except (KeyboardInterrupt, SystemExit, BrokenPipeError):
-					while True:
-						try:
-							dat = self.queue.get_nowait()
-							if dat is not None:
-								self.write_data(dat)
-						except (queue.Empty, SystemExit, BrokenPipeError):
-							break
-					self.close_writer()
+					except KeyboardInterrupt:
+						self.write_data(dat)
+				else:
 					print(f"Exiting recorder {self.id}")
 					break
 			else:
-				print("Process stopped")
-				while True:
-					try:
-						dat = self.queue.get_nowait()
-						if dat is not None:
-							self.write_data(dat)
-					except queue.Empty:
-						break
-				self.close_writer()
-				print(f"Exiting recorder {self.id}")
 				break

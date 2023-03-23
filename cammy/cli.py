@@ -9,7 +9,7 @@ import cv2
 
 logging.basicConfig(
     stream=sys.stdout,
-    level=logging.INFO,
+    level=logging.DEBUG,
     format="[%(asctime)s]:%(levelname)s:%(name)s %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
@@ -100,7 +100,9 @@ def simple_preview(
     import cv2
     import socket
     import datetime
-
+    print(counters_name)
+    counters_name = list(counters_name)
+    counters_name = []
     hostname = socket.gethostname()
 
     if display_colormap is None:
@@ -121,14 +123,14 @@ def simple_preview(
 
     # TODO: TURN INTO AN AUTOMATIC CHECK, IF NO FRAMES ARE GETTING
     # ACQUIRED, PAUSE FOR 1 SEC AND RE-INITIALIZE
-    cameras = initialize_cameras(ids, camera_dct, jumbo_frames=jumbo_frames)
+    cameras = initialize_cameras(ids, camera_dct, jumbo_frames=jumbo_frames, counters_name=counters_name)
     del cameras
     time.sleep(2)
 
     cameras_metadata = {}
     bit_depth = {}
     trigger_pins = []
-    cameras = initialize_cameras(ids, camera_dct, jumbo_frames=jumbo_frames)
+    cameras = initialize_cameras(ids, camera_dct, jumbo_frames=jumbo_frames, counters_name=counters_name)
     for i, (k, v) in enumerate(cameras.items()):
         feature_dct = v.get_all_features()
         feature_dct = dict(sorted(feature_dct.items()))
@@ -222,7 +224,7 @@ def simple_preview(
                     queue=cameras[_id].queue,
                     filename=os.path.join(save_path, f"{_id}.dat"),
                     write_dtype=write_dtype[_id],
-                    timestamp_fields=timestamp_fields
+                    timestamp_fields=timestamp_fields,
                 )
             else:
                 raise RuntimeError(f"Did not understanding VideoRecorder option {save_engine}")
@@ -297,6 +299,10 @@ def simple_preview(
             gui_x_offset += width
 
     [_cam.start_acquisition() for _cam in cameras.values()]
+    # if using a hardware trigger, send out signals now...
+    if hw_trigger and (trigger_dev is not None):
+        trigger_dev.start()
+
     for _cam in cameras.values():
         _cam.count = 0
 
@@ -309,9 +315,6 @@ def simple_preview(
 
     # 3/7/23 REMOVED EXTRA START_ACQUISITION, PUT GPIO IN WEIRD STATE
     # [print(_cam.camera.get_trigger_source()) for _cam in cameras.values()]
-    # if using a hardware trigger, send out signals now...
-    if hw_trigger and (trigger_dev is not None):
-        trigger_dev.start()
 
     try:
         while dpg.is_dearpygui_running():
@@ -352,17 +355,23 @@ def simple_preview(
                         miss_status[_id],
                         f"{miss_frames} missed / {total_frames} total ({percent_missed:.1f}% missed)\n{cam_fps:.1f} FPS",
                     )
-                    # for k, v in use_queues["storage"].items():
-                    # 	print(v.qsize())
+                    if "storage" in use_queues.keys():
+                        for k, v in use_queues["storage"].items():
+                            logging.debug(v.qsize())
+            
             time.sleep(0.03)
             dpg.render_dearpygui_frame()
     finally:
         [_cam.stop_acquisition() for _cam in cameras.values()]
         if acquire:
             # for every camera ID wait until the queue has been written out
+            print("Issuing stop signal...")
             for k, v in use_queues["storage"].items():
-                while v.qsize() > 0:
-                    time.sleep(0.1)
+                v.put(None) # stop signal
+                time.sleep(.1)
+                if v.qsize() is not None:
+                    while v.qsize() > 0:
+                        time.sleep(0.1)
             for _recorder in recorders:
                 _recorder.is_running = 0
                 time.sleep(1)
