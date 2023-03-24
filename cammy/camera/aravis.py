@@ -21,10 +21,9 @@ class AravisCamera(CammyCamera):
         auto_exposure: bool = False,
         queue=None,
         jumbo_frames: bool = True,
-        counters_name = [],
+        counters_name=[],
         **kwargs,
     ):
-
         super(CammyCamera, self).__init__()
         # prelims for using fake camera
         if fake_camera:
@@ -50,10 +49,10 @@ class AravisCamera(CammyCamera):
 
         self._payload = self.camera.get_payload()  # size of payload
         self._genicam = self.device.get_genicam()  # genicam interface
-        
+
         self._width = width
         self._height = height  # stage stream
-        self._tick_frequency = 1e9 # TODO: replace with actual tick frequency from gv interface
+        self._tick_frequency = 1e9  # TODO: replace with actual tick frequency from gv interface
         self.fps = np.nan
         self.frame_count = 0
         self._last_framegrab = np.nan
@@ -63,7 +62,7 @@ class AravisCamera(CammyCamera):
             self._counters = {}
         self.id = id
         self.stream = self.camera.create_stream()
-        self.queue = queue
+        # self.queue = queue
         self.missed_frames = 0
         self.total_frames = 0
         for i in range(buffer_size):
@@ -89,16 +88,20 @@ class AravisCamera(CammyCamera):
                 frame = self._array_from_buffer_address(buffer)
                 timestamp = buffer.get_timestamp()
                 system_timestamp = buffer.get_system_timestamp()
-                timestamps = {"device_timestamp": timestamp, "system_timestamp": system_timestamp}
-                grab_time = system_timestamp
-                self.frame_count += 1
-                self.fps = 1 / (((grab_time - self._last_framegrab) / self._tick_frequency) + 1e-12)
-                self._last_framegrab = grab_time
-                for k, v in self._counters.items():
-                    self.set_feature("CounterSelector", v)
-                    timestamps[k] = self.get_feature("CounterValue")
-                if self.queue is not None:
-                    self.queue.put((frame, timestamps))
+                timestamps = {
+                    "device_timestamp": timestamp,
+                    "system_timestamp": system_timestamp,
+                    "total_frames": self.total_frames,
+                    "missed_frames": self.missed_frames,
+                }
+                # grab_time = system_timestamp
+                # self.fps = 1 / (((grab_time - self._last_framegrab) / self._tick_frequency) + 1e-12)
+                # self._last_framegrab = grab_time
+                # for k, v in self._counters.items():
+                #     self.set_feature("CounterSelector", v)
+                #     timestamps[k] = self.get_feature("CounterValue")
+                # if self.queue is not None:
+                #     self.queue.put((frame, timestamps))
             else:
                 raise RuntimeError(f"Did not understand status: {status}")
             self.stream.push_buffer(buffer)
