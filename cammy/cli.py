@@ -9,7 +9,7 @@ import cv2
 
 logging.basicConfig(
     stream=sys.stdout,
-    level=logging.DEBUG,
+    level=logging.WARNING,
     format="[%(asctime)s]:%(levelname)s:%(name)s %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
@@ -359,7 +359,7 @@ def simple_preview(
                         for k, v in use_queues["storage"].items():
                             logging.debug(v.qsize())
             
-            time.sleep(0.03)
+            time.sleep(0.005)
             dpg.render_dearpygui_frame()
     finally:
         [_cam.stop_acquisition() for _cam in cameras.values()]
