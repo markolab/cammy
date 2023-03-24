@@ -127,8 +127,9 @@ def simple_preview(
     else:
         trigger_dev = None
 
+    use_queues = get_queues(list(ids.keys()))
+    
     if acquire:
-        use_queues = get_queues(list(ids.keys()))
         basedir = os.path.dirname(os.path.abspath(__file__))
         metadata_path = os.path.join(basedir, "metadata.toml")
         show_fields = toml.load(metadata_path)["show_fields"]
@@ -209,7 +210,6 @@ def simple_preview(
             recorders.append(_recorder)
     else:
         show_fields = {}
-        use_queues = {}
 
     [_cam.start_acquisition() for _cam in cameras.values()]
     # if using a hardware trigger, send out signals now...
