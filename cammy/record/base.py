@@ -9,6 +9,8 @@ class BaseRecord(multiprocessing.Process):
 		multiprocessing.Process.__init__(self)
 		self.queue = queue
 		self.is_running = multiprocessing.Value("i", 0)
+
+		print("TEST")
 		self.id = id
 		self.filename=filename
 
@@ -28,11 +30,15 @@ class BaseRecord(multiprocessing.Process):
 	def run(self):
 		self.is_running = 1
 		self.open_writer()
+		print("TEST")
 		while True:
+			print("TEST")
 			if bool(self.is_running):
 				dat = None			
 				try:
 					dat = self.queue.get_nowait()
+					print("TEST")
+					print(dat)
 				except (queue.Empty, KeyboardInterrupt, EOFError):
 					continue
 				except (SystemExit, BrokenPipeError):

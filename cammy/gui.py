@@ -120,8 +120,8 @@ class FrameDisplay(multiprocessing.Process):
 
         dpg.create_viewport(title="Live preview", width=gui_x_max, height=gui_y_max)
 
-        # dpg.set_viewport_vsync(False)
-        # dpg.show_metrics()
+        dpg.set_viewport_vsync(False)
+        dpg.show_metrics()
         dpg.setup_dearpygui()
         dpg.show_viewport()
         last_framegrab = np.nan

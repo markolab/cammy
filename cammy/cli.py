@@ -181,7 +181,7 @@ def simple_preview(
 
         # dump settings to toml file (along with start time of recording and hostname)
         for _id, _cam in cameras.items():
-            cameras[_id].queue = use_queues["storage"][_id]
+            # cameras[_id].queue = use_queues["storage"][_id]
             if len(counters_name) > 0:
                 timestamp_fields = counters_name + ["device_timestamp", "system_timestamp"]
             else:
@@ -190,14 +190,16 @@ def simple_preview(
                 _recorder = FfmpegVideoRecorder(
                     width=cameras[_id]._width,
                     height=cameras[_id]._height,
-                    queue=cameras[_id].queue,
+                    queue=use_queues["storage"][_id],
+                    # queue=cameras[_id].queue,
                     filename=os.path.join(save_path, f"{_id}.mkv"),
                     pixel_format=write_dtype[_id],
                     timestamp_fields=timestamp_fields,
                 )
             elif save_engine == "raw":
                 _recorder = RawVideoRecorder(
-                    queue=cameras[_id].queue,
+                    queue=use_queues["storage"][_id],
+                    # queue=cameras[_id].queue,
                     filename=os.path.join(save_path, f"{_id}.dat"),
                     write_dtype=write_dtype[_id],
                     timestamp_fields=timestamp_fields,
@@ -209,6 +211,7 @@ def simple_preview(
             _recorder.start()
             recorders.append(_recorder)
     else:
+        use_queues.pop("storage")
         show_fields = {}
 
     [_cam.start_acquisition() for _cam in cameras.values()]
@@ -232,22 +235,19 @@ def simple_preview(
     frame_display.daemon = True
     frame_display.start()
     try:
-            while True:
-                for _id, _cam in cameras.items():
-                    _dat = _cam.try_pop_frame()
-                    if _dat[0] is None:
-                        continue
-                    else:
-                        # load up the queues
-                        for k, v in use_queues.items():
-                            print(_id)
-                            print(k)
-                            v[_id].put(_dat)
-                            # if "storage" in use_queues.keys():
-                    for k, v in use_queues["storage"].items():
-                        logging.debug(v.qsize())
-                    time.sleep(.01)
-
+        while True:
+            for _id, _cam in cameras.items():
+                _dat = _cam.try_pop_frame()
+                if _dat[0] is None:
+                    continue
+                else:
+                    # load up the queues
+                    for k, v in use_queues.items():
+                        v[_id].put(_dat)
+                        # if "storage" in use_queues.keys():
+                for k, v in use_queues["display"].items():
+                    logging.debug(v.qsize())
+                time.sleep(.02)
     finally:
         [_cam.stop_acquisition() for _cam in cameras.values()]
         if acquire:
