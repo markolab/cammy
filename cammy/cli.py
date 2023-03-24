@@ -62,7 +62,8 @@ txt_pos = (25, 25)
 
 
 # TODO:
-# 1) ADD OPTION TO READ COUNTERS WITH COLUMN NAME THEN WE'RE DONE?
+# 1) ADD OPTION TO READ COUNTERS WITH COLUMN NAME?
+# 2) PTPENABLE FOR TIME CLOCK SYNC?
 @cli.command(name="run")
 @click.option("--all-cameras", is_flag=True)
 @click.option("--interface", type=click.Choice(["aravis", "fake_custom", "all"]), default="all")

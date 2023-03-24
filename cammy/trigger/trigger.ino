@@ -124,7 +124,7 @@ void set_pins_high()
 	interrupts();
 }
 
-int counter = 0;
+int counter = 1;
 void loop(void)
 {
 
