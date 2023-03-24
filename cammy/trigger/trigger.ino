@@ -137,7 +137,7 @@ void loop(void)
 		counter = 0;
 	}
 
-	if (frame_rate > 0 && counter < 100)
+	if (frame_rate > 0 && counter < 10000)
 	{
 		start_time = micros();
 
