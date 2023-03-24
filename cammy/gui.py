@@ -30,7 +30,7 @@ txt_pos = (25, 25)
 
 
 # simple data writer, should be general enough to take 1d/2d/etc. data
-class FrameDisplay():
+class FrameDisplay(multiprocessing.Process):
     def __init__(self, queue, cameras, downsample=1, display_params={}, display_colormap=None):
         multiprocessing.Process.__init__(self)
         
@@ -41,7 +41,7 @@ class FrameDisplay():
         for _id, _cam in cameras.items():
             self.display_params[_id] = {}
             self.display_params[_id]["width"] = _cam._width // downsample
-            self.display_params[_id]["height"] = _cam.height // downsample
+            self.display_params[_id]["height"] = _cam._height // downsample
         
         for _id, _cam in cameras.items():
             use_config = {}
@@ -129,10 +129,13 @@ class FrameDisplay():
             for _id, _params in self.display_params.items():
                 dat = None			   
                 try:
-                    frame, tstamps = self.queue[_id].get_nowait()
+                    dat = self.queue[_id].get_nowait()
                 except (queue.Empty, KeyboardInterrupt, EOFError):
                     continue
-                
+                if dat is None:
+                    continue
+                else:
+                    frame, tstamps = dat
                 grab_time = tstamps["system_timestamp"]
                 cam_fps = 1 / (((grab_time - last_framegrab) / 1e9) + 1e-12)
                 last_framegrab = grab_time

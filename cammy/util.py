@@ -40,8 +40,8 @@ def get_pixel_format_bit_depth(pixel_format):
 def get_queues(ids=None) -> dict:
     if ids:
         queues = {}
-        queues["display"] = {id: multiprocessing.Manager().Queue(100) for id in ids}
-        queues["storage"] = {id: multiprocessing.Manager().Queue(100) for id in ids} 
+        queues["display"] = {id: multiprocessing.Manager().Queue(200) for id in ids}
+        queues["storage"] = {id: multiprocessing.Manager().Queue(200) for id in ids} 
         return queues
     else:
         raise RuntimeError("Must specify IDs to construct queues")

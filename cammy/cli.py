@@ -228,22 +228,25 @@ def simple_preview(
         display_params=camera_dct["display"],
         display_colormap=display_colormap,
     )
+    time.sleep(3)
+    frame_display.daemon = True
     frame_display.start()
     try:
-        for _id, _cam in cameras.items():
-            new_frame = None
-            new_ts = None
             while True:
-                _dat = _cam.try_pop_frame()
-                if _dat[0] is None:
-                    break
-                else:
-                    # load up the queues
-                    for k, v in use_queues.items():
-                        v[_id].put(_dat)
-                        # if "storage" in use_queues.keys():
-                #     for k, v in use_queues["storage"].items():
-                #         logging.debug(v.qsize())
+                for _id, _cam in cameras.items():
+                    _dat = _cam.try_pop_frame()
+                    if _dat[0] is None:
+                        continue
+                    else:
+                        # load up the queues
+                        for k, v in use_queues.items():
+                            print(_id)
+                            print(k)
+                            v[_id].put(_dat)
+                            # if "storage" in use_queues.keys():
+                    for k, v in use_queues["storage"].items():
+                        logging.debug(v.qsize())
+                    time.sleep(.01)
 
     finally:
         [_cam.stop_acquisition() for _cam in cameras.values()]
