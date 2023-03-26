@@ -34,13 +34,13 @@ class AravisCamera(CammyCamera):
         # NOT USING EXT_IDS just yet
         if jumbo_frames and self.camera.is_gv_device():
             self.camera.gv_set_packet_size(8000)
-            ext_ids = self.get_feature('GevGVSPExtendedIDMode')
-            if ext_ids.lower() == "off":
-                self._frame_id_bit_depth = 16
-            else:
-                self._frame_id_bit_depth = 64
-        else:
-            self._frame_id_bit_depth = 32
+        #     ext_ids = self.get_feature('GevGVSPExtendedIDMode')
+        #     if ext_ids.lower() == "off":
+        #         self._frame_id_bit_depth = 16
+        #     else:
+        #         self._frame_id_bit_depth = 64
+        # else:
+        #     self._frame_id_bit_depth = 32
         self.device = self.camera.get_device()
         # self.camera = Aravis.Camera() # THIS IS JUST FOR PYLANCE
 
