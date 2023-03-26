@@ -73,6 +73,7 @@ class AravisCamera(CammyCamera):
         buffer = self.stream.try_pop_buffer()
         if buffer:
             self.total_frames += 1
+            # print(buffer.get_frame_id())
             status = buffer.get_status()
             if status == Aravis.BufferStatus.TIMEOUT:
                 logging.debug("missed frame")
