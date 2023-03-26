@@ -23,6 +23,19 @@ class TriggerDevice:
     def open(self):
         self.dev = serial.Serial(port=self.com, baudrate=self.baudrate, timeout=0.1)
 
+    def stop(self):
+        command_list = (
+            [len(self.command_params["pins"])]
+            + self.command_params["pins"]
+            + [0.] # frame_rate = 0 should led to all pins low
+        )
+        command_string = ",".join(str(_) for _ in command_list)
+        
+        # open the device if we haven't yet
+        if self.dev is not None:
+            self.dev.write(command_string.encode())
+
+
     def start(self):
         command_list = (
             [len(self.command_params["pins"])]
