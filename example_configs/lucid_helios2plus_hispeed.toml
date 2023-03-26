@@ -1,4 +1,4 @@
-[genicam.Lucid]
+[genicam.Lucid.a]
 PixelFormat = "Coord3D_C16"
 # AcquisitionFrameRateEnable = true
 AcquisitionFrameRate = 100

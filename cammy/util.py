@@ -92,8 +92,9 @@ def initialize_cameras(ids, configs, **kwargs):
     for _id, _interface in ids.items():
         use_config = {}
         for k, v in configs["genicam"].items():
-            if k in _id:
-                use_config = {**use_config, **v}
+            for k2, v2 in v.items():
+                if k in _id:
+                    use_config = {**use_config, **v2}
         cameras[_id] = initialize_camera(_id, _interface, use_config, **kwargs)
 
     return cameras

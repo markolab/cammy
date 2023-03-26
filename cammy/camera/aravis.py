@@ -211,7 +211,7 @@ class AravisCamera(CammyCamera):
             status = None
             newval = None
 
-        self.logger.info(f"{name} set to {newval}")
+        self.logger.info(f"{self.id} {name} set to {newval}")
 
     def get_all_features(self, node_str="Root", return_dct={}):
         node = self._genicam.get_node(node_str)
