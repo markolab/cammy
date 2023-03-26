@@ -9,7 +9,7 @@ import cv2
 
 logging.basicConfig(
     stream=sys.stdout,
-    level=logging.WARNING,
+    level=logging.INFO,
     format="[%(asctime)s]:%(levelname)s:%(name)s %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
@@ -184,7 +184,7 @@ def simple_preview(
             for k, v in show_fields.items():
                 settings_tags[k] = dpg.add_input_text(default_value=v, label=k)
             dpg.add_spacer(height=5)
-            # dpg.add_spacing(count=5)
+            dpg.add_spacing(count=5)
 
             def button_callback(sender, app_data):
                 for k, v in settings_tags.items():
