@@ -296,8 +296,13 @@ def simple_preview(
             gui_x_offset += width
 
     [_cam.start_acquisition() for _cam in cameras.values()]
+
     # if using a hardware trigger, send out signals now...
     if hw_trigger and (trigger_dev is not None):
+        logging.info("Pausing for two seconds before turning on hw triggers")
+        [print(_cam.camera.get_feature("TriggerArmed")) for _cam in cameras.values()]
+        time.sleep(2)
+        [print(_cam.camera.get_feature("TriggerArmed")) for _cam in cameras.values()]
         trigger_dev.start()
 
     for _cam in cameras.values():
