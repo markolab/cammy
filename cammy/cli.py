@@ -125,20 +125,18 @@ def simple_preview(
 
     # TODO: TURN INTO AN AUTOMATIC CHECK, IF NO FRAMES ARE GETTING
     # ACQUIRED, PAUSE FOR 1 SEC AND RE-INITIALIZE
-    cameras = initialize_cameras(ids, camera_dct, jumbo_frames=jumbo_frames)
+    cameras = initialize_cameras(ids, camera_dct, jumbo_frames=jumbo_frames, record_counters=record_counters)
     # if we want to collect counters make sure they're equal across all cams
     # make sure all counters are equal, grab settings from first cam
-    check_counters_equal(record_counters, cameras)
-    first_cam = next(iter(cameras.values()))
-    counter_names = ["_".join(first_cam.get_counter_parameters(i).values()) for i in range(record_counters)]
-    print(counter_names)
+    # check_counters_equal(record_counters, cameras)
+    # first_cam = next(iter(cameras.values()))
     del cameras
     time.sleep(2)
 
     cameras_metadata = {}
     bit_depth = {}
     trigger_pins = []
-    cameras = initialize_cameras(ids, camera_dct, jumbo_frames=jumbo_frames, counter_names=counter_names)
+    cameras = initialize_cameras(ids, camera_dct, jumbo_frames=jumbo_frames, record_counters=record_counters)
     for i, (k, v) in enumerate(cameras.items()):
         feature_dct = v.get_all_features()
         feature_dct = dict(sorted(feature_dct.items()))

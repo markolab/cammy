@@ -20,7 +20,7 @@ class AravisCamera(CammyCamera):
         fake_camera: bool = False,
         queue=None,
         jumbo_frames: bool = True,
-        counter_names = [],
+        record_counters: int = 0,
         **kwargs,
     ):
 
@@ -32,8 +32,8 @@ class AravisCamera(CammyCamera):
 
         self.camera = Aravis.Camera.new(id)
 
-        # if jumbo_frames and self.camera.is_gv_device():
-        #     self.camera.gv_set_packet_size(8000)
+        if jumbo_frames and self.camera.is_gv_device():
+            self.camera.gv_set_packet_size(8000)
         self.device = self.camera.get_device()
         # self.camera = Aravis.Camera() # THIS IS JUST FOR PYLANCE
 
@@ -49,6 +49,10 @@ class AravisCamera(CammyCamera):
         self.fps = np.nan
         self.frame_count = 0
         self._last_framegrab = np.nan
+
+        counter_names = ["_".join(self.get_counter_parameters(i).values()) for i in range(record_counters)]
+        print(counter_names)
+
         if len(counter_names) > 0:
             self._counters = {_counter: f"Counter{i}" for i, _counter in enumerate(counter_names)}
         else:
