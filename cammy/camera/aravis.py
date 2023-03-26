@@ -81,6 +81,10 @@ class AravisCamera(CammyCamera):
         buffer = self.stream.try_pop_buffer()
         if buffer:
             self.total_frames += 1
+            
+            # can potentially use this, are bit depths handled automatically by aravis? 
+            # if all come back as uint64s need to rethink...
+            # print(buffer.get_frame_id())
             status = buffer.get_status()
             if status == Aravis.BufferStatus.TIMEOUT:
                 logging.debug("missed frame")
