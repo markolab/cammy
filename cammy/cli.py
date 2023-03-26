@@ -299,10 +299,12 @@ def simple_preview(
 
     # if using a hardware trigger, send out signals now...
     if hw_trigger and (trigger_dev is not None):
-        logging.info("Pausing for two seconds before turning on hw triggers")
-        [print(_cam.camera.get_feature("TriggerArmed")) for _cam in cameras.values()]
-        time.sleep(2)
-        [print(_cam.camera.get_feature("TriggerArmed")) for _cam in cameras.values()]
+        trigger_armed = np.array([_cam.get_feature("TriggerArmed") for _cam in cameras.values()])
+        while ~np.all(trigger_armed):
+            time.sleep(.5)
+            trigger_armed = np.array([_cam.get_feature("TriggerArmed") for _cam in cameras.values()])
+            logging.info("Waiting for trigger armed signal on all cameras...")
+        logging.info("Starting Arduino...")
         trigger_dev.start()
 
     for _cam in cameras.values():
