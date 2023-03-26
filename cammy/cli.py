@@ -77,7 +77,7 @@ txt_pos = (25, 25)
 @click.option("--hw-trigger", is_flag=True)
 @click.option("--hw-trigger-rate", type=float, default=100.)
 @click.option("--hw-trigger-pin-last", type=int, default=13)
-@click.option("--record_counters", type=int, default=0)
+@click.option("--record-counters", type=int, default=0)
 @click.option(
     "--camera-options",
     type=click.Path(resolve_path=True, exists=True),
@@ -130,7 +130,7 @@ def simple_preview(
     # make sure all counters are equal, grab settings from first cam
     check_counters_equal(record_counters, cameras)
     first_cam = next(iter(cameras.values()))
-    counter_names = ["_".join(first_cam.get_counter_settings(i).values()) for i in range(record_counters)]
+    counter_names = ["_".join(first_cam.get_counter_parameters(i).values()) for i in range(record_counters)]
     print(counter_names)
     del cameras
     time.sleep(2)

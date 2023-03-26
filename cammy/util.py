@@ -136,8 +136,8 @@ def check_counters_equal(ncounters, cameras):
         for _id, _cam in cameras.items():
             counter_metadata[_id] = _cam.get_counter_parameters(i)
 
-        for k, v in counter_metadata.keys():
-            for k2, v2 in counter_metadata.keys():
+        for k, v in counter_metadata.items():
+            for k2, v2 in counter_metadata.items():
                 # skip self-checks
                 if k2 == k:
                     continue
