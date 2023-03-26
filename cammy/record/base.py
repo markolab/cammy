@@ -42,7 +42,7 @@ class BaseRecord(multiprocessing.Process):
 					except KeyboardInterrupt:
 						self.write_data(dat)
 				else:
-					print(f"Exiting recorder {self.id}")
+					print(f"Exiting recorder {self.name}")
 					self.close_writer()
 					break
 			else:
