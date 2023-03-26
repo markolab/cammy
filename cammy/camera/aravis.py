@@ -60,7 +60,7 @@ class AravisCamera(CammyCamera):
             self.stream = self.camera.create_stream(callback, user_data)
         else:
             self._counters = {}
-            self.stream = self.camera.create_stream(callback)
+            self.stream = self.camera.create_stream()
 
         self.queue = queue
         self.missed_frames = 0

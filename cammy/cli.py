@@ -66,14 +66,13 @@ txt_pos = (25, 25)
 # 1) ADD OPTION TO READ COUNTERS WITH COLUMN NAME?
 # 2) PTPENABLE FOR TIME CLOCK SYNC?
 @cli.command(name="run")
-@click.option("--all-cameras", is_flag=True)
 @click.option("--interface", type=click.Choice(["aravis", "fake_custom", "all"]), default="all")
 @click.option("--n-fake-cameras", type=int, default=1)
 @click.option("--acquire", is_flag=True)
 @click.option("--jumbo-frames", default=True, type=bool)
 @click.option("--save-engine", type=click.Choice(["ffmpeg", "raw"]), default="raw")
 @click.option("--display-downsample", type=int, default=1)
-@click.option("--display-colormap", type=str, default=None)
+@click.option("--display-colormap", type=str, default="turbo")
 @click.option("--hw-trigger", is_flag=True)
 @click.option("--hw-trigger-rate", type=float, default=100.)
 @click.option("--hw-trigger-pin-last", type=int, default=13)
@@ -84,7 +83,6 @@ txt_pos = (25, 25)
     help="TOML file with camera options",
 )
 def simple_preview(
-    all_cameras: bool,
     interface: str,
     n_fake_cameras: int,
     camera_options: Optional[str],
@@ -118,10 +116,7 @@ def simple_preview(
         camera_dct = {}
 
     cameras = {}
-    if all_cameras:
-        ids = get_all_camera_ids(interface, n_cams=n_fake_cameras)
-    else:
-        raise NotImplementedError()
+    ids = get_all_camera_ids(interface, n_cams=n_fake_cameras)
 
     # TODO: TURN INTO AN AUTOMATIC CHECK, IF NO FRAMES ARE GETTING
     # ACQUIRED, PAUSE FOR 1 SEC AND RE-INITIALIZE
