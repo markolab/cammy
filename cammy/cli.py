@@ -214,10 +214,7 @@ def simple_preview(
         # dump settings to toml file (along with start time of recording and hostname)
         for _id, _cam in cameras.items():
             cameras[_id].queue = use_queues["storage"][_id]
-            if len(counter_names) > 0:
-                timestamp_fields = counter_names + ["device_timestamp", "system_timestamp"]
-            else:
-                timestamp_fields = ["device_timestamp", "system_timestamp"]
+            timestamp_fields = ["capture_number", "device_timestamp", "system_timestamp"]
             if save_engine == "ffmpeg":
                 _recorder = FfmpegVideoRecorder(
                     width=cameras[_id]._width,
