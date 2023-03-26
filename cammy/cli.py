@@ -366,6 +366,8 @@ def simple_preview(
             dpg.render_dearpygui_frame()
     finally:
         [_cam.stop_acquisition() for _cam in cameras.values()]
+        if hw_trigger:
+            trigger_dev.stop()
         if acquire:
             # for every camera ID wait until the queue has been written out
             print("Issuing stop signal...")
