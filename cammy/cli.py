@@ -25,6 +25,7 @@ from cammy.util import (
     get_output_format,
     get_pixel_format_bit_depth,
     mpl_to_cv2_colormap,
+    check_counters_equal
 )
 from cammy.camera.aravis import AravisCamera
 from cammy.camera.fake import FakeCamera
@@ -76,7 +77,7 @@ txt_pos = (25, 25)
 @click.option("--hw-trigger", is_flag=True)
 @click.option("--hw-trigger-rate", type=float, default=100.)
 @click.option("--hw-trigger-pin-last", type=int, default=13)
-@click.option("--counters-name", type=str, default=["Trigger", "Exposure"], multiple=True)
+@click.option("--record_counters", type=int, default=0)
 @click.option(
     "--camera-options",
     type=click.Path(resolve_path=True, exists=True),
@@ -95,15 +96,15 @@ def simple_preview(
     hw_trigger: bool,
     hw_trigger_rate: float,
     hw_trigger_pin_last: int,
-    counters_name,
+    # counters_name,
+    record_counters: int,
 ):
     import dearpygui.dearpygui as dpg
     import cv2
     import socket
     import datetime
-    print(counters_name)
-    counters_name = list(counters_name)
-    counters_name = []
+        
+    # counters_name = list(counters_name)
     hostname = socket.gethostname()
 
     if display_colormap is None:
@@ -124,14 +125,20 @@ def simple_preview(
 
     # TODO: TURN INTO AN AUTOMATIC CHECK, IF NO FRAMES ARE GETTING
     # ACQUIRED, PAUSE FOR 1 SEC AND RE-INITIALIZE
-    cameras = initialize_cameras(ids, camera_dct, jumbo_frames=jumbo_frames, counters_name=counters_name)
+    cameras = initialize_cameras(ids, camera_dct, jumbo_frames=jumbo_frames)
+    # if we want to collect counters make sure they're equal across all cams
+    # make sure all counters are equal, grab settings from first cam
+    check_counters_equal(record_counters, cameras)
+    first_cam = next(iter(cameras.values()))
+    counter_names = ["_".join(first_cam.get_counter_settings(i).values()) for i in range(record_counters)]
+    print(counter_names)
     del cameras
     time.sleep(2)
 
     cameras_metadata = {}
     bit_depth = {}
     trigger_pins = []
-    cameras = initialize_cameras(ids, camera_dct, jumbo_frames=jumbo_frames, counters_name=counters_name)
+    cameras = initialize_cameras(ids, camera_dct, jumbo_frames=jumbo_frames, counter_names=counter_names)
     for i, (k, v) in enumerate(cameras.items()):
         feature_dct = v.get_all_features()
         feature_dct = dict(sorted(feature_dct.items()))
@@ -151,6 +158,7 @@ def simple_preview(
         trigger_dev = None
 
     if acquire:
+        # from parameters construct single names...
         use_queues = get_queues(list(ids.keys()))
         basedir = os.path.dirname(os.path.abspath(__file__))
         metadata_path = os.path.join(basedir, "metadata.toml")
@@ -185,6 +193,7 @@ def simple_preview(
         with dpg.window(width=500, height=300, no_resize=True, tag="settings"):
             for k, v in show_fields.items():
                 settings_tags[k] = dpg.add_input_text(default_value=v, label=k)
+            # dpg.add_spacer(height=5)
             dpg.add_spacing(count=5)
 
             def button_callback(sender, app_data):
@@ -207,8 +216,8 @@ def simple_preview(
         # dump settings to toml file (along with start time of recording and hostname)
         for _id, _cam in cameras.items():
             cameras[_id].queue = use_queues["storage"][_id]
-            if len(counters_name) > 0:
-                timestamp_fields = counters_name + ["device_timestamp", "system_timestamp"]
+            if len(counter_names) > 0:
+                timestamp_fields = counter_names + ["device_timestamp", "system_timestamp"]
             else:
                 timestamp_fields = ["device_timestamp", "system_timestamp"]
             if save_engine == "ffmpeg":

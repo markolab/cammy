@@ -18,10 +18,9 @@ class AravisCamera(CammyCamera):
         id: Optional[str],
         buffer_size: int = 1000,
         fake_camera: bool = False,
-        auto_exposure: bool = False,
         queue=None,
         jumbo_frames: bool = True,
-        counters_name = [],
+        counter_names = [],
         **kwargs,
     ):
 
@@ -38,13 +37,6 @@ class AravisCamera(CammyCamera):
         self.device = self.camera.get_device()
         # self.camera = Aravis.Camera() # THIS IS JUST FOR PYLANCE
 
-        # if not auto_exposure:
-        #     try:
-        #         self.camera.set_exposure_time_auto(0)
-        #         self.camera.set_gain_auto(0)
-        #     except (AttributeError, gi.repository.GLib.GError) as e:
-        #         print(e)
-
         self.logger = logging.getLogger(self.__class__.__name__)
         [x, y, width, height] = self.camera.get_region()
 
@@ -57,12 +49,14 @@ class AravisCamera(CammyCamera):
         self.fps = np.nan
         self.frame_count = 0
         self._last_framegrab = np.nan
-        if len(counters_name) > 0:
+        if len(counter_names) > 0:
             self._counters = {_counter: f"Counter{i}" for i, _counter in enumerate(counters_name)}
         else:
             self._counters = {}
         self.id = id
-        self.stream = self.camera.create_stream()
+
+        user_data = UserData(counters=counter_names, arv_obj=self)
+        self.stream = self.camera.create_stream(callback, user_data)
         self.queue = queue
         self.missed_frames = 0
         self.total_frames = 0
@@ -94,9 +88,9 @@ class AravisCamera(CammyCamera):
                 self.frame_count += 1
                 self.fps = 1 / (((grab_time - self._last_framegrab) / self._tick_frequency) + 1e-12)
                 self._last_framegrab = grab_time
-                for k, v in self._counters.items():
-                    self.set_feature("CounterSelector", v)
-                    timestamps[k] = self.get_feature("CounterValue")
+                user_data = buffer.get_user_data()
+                for k, v in user_data.counter_data.items():
+                    timestamps[k] = v
                 if self.queue is not None:
                     self.queue.put((frame, timestamps))
             else:
@@ -121,6 +115,24 @@ class AravisCamera(CammyCamera):
         im = np.ctypeslib.as_array(ptr, (buffer.get_image_height(), buffer.get_image_width()))
         im = im.copy()
         return im
+
+
+    def get_counter_parameters(self, counter_num):
+        param_names = ["CounterEventSource", "CounterEventActivation"]
+        self.set_feature("CounterSelector", f"Counter{counter_num}")
+        params = {key: self.get_feature(key) for key in param_names}
+        return params
+
+
+    def get_counter_value(self, counter_num):
+        if isinstance(counter_num, int):
+            self.set_feature("CounterSelector", f"Counter{counter_num}")
+        elif isinstance(counter_num, str):
+            self.set_feature("CounterSelector", counter_num)
+        else:
+            raise RuntimeError(f"Did not understand counter {counter_num}")
+        
+        return self.get_feature("CounterValue")
 
     # https://github.com/SintefManufacturing/python-aravis/blob/master/aravis.py#L79
     def get_feature_type(self, name):
@@ -192,3 +204,15 @@ class AravisCamera(CammyCamera):
             return_dct[node_str] = self.get_feature(node_str)
 
         return return_dct
+
+class UserData:
+    def __init__(self, counters: Optional[dict], arv_obj: AravisCamera) -> None:
+        self.counters = counters
+        self.counter_data = {}
+        self.camera = arv_obj
+        # need the aravis object to grab counter values...
+
+def callback(user_data, cb_type, buffer):
+    if buffer is not None:
+        for k, v in user_data.counters.items():
+            user_data.counter_data[v] = user_data.camera.get_counter_value[k]

@@ -128,3 +128,18 @@ def get_output_format(save_engine, bit_depth):
         raise RuntimeError(f"Did not understand save engine {save_engine}")
     
     return write_dtype, codec
+
+
+def check_counters_equal(ncounters, cameras):
+    for i in range(ncounters):
+        counter_metadata = {}
+        for _id, _cam in cameras.items():
+            counter_metadata[_id] = _cam.get_counter_parameters(i)
+
+        for k, v in counter_metadata.keys():
+            for k2, v2 in counter_metadata.keys():
+                # skip self-checks
+                if k2 == k:
+                    continue
+                if v != v2:
+                    raise RuntimeError(f"Counter settings for {k} and {k2} not equivalent: {v} != {v2}")
