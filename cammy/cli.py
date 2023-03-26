@@ -79,7 +79,8 @@ txt_pos = (25, 25)
 @click.option("--record-counters", type=int, default=0)
 @click.option(
     "--camera-options",
-    type=click.Path(resolve_path=True, exists=True),
+    type=click.Path(resolve_path=True),
+    default="camera_options.toml",
     help="TOML file with camera options",
 )
 def simple_preview(
@@ -102,7 +103,6 @@ def simple_preview(
     import socket
     import datetime
         
-    # counters_name = list(counters_name)
     hostname = socket.gethostname()
 
     if display_colormap is None:
@@ -110,7 +110,8 @@ def simple_preview(
     else:
         display_colormap = mpl_to_cv2_colormap(display_colormap)
 
-    if camera_options is not None:
+    if (camera_options is not None) and os.path.exists(camera_options):
+        logging.info(f"Loading camera options from {camera_options}")
         camera_dct = toml.load(camera_options)
     else:
         camera_dct = {}
@@ -121,10 +122,6 @@ def simple_preview(
     # TODO: TURN INTO AN AUTOMATIC CHECK, IF NO FRAMES ARE GETTING
     # ACQUIRED, PAUSE FOR 1 SEC AND RE-INITIALIZE
     cameras = initialize_cameras(ids, camera_dct, jumbo_frames=jumbo_frames, record_counters=record_counters)
-    # if we want to collect counters make sure they're equal across all cams
-    # make sure all counters are equal, grab settings from first cam
-    # check_counters_equal(record_counters, cameras)
-    # first_cam = next(iter(cameras.values()))
     del cameras
     time.sleep(2)
 
@@ -315,7 +312,6 @@ def simple_preview(
 
     # 3/7/23 REMOVED EXTRA START_ACQUISITION, PUT GPIO IN WEIRD STATE
     # [print(_cam.camera.get_trigger_source()) for _cam in cameras.values()]
-
     try:
         while dpg.is_dearpygui_running():
             dat = {}
