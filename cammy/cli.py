@@ -322,6 +322,7 @@ def simple_preview(
     # 3/7/23 REMOVED EXTRA START_ACQUISITION, PUT GPIO IN WEIRD STATE
     # [print(_cam.camera.get_trigger_source()) for _cam in cameras.values()]
     start_time = -np.inf
+    cur_duration = 0
     try:
         while dpg.is_dearpygui_running():
             dat = {}
