@@ -87,12 +87,12 @@ class AravisCamera(CammyCamera):
             # print(buffer.get_frame_id())
             status = buffer.get_status()
             if status == Aravis.BufferStatus.TIMEOUT:
-                logging.debug("missed frame")
+                self.logger.debug("missed frame")
                 self.missed_frames += 1
                 frame = None
                 timestamps = None
             elif status == Aravis.BufferStatus.SIZE_MISMATCH:
-                logging.debug("buffer size mismatch")
+                self.logger.debug("buffer size mismatch")
                 self.missed_frames += 1
                 frame = None
                 timestamps = None

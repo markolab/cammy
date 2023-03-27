@@ -1,6 +1,7 @@
 import serial
 import serial.tools.list_ports
 import click
+import logging
 from typing import Iterable, Optional
 
 
@@ -16,6 +17,8 @@ class TriggerDevice:
         if com is None:
             com = select_serial_port()
 
+
+        self.logger = logging.getLogger(self.__class__.__name__)
         self.com = com
         self.baudrate = baudrate
         self.dev = None
@@ -33,7 +36,7 @@ class TriggerDevice:
             + [0., 0.] # frame_rate = 0, max_pulses = 0 should set all pins low
         )
         command_string = ",".join(str(_) for _ in command_list)
-        
+        self.logger.info(f"Sending command string {command_list} to Arduino")
         # open the device if we haven't yet
         if self.dev is not None:
             self.dev.write(command_string.encode())
@@ -54,7 +57,7 @@ class TriggerDevice:
 
         if self.dev is None:
             raise RuntimeError("No serial device open...")
-
+        self.logger.info(f"Sending command string {command_list} to Arduino")
         self.dev.write(command_string.encode())
 
 

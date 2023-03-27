@@ -165,6 +165,8 @@ void loop(void)
 		{
 		}
 		counter++;
-		Serial.println(counter);
+		// Serial.println(counter);
+    // Serial.println(frame_period);
+    // Serial.println(Serial.available());
 	}
 }
