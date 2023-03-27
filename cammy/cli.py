@@ -77,7 +77,7 @@ txt_pos = (25, 25)
 @click.option("--hw-trigger-rate", type=float, default=100., help="Trigger rate")
 @click.option("--hw-trigger-pin-last", type=int, default=13, help="Final dig out pin to use on Arduino")
 @click.option("--record-counters", type=int, default=0, help="Record counter data")
-@click.optoin("--duration", type=float, default=0, help="Run for N minutes")
+@click.option("--duration", type=float, default=0, help="Run for N minutes")
 @click.option(
     "--camera-options",
     type=click.Path(resolve_path=True),
@@ -321,7 +321,7 @@ def simple_preview(
 
     # 3/7/23 REMOVED EXTRA START_ACQUISITION, PUT GPIO IN WEIRD STATE
     # [print(_cam.camera.get_trigger_source()) for _cam in cameras.values()]
-    start_time = time.perf_counter()
+    start_time = None
     try:
         while dpg.is_dearpygui_running():
             dat = {}
@@ -330,6 +330,8 @@ def simple_preview(
                 new_ts = None
                 while True:
                     _dat = _cam.try_pop_frame()
+                    if start_time is None:
+                        start_time = time.perf_counter()
                     if _dat[0] is None:
                         break
                     else:
@@ -365,10 +367,11 @@ def simple_preview(
                         for k, v in use_queues["storage"].items():
                             logging.debug(v.qsize())
             
-            cur_duration = (time.perf_counter() - start_time) / 60.
-            if (duration > 0) and (cur_duration > duration):
-                logging.info(f"Exceeded {duration} minutes, exiting...")
-                break
+            if start_time is not None:
+                cur_duration = (time.perf_counter() - start_time) / 60.
+                if (duration > 0) and (cur_duration > duration):
+                    logging.info(f"Exceeded {duration} minutes, exiting...")
+                    break
             time.sleep(0.005)
             dpg.render_dearpygui_frame()
     finally:
