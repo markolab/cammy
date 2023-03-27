@@ -321,7 +321,7 @@ def simple_preview(
 
     # 3/7/23 REMOVED EXTRA START_ACQUISITION, PUT GPIO IN WEIRD STATE
     # [print(_cam.camera.get_trigger_source()) for _cam in cameras.values()]
-    start_time = None
+    start_time = -np.inf
     try:
         while dpg.is_dearpygui_running():
             dat = {}
@@ -330,11 +330,13 @@ def simple_preview(
                 new_ts = None
                 while True:
                     _dat = _cam.try_pop_frame()
-                    if start_time is None:
-                        start_time = time.perf_counter()
+                    
                     if _dat[0] is None:
                         break
                     else:
+                        if ~np.isfinite(start_time):
+                            start_time = time.perf_counter()
+                        cur_duration = (time.perf_counter() - start_time) / 60.
                         new_frame = _dat[0]
                         new_ts = _dat[1]
                 dat[_id] = (new_frame, new_ts)
@@ -367,11 +369,9 @@ def simple_preview(
                         for k, v in use_queues["storage"].items():
                             logging.debug(v.qsize())
             
-            if start_time is not None:
-                cur_duration = (time.perf_counter() - start_time) / 60.
-                if (duration > 0) and (cur_duration > duration):
-                    logging.info(f"Exceeded {duration} minutes, exiting...")
-                    break
+            if (duration > 0) and (cur_duration > duration):
+                logging.info(f"Exceeded {duration} minutes, exiting...")
+                break
             time.sleep(0.005)
             dpg.render_dearpygui_frame()
     finally:
