@@ -11,6 +11,7 @@ class TriggerDevice:
         baudrate: int = 115200,
         frame_rate: float = 100.0,
         pins: Iterable[int] = [12, 13],
+        duration: float = 0
     ) -> None:
         if com is None:
             com = select_serial_port()
@@ -18,7 +19,9 @@ class TriggerDevice:
         self.com = com
         self.baudrate = baudrate
         self.dev = None
-        self.command_params = {"frame_rate": frame_rate, "pins": pins}
+        period = 1. / frame_rate # period in seconds
+        max_pulses = (duration * 60.) / period # number of pulses to meet experiment duration
+        self.command_params = {"frame_rate": frame_rate, "pins": pins, "max_pulses": max_pulses}
 
     def open(self):
         self.dev = serial.Serial(port=self.com, baudrate=self.baudrate, timeout=0.1)
@@ -27,7 +30,7 @@ class TriggerDevice:
         command_list = (
             [len(self.command_params["pins"])]
             + self.command_params["pins"]
-            + [0.] # frame_rate = 0 should led to all pins low
+            + [0., 0.] # frame_rate = 0, max_pulses = 0 should set all pins low
         )
         command_string = ",".join(str(_) for _ in command_list)
         
@@ -40,13 +43,17 @@ class TriggerDevice:
         command_list = (
             [len(self.command_params["pins"])]
             + self.command_params["pins"]
-            + [self.command_params["frame_rate"]]
+            + [self.command_params["frame_rate"],
+               self.command_params["max_pulses"]]
         )
         command_string = ",".join(str(_) for _ in command_list)
         
         # open the device if we haven't yet
         if self.dev is None:
             self.open()
+
+        if self.dev is None:
+            raise RuntimeError("No serial device open...")
 
         self.dev.write(command_string.encode())
 

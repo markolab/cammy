@@ -68,15 +68,16 @@ txt_pos = (25, 25)
 @cli.command(name="run")
 @click.option("--interface", type=click.Choice(["aravis", "fake_custom", "all"]), default="all")
 @click.option("--n-fake-cameras", type=int, default=1)
-@click.option("--acquire", is_flag=True)
-@click.option("--jumbo-frames", default=True, type=bool)
-@click.option("--save-engine", type=click.Choice(["ffmpeg", "raw"]), default="raw")
-@click.option("--display-downsample", type=int, default=1)
-@click.option("--display-colormap", type=str, default="turbo")
-@click.option("--hw-trigger", is_flag=True)
-@click.option("--hw-trigger-rate", type=float, default=100.)
-@click.option("--hw-trigger-pin-last", type=int, default=13)
-@click.option("--record-counters", type=int, default=0)
+@click.option("--acquire", is_flag=True, help="Save frames to disk")
+@click.option("--jumbo-frames", default=True, type=bool, help="Turn on jumbo frames (GigE only)")
+@click.option("--save-engine", type=click.Choice(["ffmpeg", "raw"]), default="raw", help="Save raw frames or compressed frames using ffmpeg")
+@click.option("--display-downsample", type=int, default=1, help="Downsample frames for display (full data is saved)")
+@click.option("--display-colormap", type=str, default="turbo", help="Look-up-table")
+@click.option("--hw-trigger", is_flag=True, help="Trigger frames using an Arduino microcontroller")
+@click.option("--hw-trigger-rate", type=float, default=100., help="Trigger rate")
+@click.option("--hw-trigger-pin-last", type=int, default=13, help="Final dig out pin to use on Arduino")
+@click.option("--record-counters", type=int, default=0, help="Record counter data")
+@click.optoin("--duration", type=float, default=0, help="Run for N minutes")
 @click.option(
     "--camera-options",
     type=click.Path(resolve_path=True),
@@ -97,6 +98,7 @@ def simple_preview(
     hw_trigger_pin_last: int,
     # counters_name,
     record_counters: int,
+    duration: float,
 ):
     import dearpygui.dearpygui as dpg
     import cv2
@@ -143,7 +145,7 @@ def simple_preview(
     if hw_trigger:
         logging.info(f"Trigger pins: {trigger_pins}")
         from cammy.trigger.trigger import TriggerDevice
-        trigger_dev = TriggerDevice(frame_rate=hw_trigger_rate, pins=trigger_pins)
+        trigger_dev = TriggerDevice(frame_rate=hw_trigger_rate, pins=trigger_pins, duration=duration)
     else:
         trigger_dev = None
 
@@ -319,6 +321,7 @@ def simple_preview(
 
     # 3/7/23 REMOVED EXTRA START_ACQUISITION, PUT GPIO IN WEIRD STATE
     # [print(_cam.camera.get_trigger_source()) for _cam in cameras.values()]
+    start_time = time.perf_counter()
     try:
         while dpg.is_dearpygui_running():
             dat = {}
@@ -362,6 +365,10 @@ def simple_preview(
                         for k, v in use_queues["storage"].items():
                             logging.debug(v.qsize())
             
+            cur_duration = (time.perf_counter() - start_time) / 60.
+            if (duration > 0) and (cur_duration > duration):
+                logging.info(f"Exceeded {duration} minutes, exiting...")
+                break
             time.sleep(0.005)
             dpg.render_dearpygui_frame()
     finally:

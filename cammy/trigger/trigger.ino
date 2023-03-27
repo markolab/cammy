@@ -1,18 +1,19 @@
 // Note that this is heavily borrowed from https://github.com/ksseverson57/campy/blob/master/campy/trigger/trigger.ino
 
-int dig_out_pins[20];								 /* array to store digital pin IDS */
-int n_pins;											 /* number of digital pins */
-unsigned long frame_start, frame_period, start_time; /* micros ticks when frame began and when frame ends */
-float frame_rate = 0;								 /* frame rate specified by user */
-int pulse_width = 500;								 /*Camera trigger pulse width*/
-uint32_t baudrate = 115200;							 /* set by fiat */
+int dig_out_pins[20];											 /* array to store digital pin IDS */
+int n_pins;														 /* number of digital pins */
+unsigned long frame_start, frame_period, start_time, max_pulses; /* micros ticks when frame began and when frame ends */
+float frame_rate = 0;											 /* frame rate specified by user */
+int pulse_width = 500;											 /*Camera trigger pulse width*/
+uint32_t baudrate = 115200;										 /* set by fiat */
 
 void setup(void)
 {
 
 	/* set all pins to low while we're waiting for commands */
 
-	for (int i = 3; i < 14; i++ ) {
+	for (int i = 3; i < 14; i++)
+	{
 		pinMode(i, OUTPUT);
 		digitalWrite(i, LOW);
 	}
@@ -30,9 +31,10 @@ void setup(void)
 
 	set_digital_pins();
 	set_frame_rate();
+	set_max_pulses();
 	frame_period = frame_rate_to_period(frame_rate);
 
-	// wait until we get another byte 
+	// wait until we get another byte
 	// while (Serial.available() == 0) {}
 }
 
@@ -104,6 +106,17 @@ void set_frame_rate()
 	Serial.print(" Hz");
 }
 
+void set_max_pulses()
+{
+	while (Serial.available() == 0)
+	{
+	}
+	max_pulses = (unsigned int) Serial.parseFloat();
+	Serial.println("");
+	Serial.print("Set max pulses to: ");
+	Serial.print(max_pulses);
+}
+
 void set_pins_low()
 {
 	noInterrupts();
@@ -133,11 +146,12 @@ void loop(void)
 		set_pins_low();
 		set_digital_pins();
 		set_frame_rate();
+		set_max_pulses();
 		frame_period = frame_rate_to_period(frame_rate);
 		counter = 0;
 	}
 
-	if (frame_rate > 0)
+	if ((frame_rate > 0) && (counter < max_pulses || max_pulses == 0))
 	{
 		start_time = micros();
 
