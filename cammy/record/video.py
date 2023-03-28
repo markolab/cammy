@@ -127,10 +127,7 @@ class RawVideoRecorder(BaseRecord):
 			self._tstamp_file.write("\n")
 
 		# leads to ill effects after lots of frames pile up
-		# self._video_file.flush()
-		# self._tstamp_file.flush()
-		# os.fsync(self._video_file)
-		# os.fsync(self._tstamp_file)
+		
 
 
 	def open_writer(self):
@@ -144,5 +141,16 @@ class RawVideoRecorder(BaseRecord):
 		
 
 	def close_writer(self):
-		self._video_file.close()
-		self._tstamp_file.close()
+		self.logger.info(f"Closing writer {self.name}")
+		try:
+			self._video_file.flush()
+			os.fsync(self._video_file)
+			self._video_file.close()
+		except AttributeError:
+			pass
+		try:
+			self._tstamp_file.flush()
+			os.fsync(self._tstamp_file)
+			self._tstamp_file.close()
+		except AttributeError:
+			pass
