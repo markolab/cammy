@@ -78,6 +78,7 @@ txt_pos = (25, 25)
 @click.option("--hw-trigger-pin-last", type=int, default=13, help="Final dig out pin to use on Arduino")
 @click.option("--record-counters", type=int, default=0, help="Record counter data")
 @click.option("--duration", type=float, default=0, help="Run for N minutes")
+@click.option("--fps-tau", type=float, default=5., help="Smoothing time constant (in seconds) for FPS (display only)")
 @click.option(
     "--camera-options",
     type=click.Path(resolve_path=True),
@@ -99,6 +100,7 @@ def simple_preview(
     # counters_name,
     record_counters: int,
     duration: float,
+    fps_tau: float,
 ):
     import dearpygui.dearpygui as dpg
     import cv2
@@ -322,6 +324,7 @@ def simple_preview(
     # 3/7/23 REMOVED EXTRA START_ACQUISITION, PUT GPIO IN WEIRD STATE
     # [print(_cam.camera.get_trigger_source()) for _cam in cameras.values()]
     start_time = -np.inf
+    prior_fps = np.nan
     cur_duration = 0
     try:
         while dpg.is_dearpygui_running():
@@ -360,11 +363,16 @@ def simple_preview(
                     cameras[_id].count += 1
                     miss_frames = float(cameras[_id].missed_frames)
                     total_frames = float(cameras[_id].total_frames)
-                    cam_fps = cameras[_id].fps
+                    cur_fps = cameras[_id].fps
+                    # if np.isnan(prior_fps):
+                    #     smooth_fps = cur_fps
+                    # else:
+                    #     smooth_fps = .01 * cur_fps + .99 * prior_fps
+                    # prior_fps = smooth_fps
                     percent_missed = (miss_frames / total_frames) * 100
                     dpg.set_value(
                         miss_status[_id],
-                        f"{miss_frames} missed / {total_frames} total ({percent_missed:.1f}% missed)\n{cam_fps:.1f} FPS",
+                        f"{miss_frames} missed / {total_frames} total ({percent_missed:.1f}% missed)\n{cur_fps:.1f} FPS",
                     )
                     if "storage" in use_queues.keys():
                         for k, v in use_queues["storage"].items():

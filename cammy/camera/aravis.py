@@ -21,6 +21,7 @@ class AravisCamera(CammyCamera):
         queue=None,
         jumbo_frames: bool = True,
         record_counters: int = 0,
+        fps_tau: float = 5,
         **kwargs,
     ):
         super(CammyCamera, self).__init__()
@@ -108,6 +109,9 @@ class AravisCamera(CammyCamera):
                 grab_time = system_timestamp
                 self.frame_count += 1
                 self.fps = 1 / (((grab_time - self._last_framegrab) / self._tick_frequency) + 1e-12)
+                # self.smooth_fps = (1 - self.fps_alpha) * self.fps + self.fps_alpha * self.prior_fps
+                # self.prior_fps = self.smooth_fps
+
                 self._last_framegrab = grab_time
                 # user_data = buffer.get_user_data()
                 # for k, v in user_data.counter_data.items():
