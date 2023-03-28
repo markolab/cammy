@@ -126,10 +126,11 @@ class RawVideoRecorder(BaseRecord):
 				self._tstamp_file.write(f"{tstamps[_field]}\t")
 			self._tstamp_file.write("\n")
 
-		self._video_file.flush()
-		self._tstamp_file.flush()
-		os.fsync(self._video_file)
-		os.fsync(self._tstamp_file)
+		# leads to ill effects after lots of frames pile up
+		# self._video_file.flush()
+		# self._tstamp_file.flush()
+		# os.fsync(self._video_file)
+		# os.fsync(self._tstamp_file)
 
 
 	def open_writer(self):

@@ -399,6 +399,8 @@ def simple_preview(
             for _recorder in recorders:
                 _recorder.is_running = 0
                 time.sleep(1)
+        # ensure all files are flushed and closed...
+        [_recorder.close_writer() for _recorder in recorders]
         dpg.destroy_context()
 
 
