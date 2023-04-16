@@ -27,7 +27,9 @@ class TriggerDevice:
         self.command_params = {"frame_rate": frame_rate, "pins": pins, "max_pulses": max_pulses}
 
     def open(self):
+        # do we need to reset??? look into DTR
         self.dev = serial.Serial(port=self.com, baudrate=self.baudrate, timeout=0.1)
+        # also do we need flush input and output?
 
     def stop(self):
         command_list = (
@@ -40,6 +42,7 @@ class TriggerDevice:
         # open the device if we haven't yet
         if self.dev is not None:
             self.dev.write(command_string.encode())
+            # flush here?
 
 
     def start(self):

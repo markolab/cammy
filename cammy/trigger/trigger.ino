@@ -6,7 +6,7 @@ unsigned long frame_start, frame_period, start_time, max_pulses; /* micros ticks
 float frame_rate = 0;											 /* frame rate specified by user */
 int pulse_width = 500;											 /*Camera trigger pulse width*/
 uint32_t baudrate = 115200;										 /* set by fiat */
-unsigned long counter = 1;
+unsigned long counter = 0;
 
 void setup(void)
 {
