@@ -27,7 +27,7 @@ class TriggerDevice:
         self.command_params = {"frame_rate": frame_rate, "pins": pins, "max_pulses": max_pulses}
 
     def open(self):
-        self.dev = serial.Serial(port=self.com, baudrate=self.baudrate, timeout=0.1)
+        self.dev = serial.Serial(port=self.com, baudrate=self.baudrate, timeout=None)
 
     def stop(self):
         command_list = (
