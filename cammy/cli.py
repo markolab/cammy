@@ -85,6 +85,7 @@ txt_pos = (25, 25)
     default="camera_options.toml",
     help="TOML file with camera options",
 )
+@click.option("--server", is_flag=True, help="Activate ZMQ server to send data to and control other python scripts")
 def simple_preview(
     interface: str,
     n_fake_cameras: int,
@@ -101,13 +102,22 @@ def simple_preview(
     record_counters: int,
     duration: float,
     fps_tau: float,
+    server: bool,
 ):
     import dearpygui.dearpygui as dpg
     import cv2
     import socket
     import datetime
-        
+
+    cli_parameters = locals()
     hostname = socket.gethostname()
+
+    if server:
+        import zmq
+        context = zmq.Context()
+        zsocket = context.socket(zmq.REP)
+        zsocket.bind("tcp://*:50165")
+        zsocket.send(cli_parameters, flags=zmq.NOBLOCK)
 
     if display_colormap is None:
         display_colormap = mpl_to_cv2_colormap(colormap_default)
@@ -387,6 +397,8 @@ def simple_preview(
         [_cam.stop_acquisition() for _cam in cameras.values()]
         if hw_trigger:
             trigger_dev.stop()
+        if server:
+            zsocket.send("EXIT", flags=zmq.NOBLOCK)
         if acquire:
             # for every camera ID wait until the queue has been written out
             print("Issuing stop signal...")
