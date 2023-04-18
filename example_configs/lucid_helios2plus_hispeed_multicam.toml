@@ -1,0 +1,54 @@
+[genicam]
+
+[genicam.Lucid.a]
+PixelFormat = "Coord3D_C16"
+AcquisitionFrameRate = 110
+AcquisitionFrameRateEnable = true
+Scan3dOperatingMode = "HighSpeedDistance625mmSingleFreq"
+ExposureTimeSelector = "Exp1000Us"
+# TriggerOverlap = "Off"
+AcquisitionMode = "Continuous"
+LineSelector = "Line3"
+LineMode = "Input"
+TriggerMode = "On"
+TriggerSelector = "FrameStart"
+TriggerSource = "Line3"
+#CounterSelector = "Counter0"
+#CounterEventSource = "Line3"
+#CounterEventActivation = "RisingEdge"
+#CounterTriggerSource = "AcquisitionStart"
+#CounterDuration = 10000000
+#CounterValue = 0
+PtpEnable = true
+
+#[genicam.Lucid.b]
+#CounterSelector = "Counter1"
+#CounterEventSource = "ExposureStart"
+#CounterEventActivation = "RisingEdge"
+#CounterTriggerSource = "AcquisitionStart"
+#CounterDuration = 10000000
+#CounterValue = 0
+
+[genicam."Lucid Vision Labs-HTP003S-001-223702048".a]
+TriggerDelay = 0
+PtpSlaveOnly = false
+
+[genicam."Lucid Vision Labs-HTP003S-001-224500508".a]
+TriggerDelay = 1200
+PtpSlaveOnly = true
+
+[genicam."Lucid Vision Labs-HTP003S-001-223702266".a]
+TriggerDelay = 2400
+PtpSlaveOnly = true
+
+[display.Lucid.slider_defaults_min]
+default_value = 900
+min_value = 0
+max_value = 5000
+
+
+[display.Lucid.slider_defaults_max]
+default_value = 1500
+min_value = 0
+max_value = 5000
+

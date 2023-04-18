@@ -1,7 +1,7 @@
 import multiprocessing
 import queue
 from typing import Optional
-
+from pickle import UnpicklingError
 
 # simple data writer, should be general enough to take 1d/2d/etc. data
 class BaseRecord(multiprocessing.Process):
@@ -30,34 +30,21 @@ class BaseRecord(multiprocessing.Process):
 		self.open_writer()
 		while True:
 			if bool(self.is_running):
+				dat = None			
 				try:
-					dat = None
+					dat = self.queue.get_nowait()
+				except (queue.Empty, KeyboardInterrupt, EOFError, UnpicklingError):
+					continue
+
+				if dat is not None:
 					try:
-						dat = self.queue.get_nowait()
-					except queue.Empty:
-						continue
-					if dat is not None:
 						self.write_data(dat)
-				except (KeyboardInterrupt, SystemExit, BrokenPipeError):
-					while True:
-						try:
-							dat = self.queue.get_nowait()
-							if dat is not None:
-								self.write_data(dat)
-						except (queue.Empty, SystemExit, BrokenPipeError):
-							break
+					except KeyboardInterrupt:
+						self.write_data(dat)
+				else:
+					print(f"Exiting recorder {self.name}")
 					self.close_writer()
-					print(f"Exiting recorder {self.id}")
 					break
 			else:
-				print("Process stopped")
-				while True:
-					try:
-						dat = self.queue.get_nowait()
-						if dat is not None:
-							self.write_data(dat)
-					except queue.Empty:
-						break
 				self.close_writer()
-				print(f"Exiting recorder {self.id}")
 				break

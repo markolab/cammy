@@ -9,14 +9,14 @@ import cv2
 
 logging.basicConfig(
     stream=sys.stdout,
-    level=logging.WARNING,
+    level=logging.INFO,
     format="[%(asctime)s]:%(levelname)s:%(name)s %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger(__name__)
 
 
-from typing import Optional
+from typing import Optional, Iterable
 from cammy.util import (
     get_all_camera_ids,
     intensity_to_rgba,
@@ -25,6 +25,7 @@ from cammy.util import (
     get_output_format,
     get_pixel_format_bit_depth,
     mpl_to_cv2_colormap,
+    check_counters_equal
 )
 from cammy.camera.aravis import AravisCamera
 from cammy.camera.fake import FakeCamera
@@ -62,25 +63,29 @@ txt_pos = (25, 25)
 
 
 # TODO:
-# 1) TEST TO ENSURE EVERYTHING GETS CLOSED AND FLUSHED PROPERLY
-# 2) ANYTHING TO ADD TO FILE FORMAT?
-# 3) INCLUDE FRAME NUMBER IN TIMESTAMPS?
+# 1) ADD OPTION TO READ COUNTERS WITH COLUMN NAME?
+# 2) PTPENABLE FOR TIME CLOCK SYNC?
 @cli.command(name="run")
-@click.option("--all-cameras", is_flag=True)
 @click.option("--interface", type=click.Choice(["aravis", "fake_custom", "all"]), default="all")
 @click.option("--n-fake-cameras", type=int, default=1)
-@click.option("--acquire", is_flag=True)
-@click.option("--jumbo-frames", default=True, type=bool)
-@click.option("--save-engine", type=click.Choice(["ffmpeg", "raw"]), default="raw")
-@click.option("--display-downsample", type=int, default=1)
-@click.option("--display-colormap", type=str, default=None)
+@click.option("--acquire", is_flag=True, help="Save frames to disk")
+@click.option("--jumbo-frames", default=True, type=bool, help="Turn on jumbo frames (GigE only)")
+@click.option("--save-engine", type=click.Choice(["ffmpeg", "raw"]), default="raw", help="Save raw frames or compressed frames using ffmpeg")
+@click.option("--display-downsample", type=int, default=1, help="Downsample frames for display (full data is saved)")
+@click.option("--display-colormap", type=str, default="turbo", help="Look-up-table")
+@click.option("--hw-trigger", is_flag=True, help="Trigger frames using an Arduino microcontroller")
+@click.option("--hw-trigger-rate", type=float, default=100., help="Trigger rate")
+@click.option("--hw-trigger-pin-last", type=int, default=13, help="Final dig out pin to use on Arduino")
+@click.option("--record-counters", type=int, default=0, help="Record counter data")
+@click.option("--duration", type=float, default=0, help="Run for N minutes")
+@click.option("--fps-tau", type=float, default=5., help="Smoothing time constant (in seconds) for FPS (display only)")
 @click.option(
     "--camera-options",
-    type=click.Path(resolve_path=True, exists=True),
+    type=click.Path(resolve_path=True),
+    default="camera_options.toml",
     help="TOML file with camera options",
 )
 def simple_preview(
-    all_cameras: bool,
     interface: str,
     n_fake_cameras: int,
     camera_options: Optional[str],
@@ -89,12 +94,19 @@ def simple_preview(
     save_engine: str,
     display_downsample: int,
     display_colormap: Optional[str],
+    hw_trigger: bool,
+    hw_trigger_rate: float,
+    hw_trigger_pin_last: int,
+    # counters_name,
+    record_counters: int,
+    duration: float,
+    fps_tau: float,
 ):
     import dearpygui.dearpygui as dpg
     import cv2
     import socket
     import datetime
-
+        
     hostname = socket.gethostname()
 
     if display_colormap is None:
@@ -102,37 +114,45 @@ def simple_preview(
     else:
         display_colormap = mpl_to_cv2_colormap(display_colormap)
 
-    if camera_options is not None:
+    if (camera_options is not None) and os.path.exists(camera_options):
+        logging.info(f"Loading camera options from {camera_options}")
         camera_dct = toml.load(camera_options)
     else:
         camera_dct = {}
 
     cameras = {}
-    if all_cameras:
-        ids = get_all_camera_ids(interface, n_cams=n_fake_cameras)
-    else:
-        raise NotImplementedError()
+    ids = get_all_camera_ids(interface, n_cams=n_fake_cameras)
 
     # TODO: TURN INTO AN AUTOMATIC CHECK, IF NO FRAMES ARE GETTING
     # ACQUIRED, PAUSE FOR 1 SEC AND RE-INITIALIZE
-    cameras = initialize_cameras(ids, camera_dct, jumbo_frames=jumbo_frames)
+    cameras = initialize_cameras(ids, camera_dct, jumbo_frames=jumbo_frames, record_counters=record_counters)
     del cameras
     time.sleep(2)
 
     cameras_metadata = {}
     bit_depth = {}
-    cameras = initialize_cameras(ids, camera_dct, jumbo_frames=jumbo_frames)
-    for k, v in cameras.items():
+    trigger_pins = []
+    cameras = initialize_cameras(ids, camera_dct, jumbo_frames=jumbo_frames, record_counters=record_counters)
+    for i, (k, v) in enumerate(cameras.items()):
         feature_dct = v.get_all_features()
         feature_dct = dict(sorted(feature_dct.items()))
         bit_depth[k] = get_pixel_format_bit_depth(feature_dct["PixelFormat"])
         cameras_metadata[k] = feature_dct
+        trigger_pins.append(hw_trigger_pin_last - i) # work backwards from last
 
-    
     dpg.create_context()
     recorders = []
     write_dtype = {}
+
+    if hw_trigger:
+        logging.info(f"Trigger pins: {trigger_pins}")
+        from cammy.trigger.trigger import TriggerDevice
+        trigger_dev = TriggerDevice(frame_rate=hw_trigger_rate, pins=trigger_pins, duration=duration)
+    else:
+        trigger_dev = None
+
     if acquire:
+        # from parameters construct single names...
         use_queues = get_queues(list(ids.keys()))
         basedir = os.path.dirname(os.path.abspath(__file__))
         metadata_path = os.path.join(basedir, "metadata.toml")
@@ -167,6 +187,7 @@ def simple_preview(
         with dpg.window(width=500, height=300, no_resize=True, tag="settings"):
             for k, v in show_fields.items():
                 settings_tags[k] = dpg.add_input_text(default_value=v, label=k)
+            dpg.add_spacer(height=5)
             dpg.add_spacing(count=5)
 
             def button_callback(sender, app_data):
@@ -189,6 +210,7 @@ def simple_preview(
         # dump settings to toml file (along with start time of recording and hostname)
         for _id, _cam in cameras.items():
             cameras[_id].queue = use_queues["storage"][_id]
+            timestamp_fields = ["capture_number", "device_timestamp", "system_timestamp"]
             if save_engine == "ffmpeg":
                 _recorder = FfmpegVideoRecorder(
                     width=cameras[_id]._width,
@@ -196,12 +218,14 @@ def simple_preview(
                     queue=cameras[_id].queue,
                     filename=os.path.join(save_path, f"{_id}.mkv"),
                     pixel_format=write_dtype[_id],
+                    timestamp_fields=timestamp_fields,
                 )
             elif save_engine == "raw":
                 _recorder = RawVideoRecorder(
                     queue=cameras[_id].queue,
                     filename=os.path.join(save_path, f"{_id}.dat"),
                     write_dtype=write_dtype[_id],
+                    timestamp_fields=timestamp_fields,
                 )
             else:
                 raise RuntimeError(f"Did not understanding VideoRecorder option {save_engine}")
@@ -276,6 +300,17 @@ def simple_preview(
             gui_x_offset += width
 
     [_cam.start_acquisition() for _cam in cameras.values()]
+
+    # if using a hardware trigger, send out signals now...
+    if hw_trigger and (trigger_dev is not None):
+        trigger_armed = np.array([_cam.get_feature("TriggerArmed") for _cam in cameras.values()])
+        while ~np.all(trigger_armed):
+            time.sleep(.5)
+            trigger_armed = np.array([_cam.get_feature("TriggerArmed") for _cam in cameras.values()])
+            logging.info("Waiting for trigger armed signal on all cameras...")
+        logging.info("Starting Arduino...")
+        trigger_dev.start()
+
     for _cam in cameras.values():
         _cam.count = 0
 
@@ -288,13 +323,9 @@ def simple_preview(
 
     # 3/7/23 REMOVED EXTRA START_ACQUISITION, PUT GPIO IN WEIRD STATE
     # [print(_cam.camera.get_trigger_source()) for _cam in cameras.values()]
-    # if using a hardware trigger, send out signals now...
-    #
-    # TODO: wait for arduino ready signal, then use
-    # 1) https://stackoverflow.com/questions/13017840/using-pyserial-is-it-possible-to-wait-for-data
-    # 2) https://github.com/ksseverson57/campy/blob/master/campy/trigger/arduino.py
-    # 3) https://github.com/ksseverson57/campy/blob/master/campy/trigger/trigger.ino
-    # 4) be sure to use durations https://arduino.stackexchange.com/questions/12587/how-can-i-handle-the-millis-rollover
+    start_time = -np.inf
+    prior_fps = np.nan
+    cur_duration = 0
     try:
         while dpg.is_dearpygui_running():
             dat = {}
@@ -303,9 +334,13 @@ def simple_preview(
                 new_ts = None
                 while True:
                     _dat = _cam.try_pop_frame()
+                    
                     if _dat[0] is None:
                         break
                     else:
+                        if ~np.isfinite(start_time):
+                            start_time = time.perf_counter()
+                        cur_duration = (time.perf_counter() - start_time) / 60.
                         new_frame = _dat[0]
                         new_ts = _dat[1]
                 dat[_id] = (new_frame, new_ts)
@@ -328,26 +363,44 @@ def simple_preview(
                     cameras[_id].count += 1
                     miss_frames = float(cameras[_id].missed_frames)
                     total_frames = float(cameras[_id].total_frames)
-                    cam_fps = cameras[_id].fps
+                    cur_fps = cameras[_id].fps
+                    # if np.isnan(prior_fps):
+                    #     smooth_fps = cur_fps
+                    # else:
+                    #     smooth_fps = .01 * cur_fps + .99 * prior_fps
+                    # prior_fps = smooth_fps
                     percent_missed = (miss_frames / total_frames) * 100
                     dpg.set_value(
                         miss_status[_id],
-                        f"{miss_frames} missed / {total_frames} total ({percent_missed:.1f}% missed)\n{cam_fps:.1f} FPS",
+                        f"{miss_frames} missed / {total_frames} total ({percent_missed:.1f}% missed)\n{cur_fps:.1f} FPS",
                     )
-                    # for k, v in use_queues["storage"].items():
-                    # 	print(v.qsize())
-            time.sleep(0.03)
+                    if "storage" in use_queues.keys():
+                        for k, v in use_queues["storage"].items():
+                            logging.debug(v.qsize())
+            
+            if (duration > 0) and (cur_duration > duration):
+                logging.info(f"Exceeded {duration} minutes, exiting...")
+                break
+            time.sleep(0.005)
             dpg.render_dearpygui_frame()
     finally:
         [_cam.stop_acquisition() for _cam in cameras.values()]
+        if hw_trigger:
+            trigger_dev.stop()
         if acquire:
             # for every camera ID wait until the queue has been written out
+            print("Issuing stop signal...")
             for k, v in use_queues["storage"].items():
-                while v.qsize() > 0:
-                    time.sleep(0.1)
+                v.put(None) # stop signal
+                time.sleep(.1)
+                if v.qsize() is not None:
+                    while v.qsize() > 0:
+                        time.sleep(0.1)
             for _recorder in recorders:
                 _recorder.is_running = 0
                 time.sleep(1)
+        # ensure all files are flushed and closed...
+        [_recorder.close_writer() for _recorder in recorders]
         dpg.destroy_context()
 
 

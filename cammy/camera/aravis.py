@@ -10,18 +10,20 @@ gi.require_version("Aravis", "0.8")
 from gi.repository import Aravis
 
 
+# TODO:
+# 1) Get data from counters and append to timestamp file
 class AravisCamera(CammyCamera):
     def __init__(
         self,
         id: Optional[str],
         buffer_size: int = 1000,
         fake_camera: bool = False,
-        auto_exposure: bool = False,
         queue=None,
         jumbo_frames: bool = True,
+        record_counters: int = 0,
+        fps_tau: float = 5,
         **kwargs,
     ):
-
         super(CammyCamera, self).__init__()
         # prelims for using fake camera
         if fake_camera:
@@ -30,32 +32,45 @@ class AravisCamera(CammyCamera):
 
         self.camera = Aravis.Camera.new(id)
 
+        # NOT USING EXT_IDS just yet
         if jumbo_frames and self.camera.is_gv_device():
             self.camera.gv_set_packet_size(8000)
+        #     ext_ids = self.get_feature('GevGVSPExtendedIDMode')
+        #     if ext_ids.lower() == "off":
+        #         self._frame_id_bit_depth = 16
+        #     else:
+        #         self._frame_id_bit_depth = 64
+        # else:
+        #     self._frame_id_bit_depth = 32
         self.device = self.camera.get_device()
         # self.camera = Aravis.Camera() # THIS IS JUST FOR PYLANCE
-
-        # if not auto_exposure:
-        #     try:
-        #         self.camera.set_exposure_time_auto(0)
-        #         self.camera.set_gain_auto(0)
-        #     except (AttributeError, gi.repository.GLib.GError) as e:
-        #         print(e)
 
         self.logger = logging.getLogger(self.__class__.__name__)
         [x, y, width, height] = self.camera.get_region()
 
         self._payload = self.camera.get_payload()  # size of payload
-        self._genicam = genicam = self.device.get_genicam()  # genicam interface
-        
+        self._genicam = self.device.get_genicam()  # genicam interface
+
         self._width = width
         self._height = height  # stage stream
-        self._tick_frequency = 1e9 # TODO: replace with actual tick frequency from gv interface
+        self._tick_frequency = 1e9  # TODO: replace with actual tick frequency from gv interface
         self.fps = np.nan
         self.frame_count = 0
         self._last_framegrab = np.nan
+
         self.id = id
-        self.stream = self.camera.create_stream()
+
+        counter_names = [
+            "_".join(self.get_counter_parameters(i).values()) for i in range(record_counters)
+        ]
+        if len(counter_names) > 0:
+            self._counters = {_counter: f"Counter{i}" for i, _counter in enumerate(counter_names)}
+            user_data = UserData(counters=counter_names, arv_obj=self)
+            self.stream = self.camera.create_stream(callback, user_data)
+        else:
+            self._counters = {}
+            self.stream = self.camera.create_stream()
+
         self.queue = queue
         self.missed_frames = 0
         self.total_frames = 0
@@ -67,14 +82,18 @@ class AravisCamera(CammyCamera):
         buffer = self.stream.try_pop_buffer()
         if buffer:
             self.total_frames += 1
+            
+            # can potentially use this, are bit depths handled automatically by aravis? 
+            # if all come back as uint64s need to rethink...
+            # print(buffer.get_frame_id())
             status = buffer.get_status()
             if status == Aravis.BufferStatus.TIMEOUT:
-                logging.debug("missed frame")
+                self.logger.debug("missed frame")
                 self.missed_frames += 1
                 frame = None
                 timestamps = None
             elif status == Aravis.BufferStatus.SIZE_MISMATCH:
-                logging.debug("buffer size mismatch")
+                self.logger.debug("buffer size mismatch")
                 self.missed_frames += 1
                 frame = None
                 timestamps = None
@@ -82,11 +101,21 @@ class AravisCamera(CammyCamera):
                 frame = self._array_from_buffer_address(buffer)
                 timestamp = buffer.get_timestamp()
                 system_timestamp = buffer.get_system_timestamp()
-                timestamps = {"device_timestamp": timestamp, "system_timestamp": system_timestamp}
+                timestamps = {
+                    "capture_number": self.total_frames,
+                    "device_timestamp": timestamp,
+                    "system_timestamp": system_timestamp,
+                }
                 grab_time = system_timestamp
                 self.frame_count += 1
                 self.fps = 1 / (((grab_time - self._last_framegrab) / self._tick_frequency) + 1e-12)
+                # self.smooth_fps = (1 - self.fps_alpha) * self.fps + self.fps_alpha * self.prior_fps
+                # self.prior_fps = self.smooth_fps
+
                 self._last_framegrab = grab_time
+                # user_data = buffer.get_user_data()
+                # for k, v in user_data.counter_data.items():
+                #     timestamps[k] = v
                 if self.queue is not None:
                     self.queue.put((frame, timestamps))
             else:
@@ -111,6 +140,22 @@ class AravisCamera(CammyCamera):
         im = np.ctypeslib.as_array(ptr, (buffer.get_image_height(), buffer.get_image_width()))
         im = im.copy()
         return im
+
+    def get_counter_parameters(self, counter_num):
+        param_names = ["CounterEventSource", "CounterEventActivation"]
+        self.set_feature("CounterSelector", f"Counter{counter_num}")
+        params = {key: self.get_feature(key) for key in param_names}
+        return params
+
+    def get_counter_value(self, counter_num):
+        if isinstance(counter_num, int):
+            self.set_feature("CounterSelector", f"Counter{counter_num}")
+        elif isinstance(counter_num, str):
+            self.set_feature("CounterSelector", counter_num)
+        else:
+            raise RuntimeError(f"Did not understand counter {counter_num}")
+
+        return self.get_feature("CounterValue")
 
     # https://github.com/SintefManufacturing/python-aravis/blob/master/aravis.py#L79
     def get_feature_type(self, name):
@@ -170,7 +215,7 @@ class AravisCamera(CammyCamera):
             status = None
             newval = None
 
-        self.logger.info(f"{name} set to {newval}")
+        self.logger.info(f"{self.id} {name} set to {newval}")
 
     def get_all_features(self, node_str="Root", return_dct={}):
         node = self._genicam.get_node(node_str)
@@ -182,3 +227,17 @@ class AravisCamera(CammyCamera):
             return_dct[node_str] = self.get_feature(node_str)
 
         return return_dct
+
+
+class UserData:
+    def __init__(self, counters: Optional[dict], arv_obj: AravisCamera) -> None:
+        self.counters = counters
+        self.counter_data = {}
+        self.camera = arv_obj
+        # need the aravis object to grab counter values...
+
+
+def callback(user_data, cb_type, buffer):
+    if buffer is not None:
+        for k, v in user_data.counters.items():
+            user_data.counter_data[v] = user_data.camera.get_counter_value[k]
