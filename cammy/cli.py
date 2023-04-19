@@ -356,7 +356,7 @@ def simple_preview(
     for _cam in cameras.values():
         _cam.count = 0
 
-    dpg.create_viewport(title="Live preview", width=gui_x_max, height=gui_y_max)
+    dpg.create_viewport(title="Camera preview", width=gui_x_max, height=gui_y_max)
 
     # dpg.set_viewport_vsync(False)
     # dpg.show_metrics()
