@@ -435,6 +435,7 @@ def simple_preview(
             trigger_dev.stop()
         if server and (zsocket is not None):
             # don't wait for the client, just bail (we want this to exit first)
+            logger.info("Sending STOP to client...")
             zsocket.send_pyobj("EXIT", flags=zmq.NOBLOCK)
         if record:
             # for every camera ID wait until the queue has been written out
