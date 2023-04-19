@@ -192,7 +192,7 @@ def simple_preview(
 
         init_timestamp_str = init_timestamp.strftime("%Y%m%d%H%M%S-%f")
 
-        save_path = f"session_{init_timestamp_str} ({hostname})"
+        save_path = os.path.abspath(f"session_{init_timestamp_str} ({hostname})")
         if os.path.exists(save_path):
             raise RuntimeError(f"Directory {save_path} already exists")
         else:
