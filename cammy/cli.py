@@ -283,6 +283,7 @@ def simple_preview(
             )
 
     miss_status = {}
+    fps_status = {}
     for _id, _cam in cameras.items():
         use_config = {}
         for k, v in camera_dct["display"].items():
@@ -304,7 +305,8 @@ def simple_preview(
                     width=(_cam._width // display_downsample) / 3,
                     **{**slider_defaults_max, **use_config["slider_defaults_max"]},
                 )
-            miss_status[_id] = dpg.add_text(f"0 missed frames / 0 total")
+            miss_status[_id] = dpg.add_text("0 missed frames / 0 total")
+            fps_status[_id] = dpg.add_text("0 FPS")
             # add sliders/text boxes for exposure time and fps
 
     gui_x_offset = 0
@@ -412,7 +414,11 @@ def simple_preview(
                     percent_missed = (miss_frames / total_frames) * 100
                     dpg.set_value(
                         miss_status[_id],
-                        f"{miss_frames} missed / {total_frames} total ({percent_missed:.1f}% missed)\n{cur_fps:.1f} FPS",
+                        f"{miss_frames} missed / {total_frames} total ({percent_missed:.1f}% missed)"
+                    )
+                    dpg.set_value(
+                        fps_status[_id],
+                        f"{cur_fps:.1f} FPS",
                     )
                     if "storage" in use_queues.keys():
                         for k, v in use_queues["storage"].items():
