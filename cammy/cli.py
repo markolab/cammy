@@ -68,7 +68,7 @@ txt_pos = (25, 25)
 @cli.command(name="run")
 @click.option("--interface", type=click.Choice(["aravis", "fake_custom", "all"]), default="all")
 @click.option("--n-fake-cameras", type=int, default=1)
-@click.option("--acquire", is_flag=True, help="Save frames to disk")
+@click.option("--record", is_flag=True, help="Save frames to disk")
 @click.option("--jumbo-frames", default=True, type=bool, help="Turn on jumbo frames (GigE only)")
 @click.option("--save-engine", type=click.Choice(["ffmpeg", "raw"]), default="raw", help="Save raw frames or compressed frames using ffmpeg")
 @click.option("--display-downsample", type=int, default=1, help="Downsample frames for display (full data is saved)")
@@ -90,7 +90,7 @@ def simple_preview(
     interface: str,
     n_fake_cameras: int,
     camera_options: Optional[str],
-    acquire: bool,
+    record: bool,
     jumbo_frames: bool,
     save_engine: str,
     display_downsample: int,
@@ -104,20 +104,29 @@ def simple_preview(
     fps_tau: float,
     server: bool,
 ):
+
+    cli_params = locals()
+
     import dearpygui.dearpygui as dpg
     import cv2
     import socket
     import datetime
+    import zmq
 
-    cli_parameters = locals()
     hostname = socket.gethostname()
 
     if server:
-        import zmq
         context = zmq.Context()
-        zsocket = context.socket(zmq.REP)
+        zsocket = context.socket(zmq.PAIR)
         zsocket.bind("tcp://*:50165")
-        zsocket.send(cli_parameters, flags=zmq.NOBLOCK)
+        
+        # communicate state of program
+        logger.info("Sending CLI parameters to client...")
+        zsocket.send_pyobj(cli_params)
+        logger.info("Done")
+    else:
+        zsocket = None
+    
 
     if display_colormap is None:
         display_colormap = mpl_to_cv2_colormap(colormap_default)
@@ -161,7 +170,7 @@ def simple_preview(
     else:
         trigger_dev = None
 
-    if acquire:
+    if record:
         # from parameters construct single names...
         use_queues = get_queues(list(ids.keys()))
         basedir = os.path.dirname(os.path.abspath(__file__))
@@ -246,6 +255,18 @@ def simple_preview(
     else:
         show_fields = {}
         use_queues = {}
+        save_path = None
+        recording_metadata = None
+
+
+    if server and (zsocket is not None):
+        #  wait for ready signal
+        # msg = zsocket.recv_pyobj()
+        # communicate save path (by now it's been created)
+        logger.info("Sending save path to client...")
+        zsocket.send_pyobj(save_path)
+        logger.info("Done")
+    
 
     with dpg.texture_registry(show=False):
         for _id, _cam in cameras.items():
@@ -308,6 +329,15 @@ def simple_preview(
             gui_y_offset += height
         else:
             gui_x_offset += width
+
+
+    if server and (zsocket is not None):
+        start_signal = zsocket.recv_pyobj()
+        if start_signal == "START":
+            logging.info("Sleeping for 5 seconds before starting acquisition...")
+            time.sleep(5) # allow fudge factor for other program to start
+        else:
+            raise RuntimeError(f"Did not understand signal {start_signal}")
 
     [_cam.start_acquisition() for _cam in cameras.values()]
 
@@ -395,11 +425,12 @@ def simple_preview(
             dpg.render_dearpygui_frame()
     finally:
         [_cam.stop_acquisition() for _cam in cameras.values()]
-        if hw_trigger:
+        if hw_trigger and (trigger_dev is not None):
             trigger_dev.stop()
-        if server:
-            zsocket.send("EXIT", flags=zmq.NOBLOCK)
-        if acquire:
+        if server and (zsocket is not None):
+            # don't wait for the client, just bail (we want this to exit first)
+            zsocket.send_pyobj("EXIT", flags=zmq.NOBLOCK)
+        if record:
             # for every camera ID wait until the queue has been written out
             print("Issuing stop signal...")
             for k, v in use_queues["storage"].items():
