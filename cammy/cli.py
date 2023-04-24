@@ -418,7 +418,7 @@ def simple_preview(
                     )
                     dpg.set_value(
                         fps_status[_id],
-                        f"{cur_fps:.1f} FPS",
+                        f"{cur_fps:.0f} FPS",
                     )
                     if "storage" in use_queues.keys():
                         for k, v in use_queues["storage"].items():
@@ -427,6 +427,14 @@ def simple_preview(
             if (duration > 0) and (cur_duration > duration):
                 logging.info(f"Exceeded {duration} minutes, exiting...")
                 break
+            if server and (zsocket is not None):
+                try:
+                    dat = zsocket.recv_pyobj(flags=zmq.NOBLOCK)
+                    if dat == "EXIT":
+                        logger.info("Received stop signal, exiting...")
+                        break
+                except zmq.Again:
+                    pass
             time.sleep(0.005)
             dpg.render_dearpygui_frame()
     finally:
