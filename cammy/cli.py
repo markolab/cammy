@@ -381,12 +381,12 @@ def simple_preview(
                         break
                     else:
                         if ~np.isfinite(start_time):
-                            start_time = time.perf_counter()
-                        cur_duration = (time.perf_counter() - start_time) / 60.
+                            start_time = time.perf_counter()                        
                         new_frame = _dat[0]
                         new_ts = _dat[1]
                 dat[_id] = (new_frame, new_ts)
 
+            cur_duration = (time.perf_counter() - start_time) / 60.
             for _id, _dat in dat.items():
                 if _dat[0] is not None:
                     disp_min = dpg.get_value(f"texture_{_id}_min")
@@ -424,7 +424,7 @@ def simple_preview(
                         for k, v in use_queues["storage"].items():
                             logging.debug(v.qsize())
             
-            if (duration > 0) and (cur_duration > duration):
+            if np.isfinite(cur_duration) and (duration > 0) and (cur_duration > duration):
                 logging.info(f"Exceeded {duration} minutes, exiting...")
                 break
             if server and (zsocket is not None):
