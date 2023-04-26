@@ -27,20 +27,12 @@ from cammy.util import (
     mpl_to_cv2_colormap,
     check_counters_equal
 )
-from cammy.camera.aravis import AravisCamera
-from cammy.camera.fake import FakeCamera
 from cammy.record.video import FfmpegVideoRecorder, RawVideoRecorder
 
 
 @click.group()
 def cli():
     pass
-
-
-@cli.command(name="aravis-load-settings")
-def aravis_load_settings():
-    # loads settings into camera memory
-    raise NotImplementedError
 
 
 slider_defaults_min = {
@@ -78,7 +70,6 @@ txt_pos = (25, 25)
 @click.option("--hw-trigger-pin-last", type=int, default=13, help="Final dig out pin to use on Arduino")
 @click.option("--record-counters", type=int, default=0, help="Record counter data")
 @click.option("--duration", type=float, default=0, help="Run for N minutes")
-@click.option("--fps-tau", type=float, default=5., help="Smoothing time constant (in seconds) for FPS (display only)")
 @click.option(
     "--camera-options",
     type=click.Path(resolve_path=True),
@@ -98,10 +89,8 @@ def simple_preview(
     hw_trigger: bool,
     hw_trigger_rate: float,
     hw_trigger_pin_last: int,
-    # counters_name,
     record_counters: int,
     duration: float,
-    fps_tau: float,
     server: bool,
 ):
 
