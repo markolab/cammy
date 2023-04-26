@@ -27,20 +27,12 @@ from cammy.util import (
     mpl_to_cv2_colormap,
     check_counters_equal
 )
-from cammy.camera.aravis import AravisCamera
-from cammy.camera.fake import FakeCamera
 from cammy.record.video import FfmpegVideoRecorder, RawVideoRecorder
 
 
 @click.group()
 def cli():
     pass
-
-
-@cli.command(name="aravis-load-settings")
-def aravis_load_settings():
-    # loads settings into camera memory
-    raise NotImplementedError
 
 
 slider_defaults_min = {
@@ -68,7 +60,7 @@ txt_pos = (25, 25)
 @cli.command(name="run")
 @click.option("--interface", type=click.Choice(["aravis", "fake_custom", "all"]), default="all")
 @click.option("--n-fake-cameras", type=int, default=1)
-@click.option("--acquire", is_flag=True, help="Save frames to disk")
+@click.option("--record", is_flag=True, help="Save frames to disk")
 @click.option("--jumbo-frames", default=True, type=bool, help="Turn on jumbo frames (GigE only)")
 @click.option("--save-engine", type=click.Choice(["ffmpeg", "raw"]), default="raw", help="Save raw frames or compressed frames using ffmpeg")
 @click.option("--display-downsample", type=int, default=1, help="Downsample frames for display (full data is saved)")
@@ -78,18 +70,18 @@ txt_pos = (25, 25)
 @click.option("--hw-trigger-pin-last", type=int, default=13, help="Final dig out pin to use on Arduino")
 @click.option("--record-counters", type=int, default=0, help="Record counter data")
 @click.option("--duration", type=float, default=0, help="Run for N minutes")
-@click.option("--fps-tau", type=float, default=5., help="Smoothing time constant (in seconds) for FPS (display only)")
 @click.option(
     "--camera-options",
     type=click.Path(resolve_path=True),
     default="camera_options.toml",
     help="TOML file with camera options",
 )
+@click.option("--server", is_flag=True, help="Activate ZMQ server to send data to and control other python scripts")
 def simple_preview(
     interface: str,
     n_fake_cameras: int,
     camera_options: Optional[str],
-    acquire: bool,
+    record: bool,
     jumbo_frames: bool,
     save_engine: str,
     display_downsample: int,
@@ -97,17 +89,33 @@ def simple_preview(
     hw_trigger: bool,
     hw_trigger_rate: float,
     hw_trigger_pin_last: int,
-    # counters_name,
     record_counters: int,
     duration: float,
-    fps_tau: float,
+    server: bool,
 ):
+
+    cli_params = locals()
+
     import dearpygui.dearpygui as dpg
     import cv2
     import socket
     import datetime
-        
+    import zmq
+
     hostname = socket.gethostname()
+
+    if server:
+        context = zmq.Context()
+        zsocket = context.socket(zmq.PAIR)
+        zsocket.bind("tcp://*:50165")
+        
+        # communicate state of program
+        logger.info("Sending CLI parameters to client...")
+        zsocket.send_pyobj(cli_params)
+        logger.info("Done")
+    else:
+        zsocket = None
+    
 
     if display_colormap is None:
         display_colormap = mpl_to_cv2_colormap(colormap_default)
@@ -151,7 +159,7 @@ def simple_preview(
     else:
         trigger_dev = None
 
-    if acquire:
+    if record:
         # from parameters construct single names...
         use_queues = get_queues(list(ids.keys()))
         basedir = os.path.dirname(os.path.abspath(__file__))
@@ -173,7 +181,7 @@ def simple_preview(
 
         init_timestamp_str = init_timestamp.strftime("%Y%m%d%H%M%S-%f")
 
-        save_path = f"session_{init_timestamp_str} ({hostname})"
+        save_path = os.path.abspath(f"session_{init_timestamp_str} ({hostname})")
         if os.path.exists(save_path):
             raise RuntimeError(f"Directory {save_path} already exists")
         else:
@@ -236,6 +244,18 @@ def simple_preview(
     else:
         show_fields = {}
         use_queues = {}
+        save_path = None
+        recording_metadata = None
+
+
+    if server and (zsocket is not None):
+        #  wait for ready signal
+        # msg = zsocket.recv_pyobj()
+        # communicate save path (by now it's been created)
+        logger.info("Sending save path to client...")
+        zsocket.send_pyobj(save_path)
+        logger.info("Done")
+    
 
     with dpg.texture_registry(show=False):
         for _id, _cam in cameras.items():
@@ -252,6 +272,7 @@ def simple_preview(
             )
 
     miss_status = {}
+    fps_status = {}
     for _id, _cam in cameras.items():
         use_config = {}
         for k, v in camera_dct["display"].items():
@@ -259,7 +280,7 @@ def simple_preview(
                 use_config = v
 
         with dpg.window(
-            label=f"Camera {_id}", tag=f"Camera {_id}"
+            label=f"Camera {_id}", tag=f"Camera {_id}", no_collapse=True, no_scrollbar=True
         ):
             dpg.add_image(f"texture_{_id}")
             with dpg.group(horizontal=True):
@@ -273,7 +294,8 @@ def simple_preview(
                     width=(_cam._width // display_downsample) / 3,
                     **{**slider_defaults_max, **use_config["slider_defaults_max"]},
                 )
-            miss_status[_id] = dpg.add_text(f"0 missed frames / 0 total")
+            miss_status[_id] = dpg.add_text("0 missed frames / 0 total")
+            fps_status[_id] = dpg.add_text("0 FPS")
             # add sliders/text boxes for exposure time and fps
 
     gui_x_offset = 0
@@ -299,6 +321,15 @@ def simple_preview(
         else:
             gui_x_offset += width
 
+
+    if server and (zsocket is not None):
+        start_signal = zsocket.recv_pyobj()
+        if start_signal == "START":
+            logging.info("Sleeping for 5 seconds before starting acquisition...")
+            time.sleep(5) # allow fudge factor for other program to start
+        else:
+            raise RuntimeError(f"Did not understand signal {start_signal}")
+
     [_cam.start_acquisition() for _cam in cameras.values()]
 
     # if using a hardware trigger, send out signals now...
@@ -314,7 +345,7 @@ def simple_preview(
     for _cam in cameras.values():
         _cam.count = 0
 
-    dpg.create_viewport(title="Live preview", width=gui_x_max, height=gui_y_max)
+    dpg.create_viewport(title="Camera preview", width=gui_x_max, height=gui_y_max)
 
     # dpg.set_viewport_vsync(False)
     # dpg.show_metrics()
@@ -339,12 +370,12 @@ def simple_preview(
                         break
                     else:
                         if ~np.isfinite(start_time):
-                            start_time = time.perf_counter()
-                        cur_duration = (time.perf_counter() - start_time) / 60.
+                            start_time = time.perf_counter()                        
                         new_frame = _dat[0]
                         new_ts = _dat[1]
                 dat[_id] = (new_frame, new_ts)
 
+            cur_duration = (time.perf_counter() - start_time) / 60.
             for _id, _dat in dat.items():
                 if _dat[0] is not None:
                     disp_min = dpg.get_value(f"texture_{_id}_min")
@@ -372,22 +403,38 @@ def simple_preview(
                     percent_missed = (miss_frames / total_frames) * 100
                     dpg.set_value(
                         miss_status[_id],
-                        f"{miss_frames} missed / {total_frames} total ({percent_missed:.1f}% missed)\n{cur_fps:.1f} FPS",
+                        f"{miss_frames} missed / {total_frames} total ({percent_missed:.1f}% missed)"
+                    )
+                    dpg.set_value(
+                        fps_status[_id],
+                        f"{cur_fps:.0f} FPS",
                     )
                     if "storage" in use_queues.keys():
                         for k, v in use_queues["storage"].items():
                             logging.debug(v.qsize())
             
-            if (duration > 0) and (cur_duration > duration):
+            if np.isfinite(cur_duration) and (duration > 0) and (cur_duration > duration):
                 logging.info(f"Exceeded {duration} minutes, exiting...")
                 break
+            if server and (zsocket is not None):
+                try:
+                    dat = zsocket.recv_pyobj(flags=zmq.NOBLOCK)
+                    if dat == "EXIT":
+                        logger.info("Received stop signal, exiting...")
+                        break
+                except zmq.Again:
+                    pass
             time.sleep(0.005)
             dpg.render_dearpygui_frame()
     finally:
         [_cam.stop_acquisition() for _cam in cameras.values()]
-        if hw_trigger:
+        if hw_trigger and (trigger_dev is not None):
             trigger_dev.stop()
-        if acquire:
+        if server and (zsocket is not None):
+            # don't wait for the client, just bail (we want this to exit first)
+            logger.info("Sending STOP to client...")
+            zsocket.send_pyobj("EXIT", flags=zmq.NOBLOCK)
+        if record:
             # for every camera ID wait until the queue has been written out
             print("Issuing stop signal...")
             for k, v in use_queues["storage"].items():
