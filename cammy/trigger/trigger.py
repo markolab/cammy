@@ -29,7 +29,19 @@ class TriggerDevice:
 
     def open(self):
         self.dev = serial.Serial(port=self.com, baudrate=self.baudrate, timeout=None, write_timeout=2)
+        self.dev.setDTR(False)
+        time.sleep(.05)
+        self.dev.reset_input_buffer()
+        self.dev.setDTR(True)
+        while True:
+            if self.dev.in_waiting:
+                time.sleep(2)
+                self.logger.info(f"Arduino msg: {self.dev.read_all().decode()}")
+                break
+        # self.logger.info(f"Arduino msg: {self.dev.read_all().decode()}")
 
+
+    
     def stop(self):
         command_list = (
             [len(self.command_params["pins"])]
@@ -37,11 +49,15 @@ class TriggerDevice:
             + [0., 0.] # frsame_rate = 0, max_pulses = 0 should set all pins low
         )
         command_string = ",".join(str(_) for _ in command_list)
-        self.logger.info(f"Sending command string {command_list} to Arduino")
+        self.logger.info(f"Sending command string {command_string} to Arduino")
         # open the device if we haven't yet
         if self.dev is not None:
             self.dev.write(command_string.encode())
-            # flush here?
+            while True:
+                if self.dev.in_waiting:
+                    time.sleep(2)
+                    self.logger.info(f"Arduino msg: {self.dev.read_all().decode()}")
+                    break
 
 
     def start(self):
@@ -59,8 +75,14 @@ class TriggerDevice:
 
         if self.dev is None:
             raise RuntimeError("No serial device open...")
-        self.logger.info(f"Sending command string {command_list} to Arduino")
+        self.logger.info(f"Sending command string {command_string} to Arduino")
         self.dev.write(command_string.encode())
+        while True:
+            if self.dev.in_waiting:
+                time.sleep(2)
+                self.logger.info(f"Arduino msg: {self.dev.read_all().decode()}")
+                break
+
 
 
 def select_serial_port():
