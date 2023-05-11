@@ -182,14 +182,7 @@ def simple_preview(
         init_timestamp_str = init_timestamp.strftime("%Y%m%d%H%M%S-%f")
 
         save_path = os.path.abspath(f"session_{init_timestamp_str} ({hostname})")
-        if os.path.exists(save_path):
-            raise RuntimeError(f"Directory {save_path} already exists")
-        else:
-            # dump in metadata
-            os.makedirs(save_path)
-            with open(os.path.join(save_path, "metadata.toml"), "w") as f:
-                toml.dump(recording_metadata, f)
-
+ 
         settings_tags = {}
         settings_vals = {}
         with dpg.window(width=500, height=300, no_resize=True, tag="settings"):
@@ -212,6 +205,15 @@ def simple_preview(
         dpg.start_dearpygui()
         dpg.destroy_context()
 
+        recording_metadata["user_input"] = settings_vals
+
+        if os.path.exists(save_path):
+            raise RuntimeError(f"Directory {save_path} already exists")
+        else:
+            # dump in metadata
+            os.makedirs(save_path)
+            with open(os.path.join(save_path, "metadata.toml"), "w") as f:
+                toml.dump(recording_metadata, f)
         # start a new context for acquisition
         dpg.create_context()
 
