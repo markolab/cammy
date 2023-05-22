@@ -25,8 +25,13 @@ def get_all_camera_ids(interface="aravis", n_cams=1):
 
 
 def get_pixel_format_bit_depth(pixel_format):
+    spoof_ims = {}
     if pixel_format in ("Mono16", "Coord3D_C16"):
         bit_depth = 16
+    elif pixel_format in ("Coord3D_C16Y8"):
+        # 24 bit, first 16 bits are depth, last 8 bits are IR
+        bit_depth = 16
+        spoof_ims = {"ir": 8} # spoof multiple cameras...
     elif pixel_format == "Mono12":
         bit_depth = 12
     elif pixel_format == "Mono8":
@@ -34,7 +39,7 @@ def get_pixel_format_bit_depth(pixel_format):
     else:
         raise RuntimeError(f"Did not understand pixel format {pixel_format}")
 
-    return bit_depth
+    return bit_depth, spoof_ims
 
 
 def get_queues(ids=None) -> dict:
