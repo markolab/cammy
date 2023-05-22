@@ -44,6 +44,15 @@ class SpoofCamera(CammyCamera):
 
      
         return buffer
+    
+
+    def start_acquisition(self):
+        pass
+
+    def stop_acquisition(self):
+        pass
+
+     
 
 
 
