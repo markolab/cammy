@@ -144,3 +144,26 @@ def check_counters_equal(ncounters, cameras):
                     continue
                 if v != v2:
                     raise RuntimeError(f"Counter settings for {k} and {k2} not equivalent: {v} != {v2}")
+
+
+def get_single_buffer(config):
+    import toml
+    
+    config_dct = toml.load(config)
+    id = get_all_camera_ids("aravis")[0]
+    camera = initialize_camera(id, "aravis", config=config_dct)
+    camera.start_acquisition()
+
+    buffer = None
+    while not buffer:
+        buffer = camera.stream.try_pop_buffer()
+        if buffer:
+            status = buffer.get_status()
+            if status == Aravis.BufferStatus.SUCCESS:
+                break
+            else:
+                buffer = None
+
+    camera.stop_acquisition()
+    return buffer
+   
