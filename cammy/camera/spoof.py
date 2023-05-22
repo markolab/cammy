@@ -20,11 +20,11 @@ class SpoofCamera(CammyCamera):
   
 
         self.camera = id
+        self.id = id
         self.logger = logging.getLogger(self.__class__.__name__)
 
         self.frame_count = 0
         self._last_framegrab = np.nan
-
         self.fps = None
         self.queue = queue
         self.missed_frames = 0
@@ -36,14 +36,21 @@ class SpoofCamera(CammyCamera):
 
     # WE GET COPIES FROM OTHER CAMERAS, SIMPLY PUBLISH THEM
     def try_pop_frame(self):
+        # don't grab twice!
         buffer = copy.deepcopy(self.buffer)
+        self.buffer = None
         if (self.queue is not None) and (buffer is not None):
+            self.total_frames += 1
             frame, timestamps = buffer
             self.queue.put((frame, timestamps))
-            self.frame_count += 1
-
-     
-        return buffer
+            # self.frame_count += 1
+            return frame, timestamps
+        elif buffer is not None:
+            self.total_frames += 1
+            frame, timestamps = buffer
+            return frame, timestamps
+        else:
+            return None, None
     
 
     def start_acquisition(self):

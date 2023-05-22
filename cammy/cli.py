@@ -141,13 +141,14 @@ def simple_preview(
     bit_depth = {}
     spoof_cameras = {}
     trigger_pins = []
+    import copy
     cameras = initialize_cameras(ids, camera_dct, jumbo_frames=jumbo_frames, record_counters=record_counters)
     for i, (k, v) in enumerate(cameras.items()):
         feature_dct = v.get_all_features()
         feature_dct = dict(sorted(feature_dct.items()))
         
         # make sure we set so we know how to decode frame buffers
-        v.pixel_format = feature_dct["PixelFormat"]
+        v._pixel_format = feature_dct["PixelFormat"]
         _bit_depth, _spoof_ims = get_pixel_format_bit_depth(feature_dct["PixelFormat"])
         bit_depth[k] = _bit_depth
         cameras_metadata[k] = feature_dct
@@ -157,6 +158,10 @@ def simple_preview(
             spoof_cameras[new_id] = SpoofCamera(id = new_id)
             spoof_cameras[new_id]._width = v._width
             spoof_cameras[new_id]._height = v._height
+            # spoof_cameras[new_id].missed_frames = copy.copy(v.missed_frames)
+            # spoof_cameras[new_id].total_frames = copy.copy(v.total_frames)
+            # spoof_cameras[new_id].fps= copy.copy(v.fps)
+
             bit_depth[new_id] = _spoof_bit_depth
             v._spoof_cameras.append(spoof_cameras[new_id])
 
@@ -423,10 +428,11 @@ def simple_preview(
                         miss_status[_id],
                         f"{miss_frames} missed / {total_frames} total ({percent_missed:.1f}% missed)"
                     )
-                    dpg.set_value(
-                        fps_status[_id],
-                        f"{cur_fps:.0f} FPS",
-                    )
+                    if cur_fps is not None:
+                        dpg.set_value(
+                            fps_status[_id],
+                            f"{cur_fps:.0f} FPS",
+                        )
                     if "storage" in use_queues.keys():
                         for k, v in use_queues["storage"].items():
                             logging.debug(v.qsize())

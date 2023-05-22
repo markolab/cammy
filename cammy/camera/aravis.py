@@ -110,7 +110,7 @@ class AravisCamera(CammyCamera):
                     "system_timestamp": system_timestamp,
                 }
                 if isinstance(frame, tuple):
-                    for _frame, _cam in zip(frame[1:], self._spoof_cams):
+                    for _frame, _cam in zip(frame[1:], self._spoof_cameras):
                         # send _frame and timestamps...        
                         _cam.buffer = (_frame, timestamps)
                     # now proceed as if we only collected the first...
