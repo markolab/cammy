@@ -149,9 +149,14 @@ def check_counters_equal(ncounters, cameras):
 def get_single_buffer(config):
     import toml
     
-    config_dct = toml.load(config)
-    id = get_all_camera_ids("aravis")[0]
-    camera = initialize_camera(id, "aravis", config=config_dct)
+    configs = toml.load(config)
+    use_config = {} 
+    id = list(get_all_camera_ids("aravis").keys())[0]
+    for k, v in configs["genicam"].items():
+            for k2, v2 in v.items():
+                if k in id:
+                    use_config = {**use_config, **v2}
+    camera = initialize_camera(id, "aravis", config=use_config)
     camera.start_acquisition()
 
     buffer = None
