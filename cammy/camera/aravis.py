@@ -21,6 +21,7 @@ class AravisCamera(CammyCamera):
         queue=None,
         jumbo_frames: bool = True,
         record_counters: int = 0,
+        pixel_format: str = "MONO16",
         fps_tau: float = 5,
         **kwargs,
     ):
@@ -56,7 +57,9 @@ class AravisCamera(CammyCamera):
         self._tick_frequency = 1e9  # TODO: replace with actual tick frequency from gv interface
         self.fps = np.nan
         self.frame_count = 0
+        self._pixel_format = pixel_format
         self._last_framegrab = np.nan
+        self._spoof_cameras = [] # we use these to push extra images
 
         self.id = id
 
@@ -106,6 +109,13 @@ class AravisCamera(CammyCamera):
                     "device_timestamp": timestamp,
                     "system_timestamp": system_timestamp,
                 }
+                if isinstance(frame, tuple):
+                    for _frame, _cam in zip(frame[1:], self._spoof_cams):
+                        # send _frame and timestamps...        
+                        _cam.buffer = (_frame, timestamps)
+                    # now proceed as if we only collected the first...
+                    frame = frame[0]
+                
                 grab_time = system_timestamp
                 self.frame_count += 1
                 self.fps = 1 / (((grab_time - self._last_framegrab) / self._tick_frequency) + 1e-12)
@@ -131,14 +141,31 @@ class AravisCamera(CammyCamera):
             return None
         pixel_format = buffer.get_image_pixel_format()
         bits_per_pixel = pixel_format >> 16 & 0xFF
-        if bits_per_pixel == 8:
+        if (bits_per_pixel == 8) & (self._pixel_format == "MONO8"):
             INTP = ctypes.POINTER(ctypes.c_uint8)
-        else:
+            addr = buffer.get_data()
+            ptr = ctypes.cast(addr, INTP)
+            im = np.ctypeslib.as_array(ptr, (buffer.get_image_height(), buffer.get_image_width()))
+            im = im.copy()
+        elif (bits_per_pixel == 16) & (self._pixel_format in ("MONO16", "Coord3D_C16")):
             INTP = ctypes.POINTER(ctypes.c_uint16)
-        addr = buffer.get_data()
-        ptr = ctypes.cast(addr, INTP)
-        im = np.ctypeslib.as_array(ptr, (buffer.get_image_height(), buffer.get_image_width()))
-        im = im.copy()
+            addr = buffer.get_data()
+            ptr = ctypes.cast(addr, INTP)
+            im = np.ctypeslib.as_array(ptr, (buffer.get_image_height(), buffer.get_image_width()))
+            im = im.copy()
+        elif (bits_per_pixel == 24) & (self._pixel_format in ("Coord3D_C16Y8")):
+            INTP = ctypes.POINTER(ctypes.c_uint8 * 3) 
+            addr = buffer.get_data()
+            ptr = ctypes.cast(addr, INTP)
+            # return 3 8 bit images, pack first two in 16 bit depth image, last is IR
+            im = np.ctypeslib.as_array(ptr, (buffer.get_image_height(), buffer.get_image_width()))
+            im = im.astype("uint16").copy()
+            im1 = im[:,:,1]<<8 | im[:,:,0]
+            im2 = im[:,:,2].astype("uint8")
+            im = (im1, im2)
+        else:
+            raise RuntimeError(f"No unpacking strategy for {bits_per_pixel} bits with {self._pixel_format} format")
+        
         return im
 
     def get_counter_parameters(self, counter_num):

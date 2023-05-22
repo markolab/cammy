@@ -28,7 +28,7 @@ from cammy.util import (
     check_counters_equal
 )
 from cammy.record.video import FfmpegVideoRecorder, RawVideoRecorder
-
+from cammy.camera.spoof import SpoofCamera
 
 @click.group()
 def cli():
@@ -139,14 +139,30 @@ def simple_preview(
 
     cameras_metadata = {}
     bit_depth = {}
+    spoof_cameras = {}
     trigger_pins = []
     cameras = initialize_cameras(ids, camera_dct, jumbo_frames=jumbo_frames, record_counters=record_counters)
     for i, (k, v) in enumerate(cameras.items()):
         feature_dct = v.get_all_features()
         feature_dct = dict(sorted(feature_dct.items()))
-        bit_depth[k] = get_pixel_format_bit_depth(feature_dct["PixelFormat"])
+        
+        # make sure we set so we know how to decode frame buffers
+        v.pixel_format = feature_dct["PixelFormat"]
+        _bit_depth, _spoof_ims = get_pixel_format_bit_depth(feature_dct["PixelFormat"])
+        bit_depth[k] = _bit_depth
         cameras_metadata[k] = feature_dct
         trigger_pins.append(hw_trigger_pin_last - i) # work backwards from last
+        for _spoof_name, _spoof_bit_depth in _spoof_ims.items():
+            new_id = f"{k}-{_spoof_name}"
+            spoof_cameras[new_id] = SpoofCamera(id = new_id)
+            spoof_cameras[new_id]._width = v._width
+            spoof_cameras[new_id]._height = v._height
+            bit_depth[new_id] = _spoof_bit_depth
+            v._spoof_cameras.append(spoof_cameras[new_id])
+
+    # merge in spoof cameras, should be no key collisions
+    cameras = cameras | spoof_cameras 
+    ids = ids | {_id: "spoof" for _id in spoof_cameras.keys()}
 
     dpg.create_context()
     recorders = []
