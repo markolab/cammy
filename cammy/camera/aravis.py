@@ -112,7 +112,7 @@ class AravisCamera(CammyCamera):
                 if isinstance(frame, tuple):
                     for _frame, _cam in zip(frame[1:], self._spoof_cameras):
                         # send _frame and timestamps...        
-                        _cam.recv_buffer.put((_frame, timestamps))
+                        _cam.recv_queue.put((_frame, timestamps))
                     # now proceed as if we only collected the first...
                     frame = frame[0]
                 
