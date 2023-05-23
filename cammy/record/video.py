@@ -46,7 +46,7 @@ class FfmpegVideoRecorder(BaseRecord):
                filename]
 		self.logger.debug(f"ffmpeg command: {command}")
 		self._command = command
-		self.queue = queue
+		self.save_queue = save_queue
 		# self.is_running = multiprocessing.Value("i", 0)
 		self.id = id
 		basefile = os.path.splitext(filename)[0]
@@ -95,13 +95,13 @@ class RawVideoRecorder(BaseRecord):
 		filename="test.dat",
 		timestamp_fields=["device_timestamp", "system_timestamp"],
 		write_dtype="uint16",
-		queue=None,
+		save_queue=None,
 	):
 
 		super(BaseRecord, self).__init__()
 		self.logger = logging.getLogger(self.__class__.__name__)
 
-		self.queue = queue
+		self.save_queue = save_queue
 		self.id = id
 		basefile = os.path.splitext(filename)[0]
 		filename_timestamps = f"{basefile}.txt"
