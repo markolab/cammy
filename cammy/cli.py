@@ -474,5 +474,46 @@ def simple_preview(
         dpg.destroy_context()
 
 
+
+@cli.command(name="save-intrinsics")
+@click.argument("filename", type=click.Path(exists=False))
+@click.option("--interface", type=click.Choice(["aravis", "fake_custom", "all"]), default="all")
+def simple_preview(
+    filename: str,
+    interface: str,
+):
+
+    ids = get_all_camera_ids(interface, n_cams=n_fake_cameras)
+    cameras = initialize_cameras(ids, configs={})
+
+    intrinsics = {}
+
+    param_names = [
+        "CalibFocalLengthX",
+        "CalibFocalLengthY",
+        "CalibOpticalCenterX",
+        "CalibOpticalCenterY",
+    ]
+
+    distortion_vals = [
+        "k1",
+        "k2",
+        "p1",
+        "p2",
+        "k3"
+    ]
+
+    for k, v in cameras.items():
+        intrinsics[k] = {}
+        for _param in param_names:
+            intrinsics[k][_param] = v.get_feature(_param)
+        for i, _name in enumerate(distortion_vals):
+            v.set_feature("CalibLensDistortionValueSelector", i)
+            intrinsics[k][_name].get_feature("CalibLensDistortionValue")
+    
+    with open(filename, "w") as f:
+        toml.dump(intrinsics, f)
+
+
 if __name__ == "__main__":
     cli()
