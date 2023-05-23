@@ -165,6 +165,9 @@ def simple_preview(
     cameras = cameras | spoof_cameras 
     ids = ids | {_id: "spoof" for _id in spoof_cameras.keys()}
 
+    cameras = dict(sorted(cameras.items()))
+    ids = dict(sorted(ids.items()))
+
     dpg.create_context()
     recorders = []
     write_dtype = {}
