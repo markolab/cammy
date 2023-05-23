@@ -18,7 +18,7 @@ class AravisCamera(CammyCamera):
         id: Optional[str],
         buffer_size: int = 1000,
         fake_camera: bool = False,
-        queue=None,
+        save_queue=None,
         jumbo_frames: bool = True,
         record_counters: int = 0,
         pixel_format: str = "MONO16",
@@ -74,7 +74,7 @@ class AravisCamera(CammyCamera):
             self._counters = {}
             self.stream = self.camera.create_stream()
 
-        self.queue = queue
+        self.save_queue = save_queue
         self.missed_frames = 0
         self.total_frames = 0
         for i in range(buffer_size):
@@ -112,7 +112,7 @@ class AravisCamera(CammyCamera):
                 if isinstance(frame, tuple):
                     for _frame, _cam in zip(frame[1:], self._spoof_cameras):
                         # send _frame and timestamps...        
-                        _cam.buffer = (_frame, timestamps)
+                        _cam.recv_buffer.put((_frame, timestamps))
                     # now proceed as if we only collected the first...
                     frame = frame[0]
                 
@@ -126,8 +126,8 @@ class AravisCamera(CammyCamera):
                 # user_data = buffer.get_user_data()
                 # for k, v in user_data.counter_data.items():
                 #     timestamps[k] = v
-                if self.queue is not None:
-                    self.queue.put((frame, timestamps))
+                if self.save_queue is not None:
+                    self.save_queue.put((frame, timestamps))
             else:
                 raise RuntimeError(f"Did not understand status: {status}")
             self.stream.push_buffer(buffer)

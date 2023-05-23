@@ -5,9 +5,9 @@ from pickle import UnpicklingError
 
 # simple data writer, should be general enough to take 1d/2d/etc. data
 class BaseRecord(multiprocessing.Process):
-	def __init__(self, queue, filename):
+	def __init__(self, save_queue, filename):
 		multiprocessing.Process.__init__(self)
-		self.queue = queue
+		self.save_queue = save_queue
 		self.is_running = multiprocessing.Value("i", 0)
 		self.id = id
 		self.filename=filename
@@ -32,7 +32,7 @@ class BaseRecord(multiprocessing.Process):
 			if bool(self.is_running):
 				dat = None			
 				try:
-					dat = self.queue.get_nowait()
+					dat = self.save_queue.get_nowait()
 				except (queue.Empty, KeyboardInterrupt, EOFError, UnpicklingError):
 					continue
 

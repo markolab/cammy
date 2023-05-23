@@ -158,10 +158,6 @@ def simple_preview(
             spoof_cameras[new_id] = SpoofCamera(id = new_id)
             spoof_cameras[new_id]._width = v._width
             spoof_cameras[new_id]._height = v._height
-            # spoof_cameras[new_id].missed_frames = copy.copy(v.missed_frames)
-            # spoof_cameras[new_id].total_frames = copy.copy(v.total_frames)
-            # spoof_cameras[new_id].fps= copy.copy(v.fps)
-
             bit_depth[new_id] = _spoof_bit_depth
             v._spoof_cameras.append(spoof_cameras[new_id])
 
@@ -240,20 +236,20 @@ def simple_preview(
 
         # dump settings to toml file (along with start time of recording and hostname)
         for _id, _cam in cameras.items():
-            cameras[_id].queue = use_queues["storage"][_id]
+            cameras[_id].save_queue = use_queues["storage"][_id]
             timestamp_fields = ["capture_number", "device_timestamp", "system_timestamp"]
             if save_engine == "ffmpeg":
                 _recorder = FfmpegVideoRecorder(
                     width=cameras[_id]._width,
                     height=cameras[_id]._height,
-                    queue=cameras[_id].queue,
+                    save_queue=cameras[_id].save_queue,
                     filename=os.path.join(save_path, f"{_id}.mkv"),
                     pixel_format=write_dtype[_id],
                     timestamp_fields=timestamp_fields,
                 )
             elif save_engine == "raw":
                 _recorder = RawVideoRecorder(
-                    queue=cameras[_id].queue,
+                    save_queue=cameras[_id].save_queue,
                     filename=os.path.join(save_path, f"{_id}.dat"),
                     write_dtype=write_dtype[_id],
                     timestamp_fields=timestamp_fields,
