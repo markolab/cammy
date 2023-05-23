@@ -483,7 +483,7 @@ def simple_preview(
     interface: str,
 ):
 
-    ids = get_all_camera_ids(interface, n_cams=n_fake_cameras)
+    ids = get_all_camera_ids(interface)
     cameras = initialize_cameras(ids, configs={})
 
     intrinsics = {}
