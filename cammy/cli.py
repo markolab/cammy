@@ -478,7 +478,7 @@ def simple_preview(
 @cli.command(name="save-intrinsics")
 @click.argument("filename", type=click.Path(exists=False))
 @click.option("--interface", type=click.Choice(["aravis", "fake_custom", "all"]), default="all")
-def simple_preview(
+def save_intrinsics(
     filename: str,
     interface: str,
 ):
@@ -513,6 +513,120 @@ def simple_preview(
     
     with open(filename, "w") as f:
         toml.dump(intrinsics, f)
+
+
+@cli.command(name="calibrate")
+@click.argument("charuco_file", type=click.Path(exists=True))
+@click.option("--interface", type=click.Choice(["aravis", "fake_custom", "all"]), default="all")
+@click.option("--display-downsample", type=int, default=1)
+@click.option(
+    "--camera-options",
+    type=click.Path(resolve_path=True),
+    default="camera_options.toml",
+    help="TOML file with camera options",
+)
+@click.option("--record", is_flag=True, help="Save output to disk")
+def calibrate(
+    charuco_file: str,
+    interface: str,
+    display_downsample: int,
+    camera_options: str,
+    record: bool
+):
+
+    import cv2
+    import dearpygui.dearpygui as dpg
+    charuco_cfg = toml.load(charuco_file)
+    # INIT CHARUCO PARAMETERS
+
+    aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_1000)
+    board = cv2.aruco.CharucoBoard_create(charuco_cfg["columns"],
+                                          charuco_cfg["rows"],
+                                          charuco_cfg["square_size"], 
+                                          charuco_cfg["marker_size"],
+                                          aruco_dict)
+
+    if (camera_options is not None) and os.path.exists(camera_options):
+        logging.info(f"Loading camera options from {camera_options}")
+        camera_dct = toml.load(camera_options)
+    else:
+        camera_dct = {}
+
+    ids = get_all_camera_ids(interface)
+    cameras = initialize_cameras(ids, configs=camera_dct)
+    # OPTIONAL: intrinsics file, used for pose estimation (and stereo? at end)
+    # SOFTWARE TRIGGER: use input to wait for enter, get frame, run and show detection output
+    # proceed until user hits ctrl+c
+
+    with dpg.texture_registry(show=False):
+        for _id, _cam in cameras.items():
+            blank_data = np.zeros(
+                (_cam._height // display_downsample, _cam._width // display_downsample, 4),
+                dtype="float32",
+            )
+            dpg.add_raw_texture(
+                _cam._width / display_downsample,
+                _cam._height / display_downsample,
+                blank_data,
+                tag=f"texture_{_id}",
+                format=dpg.mvFormat_Float_rgba,
+            )
+
+    for _id, _cam in cameras.items():
+        use_config = {}
+        for k, v in camera_dct["display"].items():
+            if k in _id:
+                use_config = v
+
+        with dpg.window(
+            label=f"Camera {_id}", tag=f"Camera {_id}", no_collapse=True, no_scrollbar=True
+        ):
+            dpg.add_image(f"texture_{_id}")
+            with dpg.group(horizontal=True):
+                dpg.add_slider_float(
+                    tag=f"texture_{_id}_min",
+                    width=(_cam._width // display_downsample) / 3,
+                    **{**slider_defaults_min, **use_config["slider_defaults_min"]},
+                )
+                dpg.add_slider_float(
+                    tag=f"texture_{_id}_max",
+                    width=(_cam._width // display_downsample) / 3,
+                    **{**slider_defaults_max, **use_config["slider_defaults_max"]},
+                )
+
+    gui_x_offset = 0
+    gui_y_offset = 0
+    gui_x_max = 0
+    gui_y_max = 0
+    row_pos = 0
+    for _id, _cam in cameras.items():
+        cur_key = f"Camera {_id}"
+        dpg.set_item_pos(cur_key, (gui_x_offset, gui_y_offset))
+
+        width = _cam._width // display_downsample + 25
+        height = _cam._height // display_downsample + 100
+
+        gui_x_max = int(np.maximum(gui_x_offset + width, gui_x_max))
+        gui_y_max = int(np.maximum(gui_y_offset + height, gui_y_max))
+        
+        row_pos += 1
+        if row_pos == gui_ncols:
+            row_pos = 0
+            gui_x_offset = 0
+            gui_y_offset += height
+        else:
+            gui_x_offset += width  
+    
+
+    while True:
+        input("press enter to capture new frame")
+        for _id, _cam in cameras.items():
+            _cam.software_trigger()
+            # try to grab frame, and process charuco markers...
+
+
+    # SAVE DATA!!!
+
 
 
 if __name__ == "__main__":
