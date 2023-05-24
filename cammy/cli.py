@@ -25,10 +25,11 @@ from cammy.util import (
     get_output_format,
     get_pixel_format_bit_depth,
     mpl_to_cv2_colormap,
-    check_counters_equal
+    check_counters_equal,
 )
 from cammy.record.video import FfmpegVideoRecorder, RawVideoRecorder
 from cammy.camera.spoof import SpoofCamera
+
 
 @click.group()
 def cli():
@@ -62,12 +63,24 @@ txt_pos = (25, 25)
 @click.option("--n-fake-cameras", type=int, default=1)
 @click.option("--record", is_flag=True, help="Save frames to disk")
 @click.option("--jumbo-frames", default=True, type=bool, help="Turn on jumbo frames (GigE only)")
-@click.option("--save-engine", type=click.Choice(["ffmpeg", "raw"]), default="raw", help="Save raw frames or compressed frames using ffmpeg")
-@click.option("--display-downsample", type=int, default=1, help="Downsample frames for display (full data is saved)")
+@click.option(
+    "--save-engine",
+    type=click.Choice(["ffmpeg", "raw"]),
+    default="raw",
+    help="Save raw frames or compressed frames using ffmpeg",
+)
+@click.option(
+    "--display-downsample",
+    type=int,
+    default=1,
+    help="Downsample frames for display (full data is saved)",
+)
 @click.option("--display-colormap", type=str, default="turbo", help="Look-up-table")
 @click.option("--hw-trigger", is_flag=True, help="Trigger frames using an Arduino microcontroller")
-@click.option("--hw-trigger-rate", type=float, default=100., help="Trigger rate")
-@click.option("--hw-trigger-pin-last", type=int, default=13, help="Final dig out pin to use on Arduino")
+@click.option("--hw-trigger-rate", type=float, default=100.0, help="Trigger rate")
+@click.option(
+    "--hw-trigger-pin-last", type=int, default=13, help="Final dig out pin to use on Arduino"
+)
 @click.option("--record-counters", type=int, default=0, help="Record counter data")
 @click.option("--duration", type=float, default=0, help="Run for N minutes")
 @click.option(
@@ -76,7 +89,11 @@ txt_pos = (25, 25)
     default="camera_options.toml",
     help="TOML file with camera options",
 )
-@click.option("--server", is_flag=True, help="Activate ZMQ server to send data to and control other python scripts")
+@click.option(
+    "--server",
+    is_flag=True,
+    help="Activate ZMQ server to send data to and control other python scripts",
+)
 def simple_preview(
     interface: str,
     n_fake_cameras: int,
@@ -93,7 +110,6 @@ def simple_preview(
     duration: float,
     server: bool,
 ):
-
     cli_params = locals()
 
     import dearpygui.dearpygui as dpg
@@ -108,14 +124,13 @@ def simple_preview(
         context = zmq.Context()
         zsocket = context.socket(zmq.PAIR)
         zsocket.bind("tcp://*:50165")
-        
+
         # communicate state of program
         logger.info("Sending CLI parameters to client...")
         zsocket.send_pyobj(cli_params)
         logger.info("Done")
     else:
         zsocket = None
-    
 
     if display_colormap is None:
         display_colormap = mpl_to_cv2_colormap(colormap_default)
@@ -133,7 +148,9 @@ def simple_preview(
 
     # TODO: TURN INTO AN AUTOMATIC CHECK, IF NO FRAMES ARE GETTING
     # ACQUIRED, PAUSE FOR 1 SEC AND RE-INITIALIZE
-    cameras = initialize_cameras(ids, camera_dct, jumbo_frames=jumbo_frames, record_counters=record_counters)
+    cameras = initialize_cameras(
+        ids, camera_dct, jumbo_frames=jumbo_frames, record_counters=record_counters
+    )
     del cameras
     time.sleep(2)
 
@@ -142,27 +159,30 @@ def simple_preview(
     spoof_cameras = {}
     trigger_pins = []
     import copy
-    cameras = initialize_cameras(ids, camera_dct, jumbo_frames=jumbo_frames, record_counters=record_counters)
+
+    cameras = initialize_cameras(
+        ids, camera_dct, jumbo_frames=jumbo_frames, record_counters=record_counters
+    )
     for i, (k, v) in enumerate(cameras.items()):
         feature_dct = v.get_all_features()
         feature_dct = dict(sorted(feature_dct.items()))
-        
+
         # make sure we set so we know how to decode frame buffers
         v._pixel_format = feature_dct["PixelFormat"]
         _bit_depth, _spoof_ims = get_pixel_format_bit_depth(feature_dct["PixelFormat"])
         bit_depth[k] = _bit_depth
         cameras_metadata[k] = feature_dct
-        trigger_pins.append(hw_trigger_pin_last - i) # work backwards from last
+        trigger_pins.append(hw_trigger_pin_last - i)  # work backwards from last
         for _spoof_name, _spoof_bit_depth in _spoof_ims.items():
             new_id = f"{k}-{_spoof_name}"
-            spoof_cameras[new_id] = SpoofCamera(id = new_id)
+            spoof_cameras[new_id] = SpoofCamera(id=new_id)
             spoof_cameras[new_id]._width = v._width
             spoof_cameras[new_id]._height = v._height
             bit_depth[new_id] = _spoof_bit_depth
             v._spoof_cameras.append(spoof_cameras[new_id])
 
     # merge in spoof cameras, should be no key collisions
-    cameras = cameras | spoof_cameras 
+    cameras = cameras | spoof_cameras
     ids = ids | {_id: "spoof" for _id in spoof_cameras.keys()}
 
     cameras = dict(sorted(cameras.items()))
@@ -175,7 +195,10 @@ def simple_preview(
     if hw_trigger:
         logging.info(f"Trigger pins: {trigger_pins}")
         from cammy.trigger.trigger import TriggerDevice
-        trigger_dev = TriggerDevice(frame_rate=hw_trigger_rate, pins=trigger_pins, duration=duration)
+
+        trigger_dev = TriggerDevice(
+            frame_rate=hw_trigger_rate, pins=trigger_pins, duration=duration
+        )
     else:
         trigger_dev = None
 
@@ -202,7 +225,7 @@ def simple_preview(
         init_timestamp_str = init_timestamp.strftime("%Y%m%d%H%M%S-%f")
 
         save_path = os.path.abspath(f"session_{init_timestamp_str} ({hostname})")
- 
+
         settings_tags = {}
         settings_vals = {}
         with dpg.window(width=500, height=300, no_resize=True, tag="settings"):
@@ -269,7 +292,6 @@ def simple_preview(
         save_path = None
         recording_metadata = None
 
-
     if server and (zsocket is not None):
         #  wait for ready signal
         # msg = zsocket.recv_pyobj()
@@ -277,7 +299,6 @@ def simple_preview(
         logger.info("Sending save path to client...")
         zsocket.send_pyobj(save_path)
         logger.info("Done")
-    
 
     with dpg.texture_registry(show=False):
         for _id, _cam in cameras.items():
@@ -334,7 +355,7 @@ def simple_preview(
 
         gui_x_max = int(np.maximum(gui_x_offset + width, gui_x_max))
         gui_y_max = int(np.maximum(gui_y_offset + height, gui_y_max))
-        
+
         row_pos += 1
         if row_pos == gui_ncols:
             row_pos = 0
@@ -343,12 +364,11 @@ def simple_preview(
         else:
             gui_x_offset += width
 
-
     if server and (zsocket is not None):
         start_signal = zsocket.recv_pyobj()
         if start_signal == "START":
             logging.info("Sleeping for 5 seconds before starting acquisition...")
-            time.sleep(5) # allow fudge factor for other program to start
+            time.sleep(5)  # allow fudge factor for other program to start
         else:
             raise RuntimeError(f"Did not understand signal {start_signal}")
 
@@ -387,17 +407,17 @@ def simple_preview(
                 new_ts = None
                 while True:
                     _dat = _cam.try_pop_frame()
-                    
+
                     if _dat[0] is None:
                         break
                     else:
                         if ~np.isfinite(start_time):
-                            start_time = time.perf_counter()                        
+                            start_time = time.perf_counter()
                         new_frame = _dat[0]
                         new_ts = _dat[1]
                 dat[_id] = (new_frame, new_ts)
 
-            cur_duration = (time.perf_counter() - start_time) / 60.
+            cur_duration = (time.perf_counter() - start_time) / 60.0
             for _id, _dat in dat.items():
                 if _dat[0] is not None:
                     disp_min = dpg.get_value(f"texture_{_id}_min")
@@ -425,7 +445,7 @@ def simple_preview(
                     percent_missed = (miss_frames / total_frames) * 100
                     dpg.set_value(
                         miss_status[_id],
-                        f"{miss_frames} missed / {total_frames} total ({percent_missed:.1f}% missed)"
+                        f"{miss_frames} missed / {total_frames} total ({percent_missed:.1f}% missed)",
                     )
                     if cur_fps is not None:
                         dpg.set_value(
@@ -435,7 +455,7 @@ def simple_preview(
                     if "storage" in use_queues.keys():
                         for k, v in use_queues["storage"].items():
                             logging.debug(v.qsize())
-            
+
             if np.isfinite(cur_duration) and (duration > 0) and (cur_duration > duration):
                 logging.info(f"Exceeded {duration} minutes, exiting...")
                 break
@@ -461,8 +481,8 @@ def simple_preview(
             # for every camera ID wait until the queue has been written out
             print("Issuing stop signal...")
             for k, v in use_queues["storage"].items():
-                v.put(None) # stop signal
-                time.sleep(.1)
+                v.put(None)  # stop signal
+                time.sleep(0.1)
                 if v.qsize() is not None:
                     while v.qsize() > 0:
                         time.sleep(0.1)
@@ -474,7 +494,6 @@ def simple_preview(
         dpg.destroy_context()
 
 
-
 @cli.command(name="save-intrinsics")
 @click.argument("filename", type=click.Path(exists=False))
 @click.option("--interface", type=click.Choice(["aravis", "fake_custom", "all"]), default="all")
@@ -482,7 +501,6 @@ def save_intrinsics(
     filename: str,
     interface: str,
 ):
-
     ids = get_all_camera_ids(interface)
     cameras = initialize_cameras(ids, configs={})
 
@@ -495,13 +513,7 @@ def save_intrinsics(
         "CalibOpticalCenterY",
     ]
 
-    distortion_vals = [
-        "k1",
-        "k2",
-        "p1",
-        "p2",
-        "k3"
-    ]
+    distortion_vals = ["k1", "k2", "p1", "p2", "k3"]
 
     for k, v in cameras.items():
         intrinsics[k] = {}
@@ -509,15 +521,17 @@ def save_intrinsics(
             intrinsics[k][_param] = v.get_feature(_param)
         for i, _name in enumerate(distortion_vals):
             v.set_feature("CalibLensDistortionValueSelector", f"Value{i}")
-            intrinsics[k][_name]= v.get_feature("CalibLensDistortionValue")
-    
+            intrinsics[k][_name] = v.get_feature("CalibLensDistortionValue")
+
     with open(filename, "w") as f:
         toml.dump(intrinsics, f)
 
 
 @cli.command(name="calibrate")
 @click.argument("charuco_file", type=click.Path(exists=True))
+@click.argument("intrinsics_file", type=click.Path(exists=True))
 @click.option("--interface", type=click.Choice(["aravis", "fake_custom", "all"]), default="all")
+@click.option("--display-colormap", type=str, default="gray")
 @click.option("--display-downsample", type=int, default=1)
 @click.option(
     "--camera-options",
@@ -528,23 +542,27 @@ def save_intrinsics(
 @click.option("--record", is_flag=True, help="Save output to disk")
 def calibrate(
     charuco_file: str,
+    intrinsics_file: str,
     interface: str,
     display_downsample: int,
+    display_colormap: Optional[str],
     camera_options: str,
-    record: bool
+    record: bool,
 ):
-
     import cv2
     import dearpygui.dearpygui as dpg
-    charuco_cfg = toml.load(charuco_file)
-    # INIT CHARUCO PARAMETERS
+    from cammy.util import intrinsics_file_to_cv2
+    from cammy.calibrate import initialize_board, estimate_pose, detect_charuco, threshold_image
 
-    aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_1000)
-    board = cv2.aruco.CharucoBoard_create(charuco_cfg["columns"],
-                                          charuco_cfg["rows"],
-                                          charuco_cfg["square_size"], 
-                                          charuco_cfg["marker_size"],
-                                          aruco_dict)
+    charuco_cfg = toml.load(charuco_file)
+    board = initialize_board(**charuco_cfg)
+    intrinsic_matrix, distortion_coeffs = intrinsics_file_to_cv2(intrinsics_file)
+
+    # INIT CHARUCO PARAMETERS
+    if display_colormap is None:
+        display_colormap = mpl_to_cv2_colormap(colormap_default)
+    else:
+        display_colormap = mpl_to_cv2_colormap(display_colormap)
 
     if (camera_options is not None) and os.path.exists(camera_options):
         logging.info(f"Loading camera options from {camera_options}")
@@ -552,12 +570,21 @@ def calibrate(
     else:
         camera_dct = {}
 
+    # ENSURE WE'RE IN SOFTWARE TRIGGER MODE
     ids = get_all_camera_ids(interface)
-    cameras = initialize_cameras(ids, configs=camera_dct)
-    # OPTIONAL: intrinsics file, used for pose estimation (and stereo? at end)
-    # SOFTWARE TRIGGER: use input to wait for enter, get frame, run and show detection output
-    # proceed until user hits ctrl+c
+    if "genicam" not in camera_dct.keys():
+        camera_dct["genicam"] = {}
 
+    for _id in ids.keys():
+        if _id not in camera_dct["genicam"].keys():
+            camera_dct["genicam"][_id] = {}
+        camera_dct["genicam"][_id]["TriggerSource"] = "Software"
+
+    cameras = initialize_cameras(ids, configs=camera_dct)
+    dpg.create_context()
+
+
+    # append everything lists and dump to pickle
     with dpg.texture_registry(show=False):
         for _id, _cam in cameras.items():
             blank_data = np.zeros(
@@ -608,25 +635,92 @@ def calibrate(
 
         gui_x_max = int(np.maximum(gui_x_offset + width, gui_x_max))
         gui_y_max = int(np.maximum(gui_y_offset + height, gui_y_max))
-        
+
         row_pos += 1
         if row_pos == gui_ncols:
             row_pos = 0
             gui_x_offset = 0
             gui_y_offset += height
         else:
-            gui_x_offset += width  
+            gui_x_offset += width
+
+    [_cam.start_acquisition() for _cam in cameras.values()]
     
+    dpg.create_viewport(title="Camera preview", width=gui_x_max, height=gui_y_max)
+    dpg.setup_dearpygui()
+    dpg.show_viewport()
 
-    while True:
-        input("press enter to capture new frame")
-        for _id, _cam in cameras.items():
-            _cam.software_trigger()
-            # try to grab frame, and process charuco markers...
+    # save everything in a pickle file...
+    aruco_save_data = {"corners": [], "ids": []}
+    charuco_save_data = {"corners": [], "ids": []}
+    pose_save_data = {"pose": [], "rvec": [], "tvec": []}
+    im_save_data = {_cam: [] for _cam in cameras.keys()}
 
+    try:
+        while dpg.is_dearpygui_running():
+            input("Press enter to capture new frame")
+            [_cam.software_trigger() for _cam in cameras.values()]
+            time.sleep(0.005)
+            dat = {}
+            for _id, _cam in cameras.items():
+                new_frame = None
+                new_ts = None
+                while new_frame is None:
+                    _dat = _cam.try_pop_frame()
+                    if _dat[0] is not None:
+                        new_frame = _dat[0]
+                        new_ts = _dat[1]
+                dat[_id] = (new_frame, new_ts)
+            for _id, _dat in dat.items():
+                disp_min = dpg.get_value(f"texture_{_id}_min")
+                disp_max = dpg.get_value(f"texture_{_id}_max")
+                height, width = _dat[0].shape
+                disp_img = cv2.resize(
+                    _dat[0], (width // display_downsample, height // display_downsample)
+                )
+                plt_val = intensity_to_rgba(
+                    disp_img, minval=disp_min, maxval=disp_max, colormap=display_colormap
+                )
+                plt_val *= 255
+                plt_val = plt_val.astype("uint8")
+
+                use_img = threshold_image(_dat[0].copy())
+                aruco_dat, charuco_dat = detect_charuco(use_img, board)
+                
+                # add if we get more than three detections
+                if len(aruco_dat[0]) > 3:
+                    aruco_save_data["corners"].append(aruco_dat[0])
+                    aruco_save_data["ids"].append(aruco_dat[1])
+                    charuco_save_data["corners"].append(charuco_dat[0])
+                    charuco_save_data["ids"].append(charuco_dat[1])
+                    im_save_data[_id] += _dat
+
+                    pose, rvec, tvec = estimate_pose(
+                        *charuco_dat,
+                        board,
+                        intrinsic_matrix[_id],
+                        distortion_coeffs[_id],
+                    )
+
+                    pose_save_data["pose"].append(pose)
+                    pose_save_data["pose"].append(rvec)
+                    pose_save_data["pose"].append(tvec)
+                     
+                    # draw results
+                    plt_val = cv2.aruco.drawDetectedMarkers(plt_val, *aruco_dat, [0, 255, 255])
+                    plt_val = cv2.aruco.drawDetectedCornersCharuco(
+                        plt_val, *charuco_dat, [255, 0, 0, 0]
+                    )
+                    plt_val = cv2.drawFrameAxes(
+                        plt_val, intrinsic_matrix[_id], distortion_coeffs[_id], rvec, tvec, 0.05
+                    )
+
+                dpg.set_value(f"texture_{cameras[_id].id}", plt_val)
+
+    except (KeyboardInterrupt, EOFError):
+        dpg.destroy_context()
 
     # SAVE DATA!!!
-
 
 
 if __name__ == "__main__":

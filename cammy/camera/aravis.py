@@ -32,6 +32,7 @@ class AravisCamera(CammyCamera):
             Aravis.enable_interface("Fake")
 
         self.camera = Aravis.Camera.new(id)
+        Aravis.make_thread_high_priority(1)
 
         # NOT USING EXT_IDS just yet
         if jumbo_frames and self.camera.is_gv_device():
