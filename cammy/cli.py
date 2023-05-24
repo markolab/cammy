@@ -571,6 +571,7 @@ def calibrate(
         feature_dct = v.get_all_features()
         feature_dct = dict(sorted(feature_dct.items()))
         _bit_depth, _spoof_ims = get_pixel_format_bit_depth(feature_dct["PixelFormat"])
+        v._pixel_format = feature_dct["PixelFormat"]
         bit_depth[k] = _bit_depth
         disp_mins[k] = 0
         disp_maxs[k] = 2 ** _bit_depth
@@ -579,16 +580,28 @@ def calibrate(
     with dpg.texture_registry(show=False):
         for _id, _cam in cameras.items():
             blank_data = np.zeros(
-                (_cam._height // display_downsample, _cam._width // display_downsample, 4),
+                (_cam._height, _cam._width, 3),
                 dtype="float32",
             )
             dpg.add_raw_texture(
-                _cam._width / display_downsample,
-                _cam._height / display_downsample,
+                _cam._width,
+                _cam._height,
                 blank_data,
                 tag=f"texture_{_id}",
-                format=dpg.mvFormat_Float_rgba,
+                format=dpg.mvFormat_Float_rgb,
             )
+
+
+    for _id, _cam in cameras.items():
+        use_config = {}
+        for k, v in camera_dct["display"].items():
+            if k in _id:
+                use_config = v
+
+        with dpg.window(
+            label=f"Camera {_id}", tag=f"Camera {_id}", no_collapse=True, no_scrollbar=True
+        ):
+            dpg.add_image(f"texture_{_id}")
 
     gui_x_offset = 0
     gui_y_offset = 0
@@ -599,8 +612,8 @@ def calibrate(
         cur_key = f"Camera {_id}"
         dpg.set_item_pos(cur_key, (gui_x_offset, gui_y_offset))
 
-        width = _cam._width // display_downsample + 25
-        height = _cam._height // display_downsample + 100
+        width = _cam._width + 25
+        height = _cam._height + 100
 
         gui_x_max = int(np.maximum(gui_x_offset + width, gui_x_max))
         gui_y_max = int(np.maximum(gui_y_offset + height, gui_y_max))
@@ -645,16 +658,11 @@ def calibrate(
                 # disp_min = dpg.get_value(f"texture_{_id}_min")
                 # disp_max = dpg.get_value(f"texture_{_id}_max")
                 height, width = _dat[0].shape
-                disp_img = cv2.resize(
-                    _dat[0], (width // display_downsample, height // display_downsample)
-                )
-                plt_val = intensity_to_rgba(
-                    disp_img, minval=disp_mins[_id], maxval=disp_maxs[_id], colormap=display_colormap
-                )
-                plt_val = plt_val[:,:,:3]
-                plt_val *= 255
+                print(_dat[0].shape)
+                print(_dat[0].dtype)
+                plt_val = cv2.merge([_dat[0]] *3)
                 plt_val = plt_val.astype("uint8")
-
+                print(plt_val.shape) 
                 use_img = threshold_image(_dat[0].copy())
                 aruco_dat, charuco_dat = detect_charuco(use_img, board)
                 
@@ -668,9 +676,9 @@ def calibrate(
 
                     pose, rvec, tvec = estimate_pose(
                         *charuco_dat,
-                        board,
                         intrinsic_matrix[_id],
                         distortion_coeffs[_id],
+                        board,
                     )
 
                     pose_save_data["pose"].append(pose)
@@ -686,8 +694,7 @@ def calibrate(
                         plt_val, intrinsic_matrix[_id], distortion_coeffs[_id], rvec, tvec, 0.05
                     )
                 
-                plt_val = plt_val.astype("float") / 255
-                plt_val = np.concatenate([plt_val, np.ones(plt_val[:,:,0].shape)[:,:,None]], axis=-1)
+                plt_val = plt_val.astype("float32")  / 255.
                 dpg.set_value(f"texture_{cameras[_id].id}", plt_val)
                 dpg.render_dearpygui_frame()
 
