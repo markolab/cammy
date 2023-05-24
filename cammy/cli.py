@@ -528,21 +528,15 @@ def save_intrinsics(
 
 
 @cli.command(name="calibrate")
-@click.argument("charuco_file", type=click.Path(exists=True))
 @click.argument("intrinsics_file", type=click.Path(exists=True))
+@click.argument("camera_options", type=click.Path(exists=True))
 @click.option("--interface", type=click.Choice(["aravis", "fake_custom", "all"]), default="all")
 @click.option("--display-colormap", type=str, default="gray")
 @click.option("--display-downsample", type=int, default=1)
-@click.option(
-    "--camera-options",
-    type=click.Path(resolve_path=True),
-    default="camera_options.toml",
-    help="TOML file with camera options",
-)
 @click.option("--record", is_flag=True, help="Save output to disk")
 def calibrate(
-    charuco_file: str,
     intrinsics_file: str,
+    camera_options_file: str,
     interface: str,
     display_downsample: int,
     display_colormap: Optional[str],
@@ -554,8 +548,6 @@ def calibrate(
     from cammy.util import intrinsics_file_to_cv2
     from cammy.calibrate import initialize_board, estimate_pose, detect_charuco, threshold_image
 
-    charuco_cfg = toml.load(charuco_file)
-    board = initialize_board(**charuco_cfg)
     intrinsic_matrix, distortion_coeffs = intrinsics_file_to_cv2(intrinsics_file)
 
     # INIT CHARUCO PARAMETERS
@@ -564,9 +556,10 @@ def calibrate(
     else:
         display_colormap = mpl_to_cv2_colormap(display_colormap)
 
-    if (camera_options is not None) and os.path.exists(camera_options):
+    if (camera_options_file is not None) and os.path.exists(camera_options_file):
         logging.info(f"Loading camera options from {camera_options}")
-        camera_dct = toml.load(camera_options)
+        camera_dct = toml.load(camera_options_file)
+        board = initialize_board(**camera_dct["charuco"])
     else:
         camera_dct = {}
 
@@ -718,9 +711,9 @@ def calibrate(
                 dpg.set_value(f"texture_{cameras[_id].id}", plt_val)
 
     except (KeyboardInterrupt, EOFError):
-        dpg.destroy_context()
-
-    # SAVE DATA!!!
+        # SAVE DATA!!!
+       [_cam.stop_acquisition() for _cam in cameras.values()]
+       dpg.destroy_context()
 
 
 if __name__ == "__main__":
