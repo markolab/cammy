@@ -649,11 +649,10 @@ def calibrate(
     dpg.show_viewport()
 
     # save everything in a pickle file...
-    aruco_save_data = {"corners": [], "ids": []}
-    charuco_save_data = {"corners": [], "ids": []}
-    pose_save_data = {"pose": [], "rvec": [], "tvec": []}
+    aruco_save_data = {_cam: {"corners": [], "ids": []} for _cam in cameras.keys()}
+    charuco_save_data = {_cam: {"corners": [], "ids": []} for _cam in cameras.keys()}
+    pose_save_data = {_cam: {"pose": [], "rvec": [], "tvec": []} for _cam in cameras.keys()}
     img_save_data = {_cam: [] for _cam in cameras.keys()}
-
 
     # https://stackoverflow.com/questions/13180941/how-to-kill-a-while-loop-with-a-keystroke
     import _thread
@@ -696,10 +695,10 @@ def calibrate(
                 
                 # add if we get more than three detections
                 if len(aruco_dat[0]) > 3:
-                    aruco_save_data["corners"].append(aruco_dat[0])
-                    aruco_save_data["ids"].append(aruco_dat[1])
-                    charuco_save_data["corners"].append(charuco_dat[0])
-                    charuco_save_data["ids"].append(charuco_dat[1])
+                    aruco_save_data[_id]["corners"].append(aruco_dat[0])
+                    aruco_save_data[_id]["ids"].append(aruco_dat[1])
+                    charuco_save_data[_id]["corners"].append(charuco_dat[0])
+                    charuco_save_data[_id]["ids"].append(charuco_dat[1])
                     img_save_data[_id] += _dat
 
                     pose, rvec, tvec = estimate_pose(
@@ -709,9 +708,9 @@ def calibrate(
                         board,
                     )
 
-                    pose_save_data["pose"].append(pose)
-                    pose_save_data["rvec"].append(rvec)
-                    pose_save_data["tvec"].append(tvec)
+                    pose_save_data[_id]["pose"].append(pose)
+                    pose_save_data[_id]["rvec"].append(rvec)
+                    pose_save_data[_id]["tvec"].append(tvec)
                      
                     # draw results
                     plt_val = cv2.aruco.drawDetectedMarkers(plt_val, *aruco_dat, [0, 255, 255])
