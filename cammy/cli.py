@@ -532,23 +532,29 @@ def save_intrinsics(
 @click.argument("camera_options_file", type=click.Path(exists=True))
 @click.option("--interface", type=click.Choice(["aravis", "fake_custom", "all"]), default="all")
 @click.option("--display-colormap", type=str, default="gray")
-@click.option("--display-downsample", type=int, default=1)
 @click.option("--record", is_flag=True, help="Save output to disk")
 def calibrate(
     intrinsics_file: str,
     camera_options_file: str,
     interface: str,
     display_colormap: Optional[str],
-    display_downsample: int,
     record: bool,
 ):
     import cv2
+    import socket
+    import datetime
+    import pickle
     import dearpygui.dearpygui as dpg
     from cammy.util import intrinsics_file_to_cv2
     from cammy.calibrate import initialize_board, estimate_pose, detect_charuco, threshold_image
 
-    intrinsic_matrix, distortion_coeffs = intrinsics_file_to_cv2(intrinsics_file)
+    hostname = socket.gethostname()
+    init_timestamp = datetime.datetime.now()
+    init_timestamp_str = init_timestamp.strftime("%Y%m%d%H%M%S-%f")
+    save_path = os.path.abspath(f"session_{init_timestamp_str} ({hostname}, calibration)")
 
+    intrinsic_matrix, distortion_coeffs = intrinsics_file_to_cv2(intrinsics_file)
+    
     # INIT CHARUCO PARAMETERS
     if display_colormap is None:
         display_colormap = mpl_to_cv2_colormap(colormap_default)
@@ -559,9 +565,18 @@ def calibrate(
     camera_dct = toml.load(camera_options_file)
     board = initialize_board(**camera_dct["charuco"])
 
-    # ENSURE WE'RE IN SOFTWARE TRIGGER MODE
+    
+
     ids = get_all_camera_ids(interface)
     cameras = initialize_cameras(ids, configs=camera_dct)
+
+    metadata = {"calibration": {}}
+    metadata["calibration"]["session_time"] = init_timestamp_str
+    metadata["calibration"]["cameras"] = list(ids.keys())
+    metadata["calibration"]["camera_internal_data"] = {}
+    metadata["calibration"]["camera_internal_data"]["intrinsic_matrix"] = intrinsic_matrix
+    metadata["calibration"]["camera_internal_data"]["distortion_coeffs"] = distortion_coeffs
+
     dpg.create_context()
 
     bit_depth = {}
@@ -627,7 +642,7 @@ def calibrate(
             gui_x_offset += width
 
     [_cam.start_acquisition() for _cam in cameras.values()]
-    
+     
     dpg.create_viewport(title="Camera preview", width=gui_x_max, height=gui_y_max)
     dpg.setup_dearpygui()
     dpg.show_viewport()
@@ -636,14 +651,15 @@ def calibrate(
     aruco_save_data = {"corners": [], "ids": []}
     charuco_save_data = {"corners": [], "ids": []}
     pose_save_data = {"pose": [], "rvec": [], "tvec": []}
-    im_save_data = {_cam: [] for _cam in cameras.keys()}
+    img_save_data = {_cam: [] for _cam in cameras.keys()}
 
     try:
         while dpg.is_dearpygui_running():
             input("Press enter to capture new frame")
      
             [_cam.camera.software_trigger() for _cam in cameras.values()]
-            time.sleep(0.005)
+            time.sleep(1.)
+
             dat = {}
             for _id, _cam in cameras.items():
                 new_frame = None
@@ -655,14 +671,9 @@ def calibrate(
                         new_ts = _dat[1]
                 dat[_id] = (new_frame, new_ts)
             for _id, _dat in dat.items():
-                # disp_min = dpg.get_value(f"texture_{_id}_min")
-                # disp_max = dpg.get_value(f"texture_{_id}_max")
                 height, width = _dat[0].shape
-                print(_dat[0].shape)
-                print(_dat[0].dtype)
                 plt_val = cv2.merge([_dat[0]] *3)
                 plt_val = plt_val.astype("uint8")
-                print(plt_val.shape) 
                 use_img = threshold_image(_dat[0].copy())
                 aruco_dat, charuco_dat = detect_charuco(use_img, board)
                 
@@ -672,7 +683,7 @@ def calibrate(
                     aruco_save_data["ids"].append(aruco_dat[1])
                     charuco_save_data["corners"].append(charuco_dat[0])
                     charuco_save_data["ids"].append(charuco_dat[1])
-                    im_save_data[_id] += _dat
+                    img_save_data[_id] += _dat
 
                     pose, rvec, tvec = estimate_pose(
                         *charuco_dat,
@@ -682,8 +693,8 @@ def calibrate(
                     )
 
                     pose_save_data["pose"].append(pose)
-                    pose_save_data["pose"].append(rvec)
-                    pose_save_data["pose"].append(tvec)
+                    pose_save_data["rvec"].append(rvec)
+                    pose_save_data["tvec"].append(tvec)
                      
                     # draw results
                     plt_val = cv2.aruco.drawDetectedMarkers(plt_val, *aruco_dat, [0, 255, 255])
@@ -699,9 +710,22 @@ def calibrate(
                 dpg.render_dearpygui_frame()
 
     except (KeyboardInterrupt, EOFError):
-        # SAVE DATA!!!
-       [_cam.stop_acquisition() for _cam in cameras.values()]
-       dpg.destroy_context()
+        # save the data
+        if record:
+            logging.info("Saving data...")
+            os.makedirs(save_path)
+            save_dictionary = {}
+            save_dictionary["pose"] = pose_save_data
+            save_dictionary["img"] = img_save_data
+            save_dictionary["charuco"] = charuco_save_data
+            save_dictionary["aruco"] = aruco_save_data
+            with open(os.path.join(save_path, "calibration.pkl"), "wb") as f:
+                pickle.dump(save_dictionary, f)
+            with open(os.path.join(save_path, "metadata.toml"), "w") as f:
+                toml.dump(metadata, f)
+        [_cam.stop_acquisition() for _cam in cameras.values()]
+        logging.info("Done...")
+        dpg.destroy_context()
 
 
 if __name__ == "__main__":
