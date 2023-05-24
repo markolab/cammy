@@ -1,9 +1,9 @@
 import cv2
 import numpy as np
 
-def initialize_board(rows=6, cols=4, marker_size=.043, square_size=.033):
+def initialize_board(rows=6, columns=4, marker_size=.043, square_size=.033):
     aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_1000)
-    board = cv2.aruco.CharucoBoard_create(cols, rows, square_size, marker_size, aruco_dict)
+    board = cv2.aruco.CharucoBoard_create(columns, rows, square_size, marker_size, aruco_dict)
     return board
 
 
@@ -27,7 +27,10 @@ def detect_charuco(img, board, refine=True):
     if refine:
         aruco_corners, aruco_ids = cv2.aruco.refineDetectedMarkers(img, board, aruco_corners, aruco_ids, rejected)[:2]
 
-    ncorners, charuco_corners, charuco_ids = cv2.aruco.interpolateCornersCharuco(aruco_corners, aruco_ids, img, board, minMarkers=0)    
+    if len(aruco_corners) > 0:
+        ncorners, charuco_corners, charuco_ids = cv2.aruco.interpolateCornersCharuco(aruco_corners, aruco_ids, img, board, minMarkers=0)
+    else:
+        charuco_corners, charuco_ids = None, None
     return (aruco_corners, aruco_ids), (charuco_corners, charuco_ids)
 
 

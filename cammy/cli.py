@@ -529,7 +529,7 @@ def save_intrinsics(
 
 @cli.command(name="calibrate")
 @click.argument("intrinsics_file", type=click.Path(exists=True))
-@click.argument("camera_options", type=click.Path(exists=True))
+@click.argument("camera_options_file", type=click.Path(exists=True))
 @click.option("--interface", type=click.Choice(["aravis", "fake_custom", "all"]), default="all")
 @click.option("--display-colormap", type=str, default="gray")
 @click.option("--display-downsample", type=int, default=1)
@@ -538,9 +538,8 @@ def calibrate(
     intrinsics_file: str,
     camera_options_file: str,
     interface: str,
-    display_downsample: int,
     display_colormap: Optional[str],
-    camera_options: str,
+    display_downsample: int,
     record: bool,
 ):
     import cv2
@@ -557,7 +556,7 @@ def calibrate(
         display_colormap = mpl_to_cv2_colormap(display_colormap)
 
     if (camera_options_file is not None) and os.path.exists(camera_options_file):
-        logging.info(f"Loading camera options from {camera_options}")
+        logging.info(f"Loading camera options from {camera_options_file}")
         camera_dct = toml.load(camera_options_file)
         board = initialize_board(**camera_dct["charuco"])
     else:
@@ -565,14 +564,6 @@ def calibrate(
 
     # ENSURE WE'RE IN SOFTWARE TRIGGER MODE
     ids = get_all_camera_ids(interface)
-    if "genicam" not in camera_dct.keys():
-        camera_dct["genicam"] = {}
-
-    for _id in ids.keys():
-        if _id not in camera_dct["genicam"].keys():
-            camera_dct["genicam"][_id] = {}
-        camera_dct["genicam"][_id]["TriggerSource"] = "Software"
-
     cameras = initialize_cameras(ids, configs=camera_dct)
     dpg.create_context()
 
@@ -652,7 +643,8 @@ def calibrate(
     try:
         while dpg.is_dearpygui_running():
             input("Press enter to capture new frame")
-            [_cam.software_trigger() for _cam in cameras.values()]
+     
+            [_cam.camera.software_trigger() for _cam in cameras.values()]
             time.sleep(0.005)
             dat = {}
             for _id, _cam in cameras.items():
@@ -674,6 +666,7 @@ def calibrate(
                 plt_val = intensity_to_rgba(
                     disp_img, minval=disp_min, maxval=disp_max, colormap=display_colormap
                 )
+                plt_val = plt_val[:,:,:3]
                 plt_val *= 255
                 plt_val = plt_val.astype("uint8")
 
@@ -707,8 +700,11 @@ def calibrate(
                     plt_val = cv2.drawFrameAxes(
                         plt_val, intrinsic_matrix[_id], distortion_coeffs[_id], rvec, tvec, 0.05
                     )
-
+                
+                plt_val = plt_val.astype("float") / 255
+                plt_val = np.concatenate([plt_val, np.ones(plt_val[:,:,0].shape)[:,:,None]], axis=-1)
                 dpg.set_value(f"texture_{cameras[_id].id}", plt_val)
+                dpg.render_dearpygui_frame()
 
     except (KeyboardInterrupt, EOFError):
         # SAVE DATA!!!
