@@ -508,8 +508,8 @@ def simple_preview(
         for _param in param_names:
             intrinsics[k][_param] = v.get_feature(_param)
         for i, _name in enumerate(distortion_vals):
-            v.set_feature("CalibLensDistortionValueSelector", i)
-            intrinsics[k][_name].get_feature("CalibLensDistortionValue")
+            v.set_feature("CalibLensDistortionValueSelector", f"Value{i}")
+            intrinsics[k][_name]= v.get_feature("CalibLensDistortionValue")
     
     with open(filename, "w") as f:
         toml.dump(intrinsics, f)
