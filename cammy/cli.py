@@ -576,6 +576,7 @@ def calibrate(
     metadata["calibration"]["camera_internal_data"] = {}
     metadata["calibration"]["camera_internal_data"]["intrinsic_matrix"] = intrinsic_matrix
     metadata["calibration"]["camera_internal_data"]["distortion_coeffs"] = distortion_coeffs
+    metadata["calibration"]["board"] = camera_dct["charuco"]
 
     dpg.create_context()
 
@@ -642,7 +643,7 @@ def calibrate(
             gui_x_offset += width
 
     [_cam.start_acquisition() for _cam in cameras.values()]
-     
+    time.sleep(1) 
     dpg.create_viewport(title="Camera preview", width=gui_x_max, height=gui_y_max)
     dpg.setup_dearpygui()
     dpg.show_viewport()
@@ -653,13 +654,26 @@ def calibrate(
     pose_save_data = {"pose": [], "rvec": [], "tvec": []}
     img_save_data = {_cam: [] for _cam in cameras.keys()}
 
+
+    # https://stackoverflow.com/questions/13180941/how-to-kill-a-while-loop-with-a-keystroke
+    import _thread
+    def input_thread(a_list):
+        input("Press enter to grab a new frame")             
+        a_list.append(True)
+
+    frame_count = {}
+    for _cam in cameras.keys():
+        frame_count[_cam] = 0
     try:
         while dpg.is_dearpygui_running():
-            input("Press enter to capture new frame")
-     
+            a_list = []
+            _thread.start_new_thread(input_thread, (a_list,))
+            while not a_list:
+                dpg.render_dearpygui_frame()
+            
+            
             [_cam.camera.software_trigger() for _cam in cameras.values()]
-            time.sleep(1.)
-
+            time.sleep(.1)
             dat = {}
             for _id, _cam in cameras.items():
                 new_frame = None
@@ -671,6 +685,9 @@ def calibrate(
                         new_ts = _dat[1]
                 dat[_id] = (new_frame, new_ts)
             for _id, _dat in dat.items():
+                # import matplotlib.pyplot as plt
+                # plt.imshow(_dat[0])
+                # plt.show()
                 height, width = _dat[0].shape
                 plt_val = cv2.merge([_dat[0]] *3)
                 plt_val = plt_val.astype("uint8")
@@ -704,10 +721,15 @@ def calibrate(
                     plt_val = cv2.drawFrameAxes(
                         plt_val, intrinsic_matrix[_id], distortion_coeffs[_id], rvec, tvec, 0.05
                     )
-                
+                    plt_val = cv2.putText(
+                        plt_val, str(frame_count[_id]), txt_pos, font, 1, (255, 255, 255)
+                    )
+                    frame_count[_id] += 1
+
                 plt_val = plt_val.astype("float32")  / 255.
                 dpg.set_value(f"texture_{cameras[_id].id}", plt_val)
-                dpg.render_dearpygui_frame()
+            
+            dpg.render_dearpygui_frame()
 
     except (KeyboardInterrupt, EOFError):
         # save the data
