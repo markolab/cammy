@@ -555,19 +555,26 @@ def calibrate(
     else:
         display_colormap = mpl_to_cv2_colormap(display_colormap)
 
-    if (camera_options_file is not None) and os.path.exists(camera_options_file):
-        logging.info(f"Loading camera options from {camera_options_file}")
-        camera_dct = toml.load(camera_options_file)
-        board = initialize_board(**camera_dct["charuco"])
-    else:
-        camera_dct = {}
+    logging.info(f"Loading camera options from {camera_options_file}")
+    camera_dct = toml.load(camera_options_file)
+    board = initialize_board(**camera_dct["charuco"])
 
     # ENSURE WE'RE IN SOFTWARE TRIGGER MODE
     ids = get_all_camera_ids(interface)
     cameras = initialize_cameras(ids, configs=camera_dct)
     dpg.create_context()
 
-
+    bit_depth = {}
+    disp_mins = {}
+    disp_maxs = {}
+    for k, v  in cameras.items():
+        feature_dct = v.get_all_features()
+        feature_dct = dict(sorted(feature_dct.items()))
+        _bit_depth, _spoof_ims = get_pixel_format_bit_depth(feature_dct["PixelFormat"])
+        bit_depth[k] = _bit_depth
+        disp_mins[k] = 0
+        disp_maxs[k] = 2 ** _bit_depth
+    
     # append everything lists and dump to pickle
     with dpg.texture_registry(show=False):
         for _id, _cam in cameras.items():
@@ -582,28 +589,6 @@ def calibrate(
                 tag=f"texture_{_id}",
                 format=dpg.mvFormat_Float_rgba,
             )
-
-    for _id, _cam in cameras.items():
-        use_config = {}
-        for k, v in camera_dct["display"].items():
-            if k in _id:
-                use_config = v
-
-        with dpg.window(
-            label=f"Camera {_id}", tag=f"Camera {_id}", no_collapse=True, no_scrollbar=True
-        ):
-            dpg.add_image(f"texture_{_id}")
-            with dpg.group(horizontal=True):
-                dpg.add_slider_float(
-                    tag=f"texture_{_id}_min",
-                    width=(_cam._width // display_downsample) / 3,
-                    **{**slider_defaults_min, **use_config["slider_defaults_min"]},
-                )
-                dpg.add_slider_float(
-                    tag=f"texture_{_id}_max",
-                    width=(_cam._width // display_downsample) / 3,
-                    **{**slider_defaults_max, **use_config["slider_defaults_max"]},
-                )
 
     gui_x_offset = 0
     gui_y_offset = 0
@@ -657,14 +642,14 @@ def calibrate(
                         new_ts = _dat[1]
                 dat[_id] = (new_frame, new_ts)
             for _id, _dat in dat.items():
-                disp_min = dpg.get_value(f"texture_{_id}_min")
-                disp_max = dpg.get_value(f"texture_{_id}_max")
+                # disp_min = dpg.get_value(f"texture_{_id}_min")
+                # disp_max = dpg.get_value(f"texture_{_id}_max")
                 height, width = _dat[0].shape
                 disp_img = cv2.resize(
                     _dat[0], (width // display_downsample, height // display_downsample)
                 )
                 plt_val = intensity_to_rgba(
-                    disp_img, minval=disp_min, maxval=disp_max, colormap=display_colormap
+                    disp_img, minval=disp_mins[_id], maxval=disp_maxs[_id], colormap=display_colormap
                 )
                 plt_val = plt_val[:,:,:3]
                 plt_val *= 255
