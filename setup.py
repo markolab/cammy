@@ -15,7 +15,7 @@ setup(
         "h5py",
         "matplotlib",
         "numpy",
-        "opencv-python",
+        "opencv-contrib-python<4.7",
         "toml",
         "tqdm",
         "pyserial",
