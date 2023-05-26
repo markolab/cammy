@@ -18,6 +18,7 @@ void setup(void)
 		pinMode(i, OUTPUT);
 		digitalWrite(i, LOW);
 	}
+
 	Serial.begin(baudrate);
 	// delay(1);
 	// wait for a serial connection
@@ -28,44 +29,45 @@ void setup(void)
 	Serial.print(baudrate);
 
 	Serial.println("");
-	Serial.println("Enter delimiter-separated string with: N PINS, PIN ID1, PIN IDN, FRAME_RATE");
+	Serial.println("Enter delimiter-separated string with: N PINS, PIN ID1, PIN IDN, FRAME_RATE, NPULSES");
 
 	set_digital_pins();
 	set_frame_rate();
 	set_max_pulses();
 	frame_period = frame_rate_to_period(frame_rate);
 
-	// wait until we get another byte
-	// while (Serial.available() == 0) {}
+	while (Serial.available() > 0) {
+	  Serial.parseFloat();
+	}
 }
 
 void set_digital_pins()
 {
 	// wait for input
-	// while (Serial.available() == 0)
-	// {
-	// }
+	while (Serial.available() == 0)
+	{
+	}
 	n_pins = int((unsigned int)Serial.parseFloat());
 
-	// Serial.println("");
-	// Serial.print("N(digital pins): ");
-	// Serial.print(n_pins);
+	Serial.println("");
+	Serial.print("N(digital pins): ");
+	Serial.print(n_pins);
 
-	// Serial.println("");
-	// Serial.print("Digital pins: ");
+	Serial.println("");
+	Serial.print("Digital pins: ");
 
 	for (int i = 0; i < n_pins; i++)
 	{
-		// while (Serial.available() == 0)
-		// {
-		// }
+		while (Serial.available() == 0)
+		{
+		}
 		int pin_id = (unsigned int)Serial.parseFloat();
 		pinMode(pin_id, OUTPUT);
-		// Serial.print(pin_id);
-		// if (i + 1 < n_pins)
-		// {
-		// 	Serial.print(",");
-		// }
+		Serial.print(pin_id);
+		if (i + 1 < n_pins)
+		{
+			Serial.print(",");
+		}
 		dig_out_pins[i] = pin_id;
 	}
 
@@ -76,46 +78,46 @@ unsigned long frame_rate_to_period(unsigned long rate)
 {
 	if (rate == 0)
 	{
-		frame_period = 0xFFFFFFFF;
+		frame_period = 1000;
 	}
 	else
 	{
 		frame_period = 1e6 / rate; /* convert to micros ticks, period in secs is 1/rate */
 	}
 
-	// Serial.println("");
-	// Serial.print("Set frame period to: ");
-	// Serial.print(frame_period);
-	// Serial.print(" microseconds");
+	Serial.println("");
+	Serial.print("Set frame period to: ");
+	Serial.print(frame_period);
+	Serial.print(" microseconds");
 	return frame_period;
 }
 
 void set_frame_rate()
 {
-	// while (Serial.available() == 0)
-	// {
-	// }
+	while (Serial.available() == 0)
+	{
+	}
 	frame_rate = Serial.parseFloat();
 	if (frame_rate < 0)
 	{
 		frame_rate = 0;
 	}
 
-	// Serial.println("");
-	// Serial.print("Set frame rate to: ");
-	// Serial.print(frame_rate);
-	// Serial.print(" Hz");
+	Serial.println("");
+	Serial.print("Set frame rate to: ");
+	Serial.print(frame_rate);
+	Serial.print(" Hz");
 }
 
 void set_max_pulses()
 {
-	// while (Serial.available() == 0)
-	// {
-	// }
-	max_pulses = (unsigned int) Serial.parseFloat();
-	// Serial.println("");
-	// Serial.print("Set max pulses to: ");
-	// Serial.print(max_pulses);
+	while (Serial.available() == 0)
+	{
+	}
+	max_pulses = (unsigned long)Serial.parseFloat();
+	Serial.println("");
+	Serial.print("Set max pulses to: ");
+	Serial.print(max_pulses);
 }
 
 void set_pins_low()
@@ -150,7 +152,11 @@ void loop(void)
 		set_max_pulses();
 		frame_period = frame_rate_to_period(frame_rate);
 		counter = 0;
+	  while (Serial.available() > 0) {
+	  Serial.parseFloat();
 	}
+  }
+
 
 	if ((frame_rate > 0) && (counter < max_pulses || max_pulses == 0))
 	{
@@ -166,8 +172,5 @@ void loop(void)
 		{
 		}
 		counter++;
-		// Serial.println(counter);
-    // Serial.println(frame_period);
-    // Serial.println(Serial.available());
 	}
 }
