@@ -147,7 +147,7 @@ class AravisCamera(CammyCamera):
             ptr = ctypes.cast(addr, INTP)
             im = np.ctypeslib.as_array(ptr, (buffer.get_image_height(), buffer.get_image_width()))
             im = im.copy()
-        elif (bits_per_pixel == 16) & (self._pixel_format.lower() in ("mono16", "coord3d_c16")):
+        elif (bits_per_pixel in [12, 16]) & (self._pixel_format.lower() in ("mono12", "mono16", "coord3d_c16")):
             INTP = ctypes.POINTER(ctypes.c_uint16)
             addr = buffer.get_data()
             ptr = ctypes.cast(addr, INTP)

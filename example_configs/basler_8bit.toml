@@ -1,9 +1,21 @@
-[genicam.Basler]
+[genicam.Basler.a]
 PixelFormat = "Mono8"
 AcquisitionMode = "Continuous"
-BinningHorizontal = 2
-BinningVertical = 2
-ExposureTime = "2000"
+AcquisitionFrameRateEnable = true
+AcquisitionFrameRate = "100"
+BinningHorizontal = 1
+BinningVertical = 1
+ExposureTime = "10000"
+# this is critical for basler cameras
+# general formula is throughput of controller / (pixels * bit_depth * fps)
+#
+# so e.g. usb3.1gen1 is 5 gbps, or 5000 MBps
+# if we want to do 40 Hz capture then...
+# unbinned is 2048 * 2048 * 8 * 40, or ~170MBps 
+# so far with our controller (Fresco FL1100) we're stuck with 250 Mbps
+# leading to about 60 FPS unbinned
+DeviceLinkThroughputLimit = 250000000
+
 
 [display.Basler.slider_defaults_min]
 default_value = 0
