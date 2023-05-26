@@ -9,7 +9,6 @@ from typing import Optional
 gi.require_version("Aravis", "0.8")
 from gi.repository import Aravis
 
-
 # TODO:
 # 1) Get data from counters and append to timestamp file
 class AravisCamera(CammyCamera):
@@ -69,7 +68,7 @@ class AravisCamera(CammyCamera):
             self.stream = self.camera.create_stream(callback, user_data)
         else:
             self._counters = {}
-            self.stream = self.camera.create_stream()
+            self.stream = self.camera.create_stream(stream_cb, None)
 
         self.queue = queue
         self.missed_frames = 0
@@ -82,11 +81,11 @@ class AravisCamera(CammyCamera):
         buffer = self.stream.try_pop_buffer()
         if buffer:
             self.total_frames += 1
-            
             # can potentially use this, are bit depths handled automatically by aravis? 
             # if all come back as uint64s need to rethink...
             # print(buffer.get_frame_id())
             status = buffer.get_status()
+
             if status == Aravis.BufferStatus.TIMEOUT:
                 self.logger.debug("missed frame")
                 self.missed_frames += 1
@@ -241,3 +240,10 @@ def callback(user_data, cb_type, buffer):
     if buffer is not None:
         for k, v in user_data.counters.items():
             user_data.counter_data[v] = user_data.camera.get_counter_value[k]
+
+
+def stream_cb(user_data, type, buffer):
+    if type == Aravis.StreamCallbackType.INIT:
+        if not Aravis.make_thread_realtime(10) and \
+            not Aravis.make_thread_high_priority(-10):
+            print("Failed to make stream thread high priority")
