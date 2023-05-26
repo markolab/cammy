@@ -59,6 +59,7 @@ txt_pos = (25, 25)
 # 2) PTPENABLE FOR TIME CLOCK SYNC?
 @cli.command(name="run")
 @click.option("--interface", type=click.Choice(["aravis", "fake_custom", "all"]), default="all")
+@click.option("--buffer-size", "-b", type=int, default=5, help="Buffer size")
 @click.option("--n-fake-cameras", type=int, default=1)
 @click.option("--record", is_flag=True, help="Save frames to disk")
 @click.option("--jumbo-frames", default=True, type=bool, help="Turn on jumbo frames (GigE only)")
@@ -79,6 +80,7 @@ txt_pos = (25, 25)
 @click.option("--server", is_flag=True, help="Activate ZMQ server to send data to and control other python scripts")
 def simple_preview(
     interface: str,
+    buffer_size: int,
     n_fake_cameras: int,
     camera_options: Optional[str],
     record: bool,
@@ -133,14 +135,14 @@ def simple_preview(
 
     # TODO: TURN INTO AN AUTOMATIC CHECK, IF NO FRAMES ARE GETTING
     # ACQUIRED, PAUSE FOR 1 SEC AND RE-INITIALIZE
-    cameras = initialize_cameras(ids, camera_dct, jumbo_frames=jumbo_frames, record_counters=record_counters)
+    cameras = initialize_cameras(ids, camera_dct, jumbo_frames=jumbo_frames, record_counters=record_counters, buffer_size=buffer_size)
     del cameras
     time.sleep(2)
 
     cameras_metadata = {}
     bit_depth = {}
     trigger_pins = []
-    cameras = initialize_cameras(ids, camera_dct, jumbo_frames=jumbo_frames, record_counters=record_counters)
+    cameras = initialize_cameras(ids, camera_dct, jumbo_frames=jumbo_frames, record_counters=record_counters, buffer_size=buffer_size)
     for i, (k, v) in enumerate(cameras.items()):
         feature_dct = v.get_all_features()
         feature_dct = dict(sorted(feature_dct.items()))
