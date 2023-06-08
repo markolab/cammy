@@ -148,7 +148,6 @@ def simple_preview(
         cameras_metadata[k] = feature_dct
         trigger_pins.append(hw_trigger_pin_last - i) # work backwards from last
 
-    dpg.create_context()
     recorders = []
     write_dtype = {}
 
@@ -182,9 +181,20 @@ def simple_preview(
         init_timestamp_str = init_timestamp.strftime("%Y%m%d%H%M%S-%f")
 
         save_path = os.path.abspath(f"session_{init_timestamp_str} ({hostname})")
- 
+
+        dpg.create_context()
+
+        # https://github.com/hoffstadt/DearPyGui/issues/1380
+        with dpg.font_registry():
+            # Download font here: https://fonts.google.com/specimen/Open+Sans
+            font_path = os.path.join(basedir, "../assets", "OpenSans-VariableFont_wdth,wght.ttf")
+            default_font_large = dpg.add_font(font_path, 16 * 2, tag="ttf-font-large")
+            default_font_small = dpg.add_font(font_path, 13 * 2, tag="ttf-font-small")
+
         settings_tags = {}
         settings_vals = {}
+
+
         with dpg.window(width=500, height=300, no_resize=True, tag="settings"):
             for k, v in show_fields.items():
                 settings_tags[k] = dpg.add_input_text(default_value=v, label=k)
@@ -197,6 +207,8 @@ def simple_preview(
                 dpg.stop_dearpygui()
 
             dpg.add_button(label="START EXPERIMENT", callback=button_callback)
+            dpg.bind_font(default_font_large)
+            dpg.set_global_font_scale(0.5)
 
         dpg.create_viewport(width=300, height=300, title="Settings")
         dpg.setup_dearpygui()
@@ -214,8 +226,6 @@ def simple_preview(
             os.makedirs(save_path)
             with open(os.path.join(save_path, "metadata.toml"), "w") as f:
                 toml.dump(recording_metadata, f)
-        # start a new context for acquisition
-        dpg.create_context()
 
         # dump settings to toml file (along with start time of recording and hostname)
         for _id, _cam in cameras.items():
@@ -257,7 +267,18 @@ def simple_preview(
         logger.info("Sending save path to client...")
         zsocket.send_pyobj(save_path)
         logger.info("Done")
-    
+
+
+    # start a new context for acquisition
+    dpg.create_context()
+
+    # https://github.com/hoffstadt/DearPyGui/issues/1380
+    with dpg.font_registry():
+        # Download font here: https://fonts.google.com/specimen/Open+Sans
+        font_path = os.path.join(basedir, "../assets", "OpenSans-VariableFont_wdth,wght.ttf")
+        default_font_large = dpg.add_font(font_path, 16 * 2, tag="ttf-font-large")
+        default_font_small = dpg.add_font(font_path, 13 * 2, tag="ttf-font-small")
+
 
     with dpg.texture_registry(show=False):
         for _id, _cam in cameras.items():
@@ -299,6 +320,8 @@ def simple_preview(
             miss_status[_id] = dpg.add_text("0 missed frames / 0 total")
             fps_status[_id] = dpg.add_text("0 FPS")
             # add sliders/text boxes for exposure time and fps
+            dpg.bind_font(default_font_small)
+            dpg.set_global_font_scale(0.5)
 
     gui_x_offset = 0
     gui_y_offset = 0
