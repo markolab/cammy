@@ -33,24 +33,26 @@ class AravisCamera(CammyCamera):
         self.camera = Aravis.Camera.new(id)
         Aravis.make_thread_high_priority(1)
 
+        self.device = self.camera.get_device()
+        self._payload = self.camera.get_payload()  # size of payload
+        self._genicam = self.device.get_genicam()  # genicam interface
+
         # NOT USING EXT_IDS just yet
         if jumbo_frames and self.camera.is_gv_device():
             self.camera.gv_set_packet_size(8000)
-        #     ext_ids = self.get_feature('GevGVSPExtendedIDMode')
-        #     if ext_ids.lower() == "off":
-        #         self._frame_id_bit_depth = 16
-        #     else:
-        #         self._frame_id_bit_depth = 64
-        # else:
-        #     self._frame_id_bit_depth = 32
-        self.device = self.camera.get_device()
-        # self.camera = Aravis.Camera() # THIS IS JUST FOR PYLANCE
+
+        if self.camera.is_gv_device():
+            ext_ids = self.get_feature("GevGVSPExtendedIDMode")
+            if ext_ids.lower() == "off":
+                self._frame_id_dtype = 16
+            else:
+                self._frame_id_bit_depth = 64
+        else:
+            self._frame_id_bit_depth = 32
 
         self.logger = logging.getLogger(self.__class__.__name__)
         [x, y, width, height] = self.camera.get_region()
 
-        self._payload = self.camera.get_payload()  # size of payload
-        self._genicam = self.device.get_genicam()  # genicam interface
 
         self._width = width
         self._height = height  # stage stream
@@ -87,7 +89,6 @@ class AravisCamera(CammyCamera):
             self.total_frames += 1
             # can potentially use this, are bit depths handled automatically by aravis? 
             # if all come back as uint64s need to rethink...
-            # print(buffer.get_frame_id())
             status = buffer.get_status()
 
             if status == Aravis.BufferStatus.TIMEOUT:
@@ -108,6 +109,7 @@ class AravisCamera(CammyCamera):
                     "capture_number": self.total_frames,
                     "device_timestamp": timestamp,
                     "system_timestamp": system_timestamp,
+                    "frame_id": buffer.get_frame_id(),
                 }
                 if isinstance(frame, tuple):
                     for _frame, _cam in zip(frame[1:], self._spoof_cameras):
