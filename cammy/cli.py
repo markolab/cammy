@@ -60,6 +60,7 @@ txt_pos = (25, 25)
 # 2) PTPENABLE FOR TIME CLOCK SYNC?
 @cli.command(name="run")
 @click.option("--interface", type=click.Choice(["aravis", "fake_custom", "all"]), default="all")
+@click.option("--buffer-size", "-b", type=int, default=5, help="Buffer size")
 @click.option("--n-fake-cameras", type=int, default=1)
 @click.option("--record", is_flag=True, help="Save frames to disk")
 @click.option("--jumbo-frames", default=True, type=bool, help="Turn on jumbo frames (GigE only)")
@@ -96,6 +97,7 @@ txt_pos = (25, 25)
 )
 def simple_preview(
     interface: str,
+    buffer_size: int,
     n_fake_cameras: int,
     camera_options: Optional[str],
     record: bool,
@@ -148,9 +150,7 @@ def simple_preview(
 
     # TODO: TURN INTO AN AUTOMATIC CHECK, IF NO FRAMES ARE GETTING
     # ACQUIRED, PAUSE FOR 1 SEC AND RE-INITIALIZE
-    cameras = initialize_cameras(
-        ids, camera_dct, jumbo_frames=jumbo_frames, record_counters=record_counters
-    )
+    cameras = initialize_cameras(ids, camera_dct, jumbo_frames=jumbo_frames, record_counters=record_counters, buffer_size=buffer_size)
     del cameras
     time.sleep(2)
 
@@ -158,11 +158,7 @@ def simple_preview(
     bit_depth = {}
     spoof_cameras = {}
     trigger_pins = []
-    import copy
-
-    cameras = initialize_cameras(
-        ids, camera_dct, jumbo_frames=jumbo_frames, record_counters=record_counters
-    )
+    cameras = initialize_cameras(ids, camera_dct, jumbo_frames=jumbo_frames, record_counters=record_counters, buffer_size=buffer_size)
     for i, (k, v) in enumerate(cameras.items()):
         feature_dct = v.get_all_features()
         feature_dct = dict(sorted(feature_dct.items()))
@@ -188,7 +184,6 @@ def simple_preview(
     cameras = dict(sorted(cameras.items()))
     ids = dict(sorted(ids.items()))
 
-    dpg.create_context()
     recorders = []
     write_dtype = {}
 
@@ -226,8 +221,19 @@ def simple_preview(
 
         save_path = os.path.abspath(f"session_{init_timestamp_str} ({hostname})")
 
+        dpg.create_context()
+
+        # https://github.com/hoffstadt/DearPyGui/issues/1380
+        with dpg.font_registry():
+            # Download font here: https://fonts.google.com/specimen/Open+Sans
+            font_path = os.path.join(basedir, "../assets", "OpenSans-VariableFont_wdth,wght.ttf")
+            default_font_large = dpg.add_font(font_path, 16 * 2, tag="ttf-font-large")
+            default_font_small = dpg.add_font(font_path, 13 * 2, tag="ttf-font-small")
+
         settings_tags = {}
         settings_vals = {}
+
+
         with dpg.window(width=500, height=300, no_resize=True, tag="settings"):
             for k, v in show_fields.items():
                 settings_tags[k] = dpg.add_input_text(default_value=v, label=k)
@@ -240,6 +246,8 @@ def simple_preview(
                 dpg.stop_dearpygui()
 
             dpg.add_button(label="START EXPERIMENT", callback=button_callback)
+            dpg.bind_font(default_font_large)
+            dpg.set_global_font_scale(0.5)
 
         dpg.create_viewport(width=300, height=300, title="Settings")
         dpg.setup_dearpygui()
@@ -257,8 +265,6 @@ def simple_preview(
             os.makedirs(save_path)
             with open(os.path.join(save_path, "metadata.toml"), "w") as f:
                 toml.dump(recording_metadata, f)
-        # start a new context for acquisition
-        dpg.create_context()
 
         # dump settings to toml file (along with start time of recording and hostname)
         for _id, _cam in cameras.items():
@@ -300,6 +306,18 @@ def simple_preview(
         zsocket.send_pyobj(save_path)
         logger.info("Done")
 
+
+    # start a new context for acquisition
+    dpg.create_context()
+
+    # https://github.com/hoffstadt/DearPyGui/issues/1380
+    with dpg.font_registry():
+        # Download font here: https://fonts.google.com/specimen/Open+Sans
+        font_path = os.path.join(basedir, "../assets", "OpenSans-VariableFont_wdth,wght.ttf")
+        default_font_large = dpg.add_font(font_path, 16 * 2, tag="ttf-font-large")
+        default_font_small = dpg.add_font(font_path, 13 * 2, tag="ttf-font-small")
+
+
     with dpg.texture_registry(show=False):
         for _id, _cam in cameras.items():
             blank_data = np.zeros(
@@ -340,6 +358,8 @@ def simple_preview(
             miss_status[_id] = dpg.add_text("0 missed frames / 0 total")
             fps_status[_id] = dpg.add_text("0 FPS")
             # add sliders/text boxes for exposure time and fps
+            dpg.bind_font(default_font_small)
+            dpg.set_global_font_scale(0.5)
 
     gui_x_offset = 0
     gui_y_offset = 0
