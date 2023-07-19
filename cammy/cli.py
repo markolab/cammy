@@ -120,6 +120,7 @@ def simple_preview(
     import datetime
     import zmq
 
+    basedir = os.path.dirname(os.path.abspath(__file__))
     hostname = socket.gethostname()
 
     if server:
@@ -200,7 +201,6 @@ def simple_preview(
     if record:
         # from parameters construct single names...
         use_queues = get_queues(list(ids.keys()))
-        basedir = os.path.dirname(os.path.abspath(__file__))
         metadata_path = os.path.join(basedir, "metadata.toml")
         show_fields = toml.load(metadata_path)["show_fields"]
         init_timestamp = datetime.datetime.now()
