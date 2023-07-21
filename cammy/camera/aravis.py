@@ -209,7 +209,7 @@ class AravisCamera(CammyCamera):
         elif ntype == "Boolean":
             grab_func = self.device.get_boolean_feature_value
         elif ntype == "Converter":
-            grab_func = lambda x: self._genicam.get_node(x).get_value_as_string()
+            grab_func = lambda x: self._genicam.get_node(x).get_value()
         else:
             self.logger.debug("Feature type not implemented: %s", ntype)
             return None
@@ -217,7 +217,6 @@ class AravisCamera(CammyCamera):
         try:
             return grab_func(name)
         except Exception as e:
-            print(e)
             self.logger.debug(e)
             return None
 
