@@ -58,7 +58,7 @@ txt_pos = (25, 25)
 # TODO:
 # 1) ADD OPTION TO READ COUNTERS WITH COLUMN NAME?
 # 2) PTPENABLE FOR TIME CLOCK SYNC?
-@cli.command(name="run")
+@cli.command(name="run", context_settings={'show_default': True})
 @click.option("--interface", type=click.Choice(["aravis", "fake_custom", "all"]), default="all")
 @click.option("--buffer-size", "-b", type=int, default=5, help="Buffer size")
 @click.option("--n-fake-cameras", type=int, default=1)
