@@ -18,7 +18,7 @@ def initialize_boards(
     for slc in tqdm(range(num_slices)):
         aruco_idxs = (np.arange(left_edge, left_edge + markers_per_slice),)
         boards.append(
-            cv2.aruco.CharucoBoard_create(
+            cv2.aruco.CharucoBoard(
                 squares, square_length, marker_length, aruco_dict, aruco_idxs
             )
         )
