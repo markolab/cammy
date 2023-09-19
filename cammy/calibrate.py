@@ -41,29 +41,27 @@ def threshold_image(img, invert=True, percentile=95, neighbors=21):
 
 
 def detect_charuco(img, boards, refine=True):
-    marker_detections = []
-    ndetections = np.zeros((len(boards),), dtype="uint32")
-
+    aruco_dat = []
+    charuco_dat = []
     for i, _board in enumerate(boards):
-        marker_detections.append(cv2.aruco.detectMarkers(img, _board.dictionary))
-        ndetections[i] = len(marker_detections[0])
+        aruco_corners, aruco_ids, rejected = cv2.aruco.detectMarkers(img, _board.dictionary)
+        if refine:
+            aruco_corners, aruco_ids = cv2.aruco.refineDetectedMarkers(
+                img, _board, aruco_corners, aruco_ids, rejected
+            )[:2]
 
-    print(ndetections)
-    use_idx = ndetections.argmax()
-    aruco_corners, aruco_ids, rejected = marker_detections[use_idx]
-    if refine:
-        aruco_corners, aruco_ids = cv2.aruco.refineDetectedMarkers(
-            img, boards[use_idx], aruco_corners, aruco_ids, rejected
-        )[:2]
+        if len(aruco_corners) > 0:
+            ncorners, charuco_corners, charuco_ids = cv2.aruco.interpolateCornersCharuco(
+                aruco_corners, aruco_ids, img, boards[use_idx], minMarkers=0
+            )
+        else:
+            charuco_corners, charuco_ids = None, None
 
-    if len(aruco_corners) > 0:
-        ncorners, charuco_corners, charuco_ids = cv2.aruco.interpolateCornersCharuco(
-            aruco_corners, aruco_ids, img, boards[use_idx], minMarkers=0
-        )
-    else:
-        charuco_corners, charuco_ids = None, None
+        aruco_dat.append((aruco_corners, aruco_ids))
+        charuco_dat.append((charuco_corners, charuco_ids))
 
-    return boards[use_idx], (aruco_corners, aruco_ids), (charuco_corners, charuco_ids)
+    return aruco_dat, charuco_dat
+    # return boards[use_idx], (aruco_corners, aruco_ids), (charuco_corners, charuco_ids)
 
 
 def estimate_pose(charuco_corners, charuco_ids, intrinsic_matrix, distortion_coeffs, board):

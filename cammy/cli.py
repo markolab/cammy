@@ -673,8 +673,8 @@ def calibrate(
     dpg.show_viewport()
 
     # save everything in a pickle file...
-    aruco_save_data = {_cam: {"corners": [], "ids": []} for _cam in cameras.keys()}
-    charuco_save_data = {_cam: {"corners": [], "ids": []} for _cam in cameras.keys()}
+    aruco_save_data = {_cam: {"corners": [], "ids": [], "board_idx": []} for _cam in cameras.keys()}
+    charuco_save_data = {_cam: {"corners": [], "ids": [], "board_idx": []} for _cam in cameras.keys()}
     pose_save_data = {_cam: {"pose": [], "rvec": [], "tvec": []} for _cam in cameras.keys()}
     img_save_data = {_cam: [] for _cam in cameras.keys()}
 
@@ -718,45 +718,48 @@ def calibrate(
                 
                 # TODO: add support for multiple boards here...
                 # detect board with largest number of markers in FOV...
-                board, aruco_dat, charuco_dat = detect_charuco(use_img, boards)
+                aruco_dat, charuco_dat = detect_charuco(use_img, boards)
                 
-                # add if we get more than three detections
-                if len(aruco_dat[0]) > 3:
-                    aruco_save_data[_id]["corners"].append(aruco_dat[0])
-                    aruco_save_data[_id]["ids"].append(aruco_dat[1])
-                    charuco_save_data[_id]["corners"].append(charuco_dat[0])
-                    charuco_save_data[_id]["ids"].append(charuco_dat[1])
-                    img_save_data[_id] += _dat
+                for _board_id, (_aruco_dat, _charuco_dat) in enumerate(zip(aruco_dat, charuco_dat)):
+                    # add if we get more than three detections
+                    if len(_aruco_dat[0]) > 3:
+                        aruco_save_data[_id]["corners"].append(_aruco_dat[0])
+                        aruco_save_data[_id]["ids"].append(_aruco_dat[1])
+                        aruco_save_data[_id]["board_idx"].append(_board_id)
+                        charuco_save_data[_id]["corners"].append(_charuco_dat[0])
+                        charuco_save_data[_id]["ids"].append(_charuco_dat[1])
+                        charuco_save_data[_id]["board_idx"].append(_board_id)
+                        img_save_data[_id] += _dat
 
-                    # draw results
-                    plt_val = cv2.aruco.drawDetectedMarkers(plt_val, *aruco_dat, [0, 255, 255])
-                    plt_val = cv2.aruco.drawDetectedCornersCharuco(
-                        plt_val, *charuco_dat, [255, 0, 0, 0]
-                    )
-                   
-                    plt_val = cv2.putText(
-                        plt_val, str(frame_count[_id]), txt_pos, font, 1, (255, 255, 255)
-                    )
+                        # draw results
+                        plt_val = cv2.aruco.drawDetectedMarkers(plt_val, *_aruco_dat, [0, 255, 255])
+                        plt_val = cv2.aruco.drawDetectedCornersCharuco(
+                            plt_val, *_charuco_dat, [255, 0, 0, 0]
+                        )
+                    
+                        plt_val = cv2.putText(
+                            plt_val, str(frame_count[_id]), txt_pos, font, 1, (255, 255, 255)
+                        )
 
+                frame_count[_id] += 1
                     # SKIP pose if we do not have intrinsic and distortion estimates.
                     # TODO: add corner subpixel refinement...
-                    if intrinsic_matrix is not None:
-                        pose, rvec, tvec = estimate_pose(
-                            *charuco_dat,
-                            intrinsic_matrix[_id],
-                            distortion_coeffs[_id],
-                            board,
-                        )
+                    # if intrinsic_matrix is not None:
+                    #     pose, rvec, tvec = estimate_pose(
+                    #         *charuco_dat,
+                    #         intrinsic_matrix[_id],
+                    #         distortion_coeffs[_id],
+                    #         board,
+                    #     )
 
-                        pose_save_data[_id]["pose"].append(pose)
-                        pose_save_data[_id]["rvec"].append(rvec)
-                        pose_save_data[_id]["tvec"].append(tvec)
-                        plt_val = cv2.drawFrameAxes(
-                            plt_val, intrinsic_matrix[_id], distortion_coeffs[_id], rvec, tvec, 0.05
-                        )
+                    #     pose_save_data[_id]["pose"].append(pose)
+                    #     pose_save_data[_id]["rvec"].append(rvec)
+                    #     pose_save_data[_id]["tvec"].append(tvec)
+                    #     plt_val = cv2.drawFrameAxes(
+                    #         plt_val, intrinsic_matrix[_id], distortion_coeffs[_id], rvec, tvec, 0.05
+                    #     )
 
-                    frame_count[_id] += 1
-
+                # convert to [0,1] float for dpg
                 plt_val = plt_val.astype("float32")  / 255.
                 dpg.set_value(f"texture_{cameras[_id].id}", plt_val)
             
