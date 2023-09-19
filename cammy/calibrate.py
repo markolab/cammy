@@ -1,19 +1,27 @@
 import cv2
 import numpy as np
 from tqdm.auto import tqdm
+from typing import Tuple
 
 
 def initialize_boards(
-    squares=(6, 6), marker_length=0.043, square_length=0.033, num_slices=6, markers_per_slice=18
-):
-    aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_1000)
+    squares: Tuple[int, int]=(6, 6),
+    marker_length: float=0.043,
+    square_length: float=0.033,
+    num_slices: int=6,
+    markers_per_slice: int=18,
+    ar_dict: int=3,
+) -> cv2.aruco.CharucoBoard:
+    aruco_dict = cv2.aruco.getPredefinedDictionary(ar_dict)
     left_edge = 0
     boards = []
     for slc in tqdm(range(num_slices)):
         aruco_idxs = (np.arange(left_edge, left_edge + markers_per_slice),)
-        boards.append(cv2.aruco.CharucoBoard_create(
-            squares, square_length, marker_length, aruco_dict, aruco_idxs
-        ))
+        boards.append(
+            cv2.aruco.CharucoBoard_create(
+                squares, square_length, marker_length, aruco_dict, aruco_idxs
+            )
+        )
     return boards
 
 
