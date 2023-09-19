@@ -595,7 +595,7 @@ def calibrate(
                                square_length=camera_dct["charuco"]["square_length_mm"],
                                num_slices=camera_dct["charuco"]["num_slices"],
                                markers_per_slice=camera_dct["charuco"]["markers_per_slice"],
-                               ar_dict=camera_dct["charuco"]["ar_dict"])
+                               ar_dict=camera_dct["charuco"]["ar_dictionary"])
     ids = get_all_camera_ids(interface)
     cameras = initialize_cameras(ids, configs=camera_dct)
 
