@@ -42,25 +42,29 @@ def detect_charuco(img, boards, refine=True):
     aruco_dat = []
     charuco_dat = []
 
-    detection_params = cv2.aruco.DetectorParameters_create()
+    detection_params = cv2.aruco.DetectorParameters()
+    detection_params.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
     for i, _board in enumerate(boards):
-        detection_params.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_CONTOUR
-        aruco_corners, aruco_ids, rejected = cv2.aruco.detectMarkers(
-            img, _board.dictionary, parameters=detection_params
-        )
+        detector = cv2.aruco.CharucoDetector(_board)
+        detector.setDetectorParameters(detection_params) 
+
+        charuco_corners, charuco_ids, aruco_corners, aruco_ids = detector.detectBoard(img)
+
+        # aruco_corners, aruco_ids, rejected = cv2.aruco.detectMarkers(
+        #     img, _board.dictionary, parameters=detection_params
+        # )
 
         # aruco_corners, aruco_ids, rejected = cv2.aruco.detectMarkers(img, _board.dictionary)
-        if refine:
-            aruco_corners, aruco_ids = cv2.aruco.refineDetectedMarkers(
-                img, _board, aruco_corners, aruco_ids, rejected
-            )[:2]
-
-        if len(aruco_corners) > 0:
-            ncorners, charuco_corners, charuco_ids = cv2.aruco.interpolateCornersCharuco(
-                aruco_corners, aruco_ids, img, _board, minMarkers=0
-            )
-        else:
-            charuco_corners, charuco_ids = None, None
+        # if refine:
+        #     aruco_corners, aruco_ids = cv2.aruco.refineDetectedMarkers(
+        #         img, _board, aruco_corners, aruco_ids, rejected
+        #     )[:2]
+        # if len(aruco_corners) > 0:
+        #     ncorners, charuco_corners, charuco_ids = cv2.aruco.interpolateCornersCharuco(
+        #         aruco_corners, aruco_ids, img, _board, minMarkers=0
+        #     )
+        # else:
+        #     charuco_corners, charuco_ids = None, None
 
         aruco_dat.append((aruco_corners, aruco_ids))
         charuco_dat.append((charuco_corners, charuco_ids))
