@@ -548,14 +548,14 @@ def save_intrinsics(
 
 
 @cli.command(name="calibrate")
-@click.argument("intrinsics_file", type=click.Path(exists=True))
 @click.argument("camera_options_file", type=click.Path(exists=True))
+@click.option("--intrinsics-file", type=click.Path(exists=True), default=None)
 @click.option("--interface", type=click.Choice(["aravis", "fake_custom", "all"]), default="all")
 @click.option("--display-colormap", type=str, default="gray")
 @click.option("--record", is_flag=True, help="Save output to disk")
 def calibrate(
-    intrinsics_file: str,
     camera_options_file: str,
+    intrinsics_file: str,
     interface: str,
     display_colormap: Optional[str],
     record: bool,
@@ -573,7 +573,11 @@ def calibrate(
     init_timestamp_str = init_timestamp.strftime("%Y%m%d%H%M%S-%f")
     save_path = os.path.abspath(f"session_{init_timestamp_str} ({hostname}, calibration)")
 
-    intrinsic_matrix, distortion_coeffs = intrinsics_file_to_cv2(intrinsics_file)
+    if intrinsics_file is not None:
+        intrinsic_matrix, distortion_coeffs = intrinsics_file_to_cv2(intrinsics_file)
+    else:
+        intrinsic_matrix = None
+        distortion_coeffs = None
     
     # INIT CHARUCO PARAMETERS
     if display_colormap is None:
@@ -583,10 +587,10 @@ def calibrate(
 
     logging.info(f"Loading camera options from {camera_options_file}")
     camera_dct = toml.load(camera_options_file)
-    board = initialize_board(**camera_dct["charuco"])
 
-    
-
+    # TODO: add multiple boards here, detect in loop, keep board with
+    # largest number of markers...
+    boards = initialize_board(**camera_dct["charuco"])
     ids = get_all_camera_ids(interface)
     cameras = initialize_cameras(ids, configs=camera_dct)
 
@@ -711,7 +715,10 @@ def calibrate(
                 plt_val = cv2.merge([_dat[0]] *3)
                 plt_val = plt_val.astype("uint8")
                 use_img = threshold_image(_dat[0].copy())
-                aruco_dat, charuco_dat = detect_charuco(use_img, board)
+                
+                # TODO: add support for multiple boards here...
+                # detect board with largest number of markers in FOV...
+                board, aruco_dat, charuco_dat = detect_charuco(use_img, boards)
                 
                 # add if we get more than three detections
                 if len(aruco_dat[0]) > 3:
@@ -721,28 +728,33 @@ def calibrate(
                     charuco_save_data[_id]["ids"].append(charuco_dat[1])
                     img_save_data[_id] += _dat
 
-                    pose, rvec, tvec = estimate_pose(
-                        *charuco_dat,
-                        intrinsic_matrix[_id],
-                        distortion_coeffs[_id],
-                        board,
-                    )
-
-                    pose_save_data[_id]["pose"].append(pose)
-                    pose_save_data[_id]["rvec"].append(rvec)
-                    pose_save_data[_id]["tvec"].append(tvec)
-                     
                     # draw results
                     plt_val = cv2.aruco.drawDetectedMarkers(plt_val, *aruco_dat, [0, 255, 255])
                     plt_val = cv2.aruco.drawDetectedCornersCharuco(
                         plt_val, *charuco_dat, [255, 0, 0, 0]
                     )
-                    plt_val = cv2.drawFrameAxes(
-                        plt_val, intrinsic_matrix[_id], distortion_coeffs[_id], rvec, tvec, 0.05
-                    )
+                   
                     plt_val = cv2.putText(
                         plt_val, str(frame_count[_id]), txt_pos, font, 1, (255, 255, 255)
                     )
+
+                    # SKIP pose if we do not have intrinsic and distortion estimates.
+                    # TODO: add corner subpixel refinement...
+                    if intrinsic_matrix is not None:
+                        pose, rvec, tvec = estimate_pose(
+                            *charuco_dat,
+                            intrinsic_matrix[_id],
+                            distortion_coeffs[_id],
+                            board,
+                        )
+
+                        pose_save_data[_id]["pose"].append(pose)
+                        pose_save_data[_id]["rvec"].append(rvec)
+                        pose_save_data[_id]["tvec"].append(tvec)
+                        plt_val = cv2.drawFrameAxes(
+                            plt_val, intrinsic_matrix[_id], distortion_coeffs[_id], rvec, tvec, 0.05
+                        )
+
                     frame_count[_id] += 1
 
                 plt_val = plt_val.astype("float32")  / 255.
