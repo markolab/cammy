@@ -719,11 +719,19 @@ def calibrate(
                 height, width = _dat[0].shape
                 plt_val = cv2.merge([_dat[0]] *3)
                 plt_val = plt_val.astype("uint8")
-                use_img = threshold_image(_dat[0].copy())
+                # use_img = threshold_image(_dat[0].copy())
+                proc_img = _dat[0].copy()
+                proc_img = cv2.normalize(_dat[0], None, 0, 255, cv2.NORM_MINMAX)
+                # proc_img = cv2.equalizeHist(proc_img.astype("uint8"))
+                # proc_img = threshold_image(proc_img)
+                clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+                proc_img = clahe.apply(proc_img)
+                # smooth = cv2.GaussianBlur(proc_img, (95, 95), 0)
+                # proc_img = cv2.divide(proc_img, smooth, scale=100)
                 
                 # TODO: add support for multiple boards here...
                 # detect board with largest number of markers in FOV...
-                aruco_dat, charuco_dat = detect_charuco(use_img, boards)
+                aruco_dat, charuco_dat = detect_charuco(proc_img, boards)
                 
                 for _board_id, (_aruco_dat, _charuco_dat) in enumerate(zip(aruco_dat, charuco_dat)):
                     # add if we get more than three detections
@@ -742,9 +750,9 @@ def calibrate(
                             plt_val, *_charuco_dat, [255, 0, 0, 0]
                         )
                     
-                        plt_val = cv2.putText(
-                            plt_val, str(frame_count[_id]), txt_pos, font, 1, (255, 255, 255)
-                        )
+                plt_val = cv2.putText(
+                    plt_val, str(frame_count[_id]), txt_pos, font, 1, (255, 255, 255)
+                )
 
                 frame_count[_id] += 1
                     # SKIP pose if we do not have intrinsic and distortion estimates.
@@ -780,6 +788,7 @@ def calibrate(
             save_dictionary["img"] = img_save_data
             save_dictionary["charuco"] = charuco_save_data
             save_dictionary["aruco"] = aruco_save_data
+            save_dictionary["camera_options"] = camera_dct
             with open(os.path.join(save_path, "calibration.pkl"), "wb") as f:
                 pickle.dump(save_dictionary, f)
             with open(os.path.join(save_path, "metadata.toml"), "w") as f:

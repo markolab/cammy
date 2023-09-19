@@ -20,6 +20,7 @@ def initialize_boards(
         boards.append(
             cv2.aruco.CharucoBoard(squares, square_length, marker_length, aruco_dict, aruco_idxs)
         )
+        left_edge += markers_per_slice
     return boards
 
 
@@ -43,13 +44,12 @@ def detect_charuco(img, boards, refine=True):
     charuco_dat = []
 
     detection_params = cv2.aruco.DetectorParameters()
-    detection_params.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
+    detection_params.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_CONTOUR
     for i, _board in enumerate(boards):
         detector = cv2.aruco.CharucoDetector(_board)
         detector.setDetectorParameters(detection_params) 
 
         charuco_corners, charuco_ids, aruco_corners, aruco_ids = detector.detectBoard(img)
-
         # aruco_corners, aruco_ids, rejected = cv2.aruco.detectMarkers(
         #     img, _board.dictionary, parameters=detection_params
         # )
