@@ -5,12 +5,12 @@ from typing import Tuple
 
 
 def initialize_boards(
-    squares: Tuple[int, int]=(6, 6),
-    marker_length: float=0.043,
-    square_length: float=0.033,
-    num_slices: int=6,
-    markers_per_slice: int=18,
-    ar_dict: int=3,
+    squares: Tuple[int, int] = (6, 6),
+    marker_length: float = 0.043,
+    square_length: float = 0.033,
+    num_slices: int = 6,
+    markers_per_slice: int = 18,
+    ar_dict: int = 3,
 ) -> cv2.aruco.CharucoBoard:
     aruco_dict = cv2.aruco.getPredefinedDictionary(ar_dict)
     left_edge = 0
@@ -18,9 +18,7 @@ def initialize_boards(
     for slc in tqdm(range(num_slices)):
         aruco_idxs = np.arange(left_edge, left_edge + markers_per_slice)
         boards.append(
-            cv2.aruco.CharucoBoard(
-                squares, square_length, marker_length, aruco_dict, aruco_idxs
-            )
+            cv2.aruco.CharucoBoard(squares, square_length, marker_length, aruco_dict, aruco_idxs)
         )
     return boards
 
@@ -43,8 +41,15 @@ def threshold_image(img, invert=True, percentile=95, neighbors=21):
 def detect_charuco(img, boards, refine=True):
     aruco_dat = []
     charuco_dat = []
+
+    detection_params = cv2.aruco.DetectorParameters_create()
     for i, _board in enumerate(boards):
-        aruco_corners, aruco_ids, rejected = cv2.aruco.detectMarkers(img, _board.dictionary)
+        detection_params.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_CONTOUR
+        aruco_corners, aruco_ids, rejected = cv2.aruco.detectMarkers(
+            img, _board.dictionary, parameters=detection_params
+        )
+
+        # aruco_corners, aruco_ids, rejected = cv2.aruco.detectMarkers(img, _board.dictionary)
         if refine:
             aruco_corners, aruco_ids = cv2.aruco.refineDetectedMarkers(
                 img, _board, aruco_corners, aruco_ids, rejected
@@ -52,7 +57,7 @@ def detect_charuco(img, boards, refine=True):
 
         if len(aruco_corners) > 0:
             ncorners, charuco_corners, charuco_ids = cv2.aruco.interpolateCornersCharuco(
-                aruco_corners, aruco_ids, img, boards[use_idx], minMarkers=0
+                aruco_corners, aruco_ids, img, _board, minMarkers=0
             )
         else:
             charuco_corners, charuco_ids = None, None
