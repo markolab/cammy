@@ -566,7 +566,7 @@ def calibrate(
     import pickle
     import dearpygui.dearpygui as dpg
     from cammy.util import intrinsics_file_to_cv2
-    from cammy.calibrate import initialize_board, estimate_pose, detect_charuco, threshold_image
+    from cammy.calibrate import initialize_boards, estimate_pose, detect_charuco, threshold_image
 
     hostname = socket.gethostname()
     init_timestamp = datetime.datetime.now()
@@ -590,7 +590,12 @@ def calibrate(
 
     # TODO: add multiple boards here, detect in loop, keep board with
     # largest number of markers...
-    boards = initialize_board(**camera_dct["charuco"])
+    boards = initialize_boards(squares=camera_dct["charuco"]["squares"],
+                               marker_length=camera_dct["charuco"]["marker_length_mm"],
+                               square_length=camera_dct["charuco"]["square_length_mm"],
+                               num_slices=camera_dct["charuco"]["num_slices"],
+                               markers_per_slice=camera_dct["charuco"]["markers_per_slice"],
+                               ar_dict=camera_dct["charuco"]["ar_dict"])
     ids = get_all_camera_ids(interface)
     cameras = initialize_cameras(ids, configs=camera_dct)
 
