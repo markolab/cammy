@@ -48,7 +48,7 @@ slider_defaults_max = {
     "max_value": 5000,
 }
 colormap_default = "gray"
-gui_ncols = 2  # number of cols before we start new row
+gui_ncols = 3  # number of cols before we start new row
 # for labeling videos
 font = cv2.FONT_HERSHEY_SIMPLEX
 white = (255, 255, 255)
@@ -78,7 +78,7 @@ txt_pos = (25, 25)
 )
 @click.option("--display-colormap", type=str, default="turbo", help="Look-up-table")
 @click.option("--hw-trigger", is_flag=True, help="Trigger frames using an Arduino microcontroller")
-@click.option("--hw-trigger-rate", type=float, default=100.0, help="Trigger rate")
+@click.option("--hw-trigger-rate", type=float, default=0.0, help="Trigger rate")
 @click.option(
     "--hw-trigger-pin-last", type=int, default=13, help="Final dig out pin to use on Arduino"
 )
@@ -94,6 +94,12 @@ txt_pos = (25, 25)
     "--server",
     is_flag=True,
     help="Activate ZMQ server to send data to and control other python scripts",
+)
+@click.option(
+    "--alternate-mode",
+    type=int,
+    default=0,
+    help="Alternate mode (0 for first set of lets constant, 1 for other, 2 for alternation)"
 )
 def simple_preview(
     interface: str,
@@ -111,6 +117,7 @@ def simple_preview(
     record_counters: int,
     duration: float,
     server: bool,
+    alternate_mode: int,
 ):
     cli_params = locals()
 
@@ -192,8 +199,13 @@ def simple_preview(
         logging.info(f"Trigger pins: {trigger_pins}")
         from cammy.trigger.trigger import TriggerDevice
 
+        # if rate < 0, set to AcquisitionFrameRate of first cam
+        if hw_trigger_rate <= 0:
+            use_rate = np.round(list(cameras.values())[0].get_feature("AcquisitionFrameRate"))
+            print(f"Setting hw trigger rate to {use_rate}")
+            hw_trigger_rate = use_rate
         trigger_dev = TriggerDevice(
-            frame_rate=hw_trigger_rate, pins=trigger_pins, duration=duration
+            frame_rate=hw_trigger_rate, pins=trigger_pins, duration=duration, alternate_mode=alternate_mode
         )
     else:
         trigger_dev = None
@@ -721,13 +733,13 @@ def calibrate(
                 plt_val = plt_val.astype("uint8")
                 # use_img = threshold_image(_dat[0].copy())
                 proc_img = _dat[0].copy()
-                proc_img = cv2.normalize(_dat[0], None, 0, 255, cv2.NORM_MINMAX)
+                # proc_img = cv2.normalize(_dat[0], None, 0, 255, cv2.NORM_MINMAX)
                 # proc_img = cv2.equalizeHist(proc_img.astype("uint8"))
-                # proc_img = threshold_image(proc_img)
-                clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-                proc_img = clahe.apply(proc_img)
+                # clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(4,4))
+                # proc_img = clahe.apply(proc_img) 
+                # proc_img = threshold_image(proc_img, invert=False)
                 # smooth = cv2.GaussianBlur(proc_img, (95, 95), 0)
-                # proc_img = cv2.divide(proc_img, smooth, scale=100)
+                # proc_img = cv2.divide(proc_img, smooth, scale=50)
                 
                 # TODO: add support for multiple boards here...
                 # detect board with largest number of markers in FOV...

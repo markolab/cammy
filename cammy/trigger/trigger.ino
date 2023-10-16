@@ -7,13 +7,17 @@ float frame_rate = 0;											 /* frame rate specified by user */
 int pulse_width = 500;											 /*Camera trigger pulse width*/
 uint32_t baudrate = 115200;										 /* set by fiat */
 unsigned long counter = 0;
+int light_response_time = 200; /* response time of lights */
+int additional_time = 0;
+int previous_light_pin = 3;
+int alternate_condition = 0;
 
 void setup(void)
 {
 
 	/* set all pins to low while we're waiting for commands */
 
-	for (int i = 3; i < 14; i++)
+	for (int i = 4; i < 14; i++)
 	{
 		pinMode(i, OUTPUT);
 		digitalWrite(i, LOW);
@@ -29,16 +33,48 @@ void setup(void)
 	Serial.print(baudrate);
 
 	Serial.println("");
-	Serial.println("Enter delimiter-separated string with: N PINS, PIN ID1, PIN IDN, FRAME_RATE, NPULSES");
+	Serial.println("Enter delimiter-separated string with: N PINS, PIN ID1, PIN IDN, FRAME_RATE, NPULSES, ALTERNATE_CONDITION");
 
 	set_digital_pins();
 	set_frame_rate();
 	set_max_pulses();
+  set_alternate_condition();
+  set_light_pins();
 	frame_period = frame_rate_to_period(frame_rate);
 
 	while (Serial.available() > 0) {
 	  Serial.parseFloat();
 	}
+}
+
+void set_alternate_condition()
+{
+  while (Serial.available() == 0)
+	{
+	}
+	alternate_condition = Serial.parseFloat();
+}
+
+void set_light_pins()
+{
+  pinMode(2, OUTPUT);
+  pinMode(3, OUTPUT);
+  if (alternate_condition == 0) {
+    digitalWrite(2, LOW);
+    digitalWrite(3, HIGH);
+  }
+  else if (alternate_condition == 1) {
+    digitalWrite(2, HIGH);
+    digitalWrite(3, LOW);
+  }
+  else {
+    digitalWrite(2, HIGH);
+    digitalWrite(3, HIGH);
+  }
+
+	Serial.println("");
+	Serial.print("Set alternate condition to (0, 1 constant; 2 alternate): ");
+	Serial.print(alternate_condition);
 }
 
 void set_digital_pins()
@@ -120,6 +156,41 @@ void set_max_pulses()
 	Serial.print(max_pulses);
 }
 
+void set_light_pins_low()
+{
+  noInterrupts();
+  digitalWrite(2, LOW);
+  digitalWrite(3, LOW);
+  interrupts();
+}
+
+void set_light_pins_high()
+{
+  noInterrupts();
+  digitalWrite(2, HIGH);
+  digitalWrite(3, HIGH);
+  interrupts();
+}
+
+void alternate_light_pins()
+{
+  noInterrupts();
+  if (previous_light_pin == 3) 
+  {
+    digitalWrite(3, HIGH);
+    digitalWrite(2, LOW);
+    previous_light_pin = 2;
+  }
+  else if (previous_light_pin == 2)
+  {
+    digitalWrite(3, LOW);
+    digitalWrite(2, HIGH);
+    previous_light_pin = 3;
+  }
+  interrupts();
+}
+
+
 void set_pins_low()
 {
 	noInterrupts();
@@ -147,9 +218,12 @@ void loop(void)
 	if (Serial.available())
 	{
 		set_pins_low();
+    set_light_pins_high();
 		set_digital_pins();
 		set_frame_rate();
 		set_max_pulses();
+    set_alternate_condition();
+    set_light_pins();
 		frame_period = frame_rate_to_period(frame_rate);
 		counter = 0;
 	  while (Serial.available() > 0) {
@@ -161,9 +235,22 @@ void loop(void)
 	if ((frame_rate > 0) && (counter < max_pulses || max_pulses == 0))
 	{
 		start_time = micros();
-
+  
+    if (alternate_condition == 2)
+    {
+      alternate_light_pins(); /* wait 20-50 usec for lights to turn on */
+      while (micros() - start_time < light_response_time)
+      {
+      }
+      additional_time = light_response_time;
+    }
+    else
+    {
+      additional_time = 0;
+    }
+    
 		set_pins_high(); /* pulse high at start */
-		while (micros() - start_time < pulse_width)
+		while (micros() - start_time < pulse_width + additional_time)
 		{
 		}
 

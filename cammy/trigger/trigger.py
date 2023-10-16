@@ -13,7 +13,8 @@ class TriggerDevice:
         baudrate: int = 115200,
         frame_rate: float = 100.0,
         pins: Iterable[int] = [12, 13],
-        duration: float = 0
+        duration: float = 0,
+        alternate_mode: int = 0,
     ) -> None:
         if com is None:
             com = select_serial_port()
@@ -25,7 +26,7 @@ class TriggerDevice:
         self.dev = None
         period = 1. / frame_rate # period in seconds
         max_pulses = (duration * 60.) / period # number of pulses to meet experiment duration
-        self.command_params = {"frame_rate": frame_rate, "pins": pins, "max_pulses": max_pulses}
+        self.command_params = {"frame_rate": frame_rate, "pins": pins, "max_pulses": max_pulses, "alternate_mode": alternate_mode}
 
     def open(self):
         self.dev = serial.Serial(port=self.com, baudrate=self.baudrate, timeout=None, write_timeout=2)
@@ -46,7 +47,7 @@ class TriggerDevice:
         command_list = (
             [len(self.command_params["pins"])]
             + self.command_params["pins"]
-            + [0., 0.] # frsame_rate = 0, max_pulses = 0 should set all pins low
+            + [0., 0., -1.] # frame_rate = 0, max_pulses = 0 should set all pins low
         )
         command_string = ",".join(str(_) for _ in command_list)
         self.logger.info(f"Sending command string {command_string} to Arduino")
@@ -65,7 +66,8 @@ class TriggerDevice:
             [len(self.command_params["pins"])]
             + self.command_params["pins"]
             + [self.command_params["frame_rate"],
-               self.command_params["max_pulses"]]
+               self.command_params["max_pulses"],
+               self.command_params["alternate_mode"]]
         )
         command_string = ",".join(str(_) for _ in command_list)
         
