@@ -565,7 +565,7 @@ def save_intrinsics(
 @click.option("--interface", type=click.Choice(["aravis", "fake_custom", "all"]), default="all")
 @click.option("--display-colormap", type=str, default="gray")
 @click.option("--record", is_flag=True, help="Save output to disk")
-@click.option("--threshold-image", is_flag=True, help="Threshold image prior to detection")
+@click.option("--detect-threshold-image", is_flag=True, help="Threshold image prior to detection")
 @click.option("--light-control", type=int, default=-1, help="Turn on specific light bank with arduino (<0 to skip)")
 def calibrate(
     camera_options_file: str,
@@ -573,7 +573,7 @@ def calibrate(
     interface: str,
     display_colormap: Optional[str],
     record: bool,
-    threshold_image: bool,
+    detect_threshold_image: bool,
     light_control: int,
 ):
     import cv2
@@ -754,7 +754,9 @@ def calibrate(
                 # proc_img = cv2.equalizeHist(proc_img.astype("uint8"))
                 clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
                 proc_img = clahe.apply(proc_img)
-                if threshold_image:
+                # print(threshold_image)
+                if detect_threshold_image:
+                    print("Thresholding image...")
                     proc_img = threshold_image(proc_img)
                 # smooth = cv2.GaussianBlur(proc_img, (95, 95), 0)
                 # proc_img = cv2.divide(proc_img, smooth, scale=50)
