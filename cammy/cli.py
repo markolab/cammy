@@ -239,8 +239,8 @@ def simple_preview(
         with dpg.font_registry():
             # Download font here: https://fonts.google.com/specimen/Open+Sans
             font_path = os.path.join(basedir, "../assets", "OpenSans-VariableFont_wdth,wght.ttf")
-            default_font_large = dpg.add_font(font_path, 16 * 2, tag="ttf-font-large")
-            default_font_small = dpg.add_font(font_path, 13 * 2, tag="ttf-font-small")
+            default_font_large = dpg.add_font(font_path, 24 * 2, tag="ttf-font-large")
+            default_font_small = dpg.add_font(font_path, 20 * 2, tag="ttf-font-small")
 
         settings_tags = {}
         settings_vals = {}
@@ -326,8 +326,8 @@ def simple_preview(
     with dpg.font_registry():
         # Download font here: https://fonts.google.com/specimen/Open+Sans
         font_path = os.path.join(basedir, "../assets", "OpenSans-VariableFont_wdth,wght.ttf")
-        default_font_large = dpg.add_font(font_path, 16 * 2, tag="ttf-font-large")
-        default_font_small = dpg.add_font(font_path, 13 * 2, tag="ttf-font-small")
+        default_font_large = dpg.add_font(font_path, 20 * 2, tag="ttf-font-large")
+        default_font_small = dpg.add_font(font_path, 16 * 2, tag="ttf-font-small")
 
 
     with dpg.texture_registry(show=False):
@@ -566,6 +566,7 @@ def save_intrinsics(
 @click.option("--display-colormap", type=str, default="gray")
 @click.option("--record", is_flag=True, help="Save output to disk")
 @click.option("--threshold-image", is_flag=True, help="Threshold image prior to detection")
+@click.option("--light-control", type=int, default=-1, help="Turn on specific light bank with arduino (<0 to skip)")
 def calibrate(
     camera_options_file: str,
     intrinsics_file: str,
@@ -573,6 +574,7 @@ def calibrate(
     display_colormap: Optional[str],
     record: bool,
     threshold_image: bool,
+    light_control: int,
 ):
     import cv2
     import socket
@@ -586,6 +588,18 @@ def calibrate(
     init_timestamp = datetime.datetime.now()
     init_timestamp_str = init_timestamp.strftime("%Y%m%d%H%M%S-%f")
     save_path = os.path.abspath(f"session_{init_timestamp_str} ({hostname}, calibration)")
+
+    if light_control >= 0:
+        # logging.info(f"Trigger pins: {trigger_pins}")
+        from cammy.trigger.trigger import TriggerDevice
+        trigger_dev = TriggerDevice(
+            frame_rate=-1, pins=[], alternate_mode=light_control
+        )
+        trigger_dev.start()
+    else:
+        trigger_dev = None
+
+
 
     if intrinsics_file is not None:
         intrinsic_matrix, distortion_coeffs = intrinsics_file_to_cv2(intrinsics_file)
@@ -810,6 +824,8 @@ def calibrate(
             with open(os.path.join(save_path, "metadata.toml"), "w") as f:
                 toml.dump(metadata, f)
         [_cam.stop_acquisition() for _cam in cameras.values()]
+        if trigger_dev is not None:
+            trigger_dev.stop()
         logging.info("Done...")
         dpg.destroy_context()
 
