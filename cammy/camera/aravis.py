@@ -63,6 +63,7 @@ class AravisCamera(CammyCamera):
         self.frame_count = 0
         self._pixel_format = pixel_format
         self._last_framegrab = np.nan
+        self._last_frame_id = np.nan
         self._spoof_cameras = [] # we use these to push extra images
 
         self.id = id
@@ -95,12 +96,12 @@ class AravisCamera(CammyCamera):
 
             if status == Aravis.BufferStatus.TIMEOUT:
                 self.logger.debug("missed frame")
-                self.missed_frames += 1
+                # self.missed_frames += 1
                 frame = None
                 timestamps = None
             elif status == Aravis.BufferStatus.SIZE_MISMATCH:
                 self.logger.debug("buffer size mismatch")
-                self.missed_frames += 1
+                # self.missed_frames += 1
                 frame = None
                 timestamps = None
             elif status == Aravis.BufferStatus.SUCCESS:
@@ -123,6 +124,10 @@ class AravisCamera(CammyCamera):
                 grab_time = system_timestamp
                 self.frame_count += 1
                 self.fps = 1 / (((grab_time - self._last_framegrab) / self._tick_frequency) + 1e-12)
+                
+                self.missed_frames += (timestamps["frame_id"] - self._last_frame_id) - 1
+                self._last_frame_id = timestamps["frame_id"]
+
                 # self.smooth_fps = (1 - self.fps_alpha) * self.fps + self.fps_alpha * self.prior_fps
                 # self.prior_fps = self.smooth_fps
 
