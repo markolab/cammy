@@ -93,7 +93,7 @@ class AravisCamera(CammyCamera):
             # can potentially use this, are bit depths handled automatically by aravis? 
             # if all come back as uint64s need to rethink...
             status = buffer.get_status()
-
+            print(status)
             if status == Aravis.BufferStatus.TIMEOUT:
                 self.logger.debug("missed frame")
                 # self.missed_frames += 1
