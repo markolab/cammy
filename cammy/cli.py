@@ -486,6 +486,7 @@ def simple_preview(
                         )
                     if "storage" in use_queues.keys():
                         for k, v in use_queues["storage"].items():
+                            print(v.qsize())
                             logging.debug(v.qsize())
 
             if np.isfinite(cur_duration) and (duration > 0) and (cur_duration > duration):
