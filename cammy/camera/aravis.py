@@ -42,7 +42,7 @@ class AravisCamera(CammyCamera):
             self.camera.gv_set_packet_size(8000)
 
         if self.camera.is_uv_device():
-            self.camera.uv_set_usb_mode(Aravis.UvUsbMode.SYNC)
+            self.camera.uv_set_usb_mode(Aravis.UvUsbMode.ASYNC)
         if self.camera.is_gv_device():
             ext_ids = self.get_feature("GevGVSPExtendedIDMode")
             if ext_ids.lower() == "off":

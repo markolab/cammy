@@ -9,7 +9,7 @@ import cv2
 
 logging.basicConfig(
     stream=sys.stdout,
-    level=logging.INFO,
+    level=logging.DEBUG,
     format="[%(asctime)s]:%(levelname)s:%(name)s %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
@@ -741,6 +741,7 @@ def calibrate(
                     if _dat[0] is not None:
                         new_frame = _dat[0]
                         new_ts = _dat[1]
+                    # we get None once the buffer is empty...
                     if (new_frame is not None) and (_dat[0] is None):
                         exit_loop = True
                 dat[_id] = (new_frame, new_ts)
