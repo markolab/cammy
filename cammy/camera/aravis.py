@@ -42,7 +42,7 @@ class AravisCamera(CammyCamera):
             self.camera.gv_set_packet_size(8000)
 
         if self.camera.is_uv_device():
-            self.camera.uv_set_usb_mode(Aravis.UvUsbMode.SYNC)
+            self.camera.uv_set_usb_mode(Aravis.UvUsbMode.ASYNC)
         if self.camera.is_gv_device():
             ext_ids = self.get_feature("GevGVSPExtendedIDMode")
             if ext_ids.lower() == "off":
@@ -63,7 +63,7 @@ class AravisCamera(CammyCamera):
         self.frame_count = 0
         self._pixel_format = pixel_format
         self._last_framegrab = np.nan
-        self._last_frame_id = np.nan
+        # self._last_frame_id = np.nan
         self._spoof_cameras = [] # we use these to push extra images
 
         self.id = id
@@ -89,7 +89,7 @@ class AravisCamera(CammyCamera):
     def try_pop_frame(self):
         buffer = self.stream.try_pop_buffer()
         if buffer:
-            self.total_frames += 1
+            # self.total_frames += 1
             # can potentially use this, are bit depths handled automatically by aravis? 
             # if all come back as uint64s need to rethink...
             status = buffer.get_status()
@@ -125,10 +125,11 @@ class AravisCamera(CammyCamera):
                 self.frame_count += 1
                 self.fps = 1 / (((grab_time - self._last_framegrab) / self._tick_frequency) + 1e-12)
                 
-                diff = (timestamps["frame_id"] - self._last_frame_id) - 1
+                diff = (timestamps["frame_id"] - self.total_frames) - 1
                 if ~np.isnan(diff):
                     self.missed_frames += diff
-                self._last_frame_id = timestamps["frame_id"]
+                self.total_frames = timestamps["frame_id"]
+                # self._last_frame_id = timestamps["frame_id"]
 
                 # self.smooth_fps = (1 - self.fps_alpha) * self.fps + self.fps_alpha * self.prior_fps
                 # self.prior_fps = self.smooth_fps
