@@ -125,7 +125,9 @@ class AravisCamera(CammyCamera):
                 self.frame_count += 1
                 self.fps = 1 / (((grab_time - self._last_framegrab) / self._tick_frequency) + 1e-12)
                 
-                self.missed_frames += (timestamps["frame_id"] - self._last_frame_id) - 1
+                diff = (timestamps["frame_id"] - self._last_frame_id) - 1
+                if ~np.isnan(diff):
+                    self.missed_frames += diff
                 self._last_frame_id = timestamps["frame_id"]
 
                 # self.smooth_fps = (1 - self.fps_alpha) * self.fps + self.fps_alpha * self.prior_fps
