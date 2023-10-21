@@ -732,13 +732,17 @@ def calibrate(
             time.sleep(.1)
             dat = {}
             for _id, _cam in cameras.items():
+                # TODO: pop until we get all frames here...
                 new_frame = None
                 new_ts = None
-                while new_frame is None:
+                exit_loop = False
+                while not exit_loop:
                     _dat = _cam.try_pop_frame()
                     if _dat[0] is not None:
                         new_frame = _dat[0]
                         new_ts = _dat[1]
+                    if (new_frame is not None) and (_dat[0] is None):
+                        exit_loop = True
                 dat[_id] = (new_frame, new_ts)
 
             for _id, _dat in dat.items():
