@@ -437,9 +437,10 @@ def simple_preview(
             for _id, _cam in cameras.items():
                 new_frame = None
                 new_ts = None
+            
+                # do we need a separate thread for this, then grab whatever frame is latest???
                 while True:
                     _dat = _cam.try_pop_frame()
-
                     if _dat[0] is None:
                         break
                     else:
@@ -499,7 +500,7 @@ def simple_preview(
                         break
                 except zmq.Again:
                     pass
-            time.sleep(0.005)
+            # time.sleep(0.005)
             dpg.render_dearpygui_frame()
     finally:
         [_cam.stop_acquisition() for _cam in cameras.values()]
@@ -732,18 +733,13 @@ def calibrate(
             time.sleep(.1)
             dat = {}
             for _id, _cam in cameras.items():
-                # TODO: pop until we get all frames here...
                 new_frame = None
                 new_ts = None
-                exit_loop = False
-                while not exit_loop:
+                while new_frame is None:
                     _dat = _cam.try_pop_frame()
                     if _dat[0] is not None:
                         new_frame = _dat[0]
                         new_ts = _dat[1]
-                    # we get None once the buffer is empty...
-                    if (new_frame is not None) and (_dat[0] is None):
-                        exit_loop = True
                 dat[_id] = (new_frame, new_ts)
 
             for _id, _dat in dat.items():
