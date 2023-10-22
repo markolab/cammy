@@ -3,6 +3,7 @@ import serial.tools.list_ports
 import click
 import logging
 import time
+import numpy as np
 from typing import Iterable, Optional
 
 
@@ -15,7 +16,7 @@ class TriggerDevice:
         pins: Iterable[int] = [12, 13],
         duration: float = 0,
         alternate_mode: int = 0,
-        pulse_widths: Iterable[int] = [500],
+        pulse_widths: Iterable[float] = [.03],
     ) -> None:
         if com is None:
             com = select_serial_port()
@@ -33,7 +34,7 @@ class TriggerDevice:
             "pins": pins,
             "max_pulses": max_pulses,
             "alternate_mode": alternate_mode,
-            "pulse_widths": pulse_widths
+            "pulse_widths": [np.round(_pulse_width * 1e6).astype("int") for _pulse_width in pulse_widths]
         }
 
     def open(self):
