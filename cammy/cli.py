@@ -85,7 +85,8 @@ txt_pos = (25, 25)
 )
 @click.option(
     "--hw-trigger-pulse-widths",
-    type=list,
+    type=int,
+    multiple=True
     default=[500],
     help="Hardware trigger pulse width (µsecs)"
 )
