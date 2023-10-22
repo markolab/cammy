@@ -43,7 +43,7 @@ void setup(void)
 	set_max_pulses();
 	set_alternate_condition();
 	set_light_pins();
-	set_pulse_widths()
+	set_pulse_widths();
 	frame_period = frame_rate_to_period(frame_rate);
 
 	while (Serial.available() > 0)
@@ -97,7 +97,7 @@ void set_pulse_widths()
 	Serial.print(n_pulse_widths);
 
 	Serial.println("");
-	Serial.print("Digital pins: ");
+	Serial.print("Pulse widths: ");
 
 	for (int i = 0; i < n_pulse_widths; i++)
 	{
@@ -298,6 +298,6 @@ void loop(void)
 		{
 		}
 		counter++;
-		pulse_counter = (pulse_counter + 1) % n_pulse_widths
+		pulse_counter = (pulse_counter + 1) % n_pulse_widths;
 	}
 }
