@@ -7,7 +7,7 @@ float frame_rate = 0;											 /* frame rate specified by user */
 int pulse_width = 500;											 /*Camera trigger pulse width*/
 unsigned long pulse_widths[20];
 int n_pulse_widths;
-int inter_frame_interal = 5000;
+int inter_frame_interal = 5000;									 /* need this so next exposure is ready...*/
 uint32_t baudrate = 115200;										 /* set by fiat */
 unsigned long counter = 0;
 unsigned int pulse_counter = 0;
@@ -290,13 +290,15 @@ void loop(void)
 		}
 
 		set_pins_high(); /* pulse high at start */
-		while (micros() - start_time < pulse_widths[pulse_counter] + additional_time)
+		// while (micros() - start_time < pulse_widths[pulse_counter] + additional_time)
+		while (micros() - start_time < pulse_widths[pulse_counter] - inter_frame_interal)
 		{
 		}
 
 		set_pins_low(); /* wait low until we're at the next period*/
 		// while (micros() - start_time < frame_period)
-		while (micros() - start_time < pulse_widths[pulse_counter] + additional_time + inter_frame_interal)
+		// while (micros() - start_time < pulse_widths[pulse_counter] + additional_time + inter_frame_interal)
+		while (micros() - start_time < pulse_widths[pulse_counter])	
 		{
 		}
 		counter++;
