@@ -5,8 +5,11 @@ int n_pins;														 /* number of digital pins */
 unsigned long frame_start, frame_period, start_time, max_pulses; /* micros ticks when frame began and when frame ends */
 float frame_rate = 0;											 /* frame rate specified by user */
 int pulse_width = 500;											 /*Camera trigger pulse width*/
+int pulse_widths[20];
+int n_pulse_widths;
 uint32_t baudrate = 115200;										 /* set by fiat */
 unsigned long counter = 0;
+unsigned int pulse_counter = 0;
 int light_response_time = 200; /* response time of lights */
 int additional_time = 0;
 int previous_light_pin = 3;
@@ -40,6 +43,7 @@ void setup(void)
 	set_max_pulses();
 	set_alternate_condition();
 	set_light_pins();
+	set_pulse_widths()
 	frame_period = frame_rate_to_period(frame_rate);
 
 	while (Serial.available() > 0)
@@ -79,6 +83,36 @@ void set_light_pins()
 	Serial.println("");
 	Serial.print("Set alternate condition to (0, 1 constant; 2 alternate): ");
 	Serial.print(alternate_condition);
+}
+
+void set_pulse_widths()
+{
+	while (Serial.available() == 0)
+	{
+	}
+	n_pulse_widths = int((unsigned int)Serial.parseFloat());
+
+	Serial.println("");
+	Serial.print("N(pulse widths): ");
+	Serial.print(n_pulse_widths);
+
+	Serial.println("");
+	Serial.print("Digital pins: ");
+
+	for (int i = 0; i < n_pulse_widths; i++)
+	{
+		while (Serial.available() == 0)
+		{
+		}
+		int pulse_width = (unsigned int)Serial.parseFloat();
+		Serial.print(pulse_width);
+		if (i + 1 < n_pulse_widths)
+		{
+			Serial.print(",");
+		}
+		pulse_widths[i] = pulse_width;
+	}
+
 }
 
 void set_digital_pins()
@@ -227,8 +261,10 @@ void loop(void)
 		set_max_pulses();
 		set_alternate_condition();
 		set_light_pins();
+		set_pulse_widths();
 		frame_period = frame_rate_to_period(frame_rate);
 		counter = 0;
+		pulse_counter = 0;
 		while (Serial.available() > 0)
 		{
 			Serial.parseFloat();
@@ -253,7 +289,7 @@ void loop(void)
 		}
 
 		set_pins_high(); /* pulse high at start */
-		while (micros() - start_time < pulse_width + additional_time)
+		while (micros() - start_time < pulse_widths[pulse_counter] + additional_time)
 		{
 		}
 
@@ -262,5 +298,6 @@ void loop(void)
 		{
 		}
 		counter++;
+		pulse_counter = (pulse_counter + 1) % n_pulse_widths
 	}
 }

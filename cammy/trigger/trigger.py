@@ -15,23 +15,33 @@ class TriggerDevice:
         pins: Iterable[int] = [12, 13],
         duration: float = 0,
         alternate_mode: int = 0,
+        pulse_widths: Iterable[int] = [500],
     ) -> None:
         if com is None:
             com = select_serial_port()
-
 
         self.logger = logging.getLogger(self.__class__.__name__)
         self.com = com
         self.baudrate = baudrate
         self.dev = None
-        period = 1. / frame_rate # period in seconds
-        max_pulses = (duration * 60.) / period # number of pulses to meet experiment duration
-        self.command_params = {"frame_rate": frame_rate, "pins": pins, "max_pulses": max_pulses, "alternate_mode": alternate_mode}
+        period = 1.0 / frame_rate  # period in seconds
+        max_pulses = (
+            duration * 60.0
+        ) / period  # number of pulses to meet experiment duration
+        self.command_params = {
+            "frame_rate": frame_rate,
+            "pins": pins,
+            "max_pulses": max_pulses,
+            "alternate_mode": alternate_mode,
+            "pulse_widths": pulse_widths
+        }
 
     def open(self):
-        self.dev = serial.Serial(port=self.com, baudrate=self.baudrate, timeout=None, write_timeout=2)
+        self.dev = serial.Serial(
+            port=self.com, baudrate=self.baudrate, timeout=None, write_timeout=2
+        )
         self.dev.setDTR(False)
-        time.sleep(.05)
+        time.sleep(0.05)
         self.dev.reset_input_buffer()
         self.dev.setDTR(True)
         while True:
@@ -41,13 +51,17 @@ class TriggerDevice:
                 break
         # self.logger.info(f"Arduino msg: {self.dev.read_all().decode()}")
 
-
-    
     def stop(self):
         command_list = (
             [len(self.command_params["pins"])]
             + self.command_params["pins"]
-            + [0., 0., -1.] # frame_rate = 0, max_pulses = 0 should set all pins low
+            + [
+                0.0,
+                0.0,
+                -1.0,
+                1,
+                0,
+            ]  # frame_rate = 0, max_pulses = 0 should set all pins low
         )
         command_string = ",".join(str(_) for _ in command_list)
         self.logger.info(f"Sending command string {command_string} to Arduino")
@@ -60,17 +74,20 @@ class TriggerDevice:
                     self.logger.info(f"Arduino msg: {self.dev.read_all().decode()}")
                     break
 
-
     def start(self):
         command_list = (
             [len(self.command_params["pins"])]
             + self.command_params["pins"]
-            + [self.command_params["frame_rate"],
-               self.command_params["max_pulses"],
-               self.command_params["alternate_mode"]]
+            + [
+                self.command_params["frame_rate"],
+                self.command_params["max_pulses"],
+                self.command_params["alternate_mode"],
+                len(self.command_params["pulse_widths"]),
+            ]
+            + self.command_params["pulse_widths"]
         )
         command_string = ",".join(str(_) for _ in command_list)
-        
+
         # open the device if we haven't yet
         if self.dev is None:
             self.open()
@@ -84,7 +101,6 @@ class TriggerDevice:
                 time.sleep(2)
                 self.logger.info(f"Arduino msg: {self.dev.read_all().decode()}")
                 break
-
 
 
 def select_serial_port():
@@ -105,5 +121,5 @@ def select_serial_port():
     else:
         selection = 0
         print("Using: {}".format(all_ports[0].device))
- 
+
     return all_ports[selection].device

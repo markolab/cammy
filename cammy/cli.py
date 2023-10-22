@@ -58,6 +58,7 @@ txt_pos = (25, 25)
 # TODO:
 # 1) ADD OPTION TO READ COUNTERS WITH COLUMN NAME?
 # 2) PTPENABLE FOR TIME CLOCK SYNC?
+# fmt: off
 @cli.command(name="run", context_settings={'show_default': True})
 @click.option("--interface", type=click.Choice(["aravis", "fake_custom", "all"]), default="all")
 @click.option("--buffer-size", "-b", type=int, default=5, help="Buffer size")
@@ -82,6 +83,12 @@ txt_pos = (25, 25)
 @click.option(
     "--hw-trigger-pin-last", type=int, default=13, help="Final dig out pin to use on Arduino"
 )
+@click.option(
+    "--hw-trigger-pulse-widths",
+    type=list,
+    default=[500],
+    help="Hardware trigger pulse width (µsecs)"
+)
 @click.option("--record-counters", type=int, default=0, help="Record counter data")
 @click.option("--duration", type=float, default=0, help="Run for N minutes")
 @click.option(
@@ -101,6 +108,7 @@ txt_pos = (25, 25)
     default=0,
     help="Alternate mode (0 for first set of lets constant, 1 for other, 2 for alternation)"
 )
+# fmt: on
 def simple_preview(
     interface: str,
     buffer_size: int,
@@ -114,6 +122,7 @@ def simple_preview(
     hw_trigger: bool,
     hw_trigger_rate: float,
     hw_trigger_pin_last: int,
+    hw_trigger_pulse_widths: Iterable[int],
     record_counters: int,
     duration: float,
     server: bool,
@@ -158,7 +167,13 @@ def simple_preview(
 
     # TODO: TURN INTO AN AUTOMATIC CHECK, IF NO FRAMES ARE GETTING
     # ACQUIRED, PAUSE FOR 1 SEC AND RE-INITIALIZE
-    cameras = initialize_cameras(ids, camera_dct, jumbo_frames=jumbo_frames, record_counters=record_counters, buffer_size=buffer_size)
+    cameras = initialize_cameras(
+        ids,
+        camera_dct,
+        jumbo_frames=jumbo_frames,
+        record_counters=record_counters,
+        buffer_size=buffer_size,
+    )
     del cameras
     time.sleep(2)
 
@@ -166,7 +181,13 @@ def simple_preview(
     bit_depth = {}
     spoof_cameras = {}
     trigger_pins = []
-    cameras = initialize_cameras(ids, camera_dct, jumbo_frames=jumbo_frames, record_counters=record_counters, buffer_size=buffer_size)
+    cameras = initialize_cameras(
+        ids,
+        camera_dct,
+        jumbo_frames=jumbo_frames,
+        record_counters=record_counters,
+        buffer_size=buffer_size,
+    )
     for i, (k, v) in enumerate(cameras.items()):
         feature_dct = v.get_all_features()
         feature_dct = dict(sorted(feature_dct.items()))
@@ -201,11 +222,17 @@ def simple_preview(
 
         # if rate < 0, set to AcquisitionFrameRate of first cam
         if hw_trigger_rate <= 0:
-            use_rate = np.round(list(cameras.values())[0].get_feature("AcquisitionFrameRate"))
+            use_rate = np.round(
+                list(cameras.values())[0].get_feature("AcquisitionFrameRate")
+            )
             print(f"Setting hw trigger rate to {use_rate}")
             hw_trigger_rate = use_rate
         trigger_dev = TriggerDevice(
-            frame_rate=hw_trigger_rate, pins=trigger_pins, duration=duration, alternate_mode=alternate_mode
+            frame_rate=hw_trigger_rate,
+            pins=trigger_pins,
+            duration=duration,
+            alternate_mode=alternate_mode,
+            pulse_widths=hw_trigger_pulse_widths,
         )
     else:
         trigger_dev = None
@@ -238,13 +265,14 @@ def simple_preview(
         # https://github.com/hoffstadt/DearPyGui/issues/1380
         with dpg.font_registry():
             # Download font here: https://fonts.google.com/specimen/Open+Sans
-            font_path = os.path.join(basedir, "../assets", "OpenSans-VariableFont_wdth,wght.ttf")
+            font_path = os.path.join(
+                basedir, "../assets", "OpenSans-VariableFont_wdth,wght.ttf"
+            )
             default_font_large = dpg.add_font(font_path, 24 * 2, tag="ttf-font-large")
             default_font_small = dpg.add_font(font_path, 20 * 2, tag="ttf-font-small")
 
         settings_tags = {}
         settings_vals = {}
-
 
         with dpg.window(width=500, height=300, no_resize=True, tag="settings"):
             for k, v in show_fields.items():
@@ -299,7 +327,9 @@ def simple_preview(
                     timestamp_fields=timestamp_fields,
                 )
             else:
-                raise RuntimeError(f"Did not understanding VideoRecorder option {save_engine}")
+                raise RuntimeError(
+                    f"Did not understanding VideoRecorder option {save_engine}"
+                )
 
             _recorder.daemon = True
             _recorder.start()
@@ -318,22 +348,26 @@ def simple_preview(
         zsocket.send_pyobj(save_path)
         logger.info("Done")
 
-
     # start a new context for acquisition
     dpg.create_context()
 
     # https://github.com/hoffstadt/DearPyGui/issues/1380
     with dpg.font_registry():
         # Download font here: https://fonts.google.com/specimen/Open+Sans
-        font_path = os.path.join(basedir, "../assets", "OpenSans-VariableFont_wdth,wght.ttf")
+        font_path = os.path.join(
+            basedir, "../assets", "OpenSans-VariableFont_wdth,wght.ttf"
+        )
         default_font_large = dpg.add_font(font_path, 20 * 2, tag="ttf-font-large")
         default_font_small = dpg.add_font(font_path, 16 * 2, tag="ttf-font-small")
-
 
     with dpg.texture_registry(show=False):
         for _id, _cam in cameras.items():
             blank_data = np.zeros(
-                (_cam._height // display_downsample, _cam._width // display_downsample, 4),
+                (
+                    _cam._height // display_downsample,
+                    _cam._width // display_downsample,
+                    4,
+                ),
                 dtype="float32",
             )
             dpg.add_raw_texture(
@@ -353,7 +387,10 @@ def simple_preview(
                 use_config = v
 
         with dpg.window(
-            label=f"Camera {_id}", tag=f"Camera {_id}", no_collapse=True, no_scrollbar=True
+            label=f"Camera {_id}",
+            tag=f"Camera {_id}",
+            no_collapse=True,
+            no_scrollbar=True,
         ):
             dpg.add_image(f"texture_{_id}")
             with dpg.group(horizontal=True):
@@ -428,6 +465,10 @@ def simple_preview(
 
     # 3/7/23 REMOVED EXTRA START_ACQUISITION, PUT GPIO IN WEIRD STATE
     # [print(_cam.camera.get_trigger_source()) for _cam in cameras.values()]
+
+    # push frame grabbing to separate thread...
+    # https://github.com/AravisProject/aravis/issues/754
+
     start_time = -np.inf
     prior_fps = np.nan
     cur_duration = 0
@@ -437,7 +478,7 @@ def simple_preview(
             for _id, _cam in cameras.items():
                 new_frame = None
                 new_ts = None
-            
+
                 # do we need a separate thread for this, then grab whatever frame is latest???
                 while True:
                     _dat = _cam.try_pop_frame()
@@ -457,13 +498,22 @@ def simple_preview(
                     disp_max = dpg.get_value(f"texture_{_id}_max")
                     height, width = _dat[0].shape
                     disp_img = cv2.resize(
-                        _dat[0], (width // display_downsample, height // display_downsample)
+                        _dat[0],
+                        (width // display_downsample, height // display_downsample),
                     )
                     plt_val = intensity_to_rgba(
-                        disp_img, minval=disp_min, maxval=disp_max, colormap=display_colormap
+                        disp_img,
+                        minval=disp_min,
+                        maxval=disp_max,
+                        colormap=display_colormap,
                     ).astype("float32")
                     cv2.putText(
-                        plt_val, str(cameras[_id].frame_count), txt_pos, font, 1, (1, 1, 1, 1)
+                        plt_val,
+                        str(cameras[_id].frame_count),
+                        txt_pos,
+                        font,
+                        1,
+                        (1, 1, 1, 1),
                     )
                     dpg.set_value(f"texture_{cameras[_id].id}", plt_val)
                     cameras[_id].count += 1
@@ -489,7 +539,11 @@ def simple_preview(
                         for k, v in use_queues["storage"].items():
                             logging.debug(v.qsize())
 
-            if np.isfinite(cur_duration) and (duration > 0) and (cur_duration > duration):
+            if (
+                np.isfinite(cur_duration)
+                and (duration > 0)
+                and (cur_duration > duration)
+            ):
                 logging.info(f"Exceeded {duration} minutes, exiting...")
                 break
             if server and (zsocket is not None):
@@ -529,7 +583,9 @@ def simple_preview(
 
 @cli.command(name="save-intrinsics")
 @click.argument("filename", type=click.Path(exists=False))
-@click.option("--interface", type=click.Choice(["aravis", "fake_custom", "all"]), default="all")
+@click.option(
+    "--interface", type=click.Choice(["aravis", "fake_custom", "all"]), default="all"
+)
 def save_intrinsics(
     filename: str,
     interface: str,
@@ -563,11 +619,20 @@ def save_intrinsics(
 @cli.command(name="calibrate")
 @click.argument("camera_options_file", type=click.Path(exists=True))
 @click.option("--intrinsics-file", type=click.Path(exists=True), default=None)
-@click.option("--interface", type=click.Choice(["aravis", "fake_custom", "all"]), default="all")
+@click.option(
+    "--interface", type=click.Choice(["aravis", "fake_custom", "all"]), default="all"
+)
 @click.option("--display-colormap", type=str, default="gray")
 @click.option("--record", is_flag=True, help="Save output to disk")
-@click.option("--detect-threshold-image", is_flag=True, help="Threshold image prior to detection")
-@click.option("--light-control", type=int, default=-1, help="Turn on specific light bank with arduino (<0 to skip)")
+@click.option(
+    "--detect-threshold-image", is_flag=True, help="Threshold image prior to detection"
+)
+@click.option(
+    "--light-control",
+    type=int,
+    default=-1,
+    help="Turn on specific light bank with arduino (<0 to skip)",
+)
 def calibrate(
     camera_options_file: str,
     intrinsics_file: str,
@@ -583,16 +648,24 @@ def calibrate(
     import pickle
     import dearpygui.dearpygui as dpg
     from cammy.util import intrinsics_file_to_cv2
-    from cammy.calibrate import initialize_boards, estimate_pose, detect_charuco, threshold_image
+    from cammy.calibrate import (
+        initialize_boards,
+        estimate_pose,
+        detect_charuco,
+        threshold_image,
+    )
 
     hostname = socket.gethostname()
     init_timestamp = datetime.datetime.now()
     init_timestamp_str = init_timestamp.strftime("%Y%m%d%H%M%S-%f")
-    save_path = os.path.abspath(f"session_{init_timestamp_str} ({hostname}, calibration)")
+    save_path = os.path.abspath(
+        f"session_{init_timestamp_str} ({hostname}, calibration)"
+    )
 
     if light_control >= 0:
         # logging.info(f"Trigger pins: {trigger_pins}")
         from cammy.trigger.trigger import TriggerDevice
+
         trigger_dev = TriggerDevice(
             frame_rate=-1, pins=[], alternate_mode=light_control
         )
@@ -600,14 +673,12 @@ def calibrate(
     else:
         trigger_dev = None
 
-
-
     if intrinsics_file is not None:
         intrinsic_matrix, distortion_coeffs = intrinsics_file_to_cv2(intrinsics_file)
     else:
         intrinsic_matrix = None
         distortion_coeffs = None
-    
+
     # INIT CHARUCO PARAMETERS
     if display_colormap is None:
         display_colormap = mpl_to_cv2_colormap(colormap_default)
@@ -619,12 +690,14 @@ def calibrate(
 
     # TODO: add multiple boards here, detect in loop, keep board with
     # largest number of markers...
-    boards = initialize_boards(squares=camera_dct["charuco"]["squares"],
-                               marker_length=camera_dct["charuco"]["marker_length_mm"],
-                               square_length=camera_dct["charuco"]["square_length_mm"],
-                               num_slices=camera_dct["charuco"]["num_slices"],
-                               markers_per_slice=camera_dct["charuco"]["markers_per_slice"],
-                               ar_dict=camera_dct["charuco"]["aruco_dictionary"])
+    boards = initialize_boards(
+        squares=camera_dct["charuco"]["squares"],
+        marker_length=camera_dct["charuco"]["marker_length_mm"],
+        square_length=camera_dct["charuco"]["square_length_mm"],
+        num_slices=camera_dct["charuco"]["num_slices"],
+        markers_per_slice=camera_dct["charuco"]["markers_per_slice"],
+        ar_dict=camera_dct["charuco"]["aruco_dictionary"],
+    )
     ids = get_all_camera_ids(interface)
     cameras = initialize_cameras(ids, configs=camera_dct)
 
@@ -632,8 +705,12 @@ def calibrate(
     metadata["calibration"]["session_time"] = init_timestamp_str
     metadata["calibration"]["cameras"] = list(ids.keys())
     metadata["calibration"]["camera_internal_data"] = {}
-    metadata["calibration"]["camera_internal_data"]["intrinsic_matrix"] = intrinsic_matrix
-    metadata["calibration"]["camera_internal_data"]["distortion_coeffs"] = distortion_coeffs
+    metadata["calibration"]["camera_internal_data"][
+        "intrinsic_matrix"
+    ] = intrinsic_matrix
+    metadata["calibration"]["camera_internal_data"][
+        "distortion_coeffs"
+    ] = distortion_coeffs
     metadata["calibration"]["board"] = camera_dct["charuco"]
 
     dpg.create_context()
@@ -641,15 +718,15 @@ def calibrate(
     bit_depth = {}
     disp_mins = {}
     disp_maxs = {}
-    for k, v  in cameras.items():
+    for k, v in cameras.items():
         feature_dct = v.get_all_features()
         feature_dct = dict(sorted(feature_dct.items()))
         _bit_depth, _spoof_ims = get_pixel_format_bit_depth(feature_dct["PixelFormat"])
         v._pixel_format = feature_dct["PixelFormat"]
         bit_depth[k] = _bit_depth
         disp_mins[k] = 0
-        disp_maxs[k] = 2 ** _bit_depth
-    
+        disp_maxs[k] = 2**_bit_depth
+
     # append everything lists and dump to pickle
     with dpg.texture_registry(show=False):
         for _id, _cam in cameras.items():
@@ -665,7 +742,6 @@ def calibrate(
                 format=dpg.mvFormat_Float_rgb,
             )
 
-
     for _id, _cam in cameras.items():
         use_config = {}
         for k, v in camera_dct["display"].items():
@@ -673,7 +749,10 @@ def calibrate(
                 use_config = v
 
         with dpg.window(
-            label=f"Camera {_id}", tag=f"Camera {_id}", no_collapse=True, no_scrollbar=True
+            label=f"Camera {_id}",
+            tag=f"Camera {_id}",
+            no_collapse=True,
+            no_scrollbar=True,
         ):
             dpg.add_image(f"texture_{_id}")
 
@@ -701,21 +780,28 @@ def calibrate(
             gui_x_offset += width
 
     [_cam.start_acquisition() for _cam in cameras.values()]
-    time.sleep(1) 
+    time.sleep(1)
     dpg.create_viewport(title="Camera preview", width=gui_x_max, height=gui_y_max)
     dpg.setup_dearpygui()
     dpg.show_viewport()
 
     # save everything in a pickle file...
-    aruco_save_data = {_cam: {"corners": [], "ids": [], "board_idx": []} for _cam in cameras.keys()}
-    charuco_save_data = {_cam: {"corners": [], "ids": [], "board_idx": []} for _cam in cameras.keys()}
-    pose_save_data = {_cam: {"pose": [], "rvec": [], "tvec": []} for _cam in cameras.keys()}
+    aruco_save_data = {
+        _cam: {"corners": [], "ids": [], "board_idx": []} for _cam in cameras.keys()
+    }
+    charuco_save_data = {
+        _cam: {"corners": [], "ids": [], "board_idx": []} for _cam in cameras.keys()
+    }
+    pose_save_data = {
+        _cam: {"pose": [], "rvec": [], "tvec": []} for _cam in cameras.keys()
+    }
     img_save_data = {_cam: [] for _cam in cameras.keys()}
 
     # https://stackoverflow.com/questions/13180941/how-to-kill-a-while-loop-with-a-keystroke
     import _thread
+
     def input_thread(a_list):
-        input("Press enter to grab a new frame")             
+        input("Press enter to grab a new frame")
         a_list.append(True)
 
     frame_count = {}
@@ -727,10 +813,9 @@ def calibrate(
             _thread.start_new_thread(input_thread, (a_list,))
             while not a_list:
                 dpg.render_dearpygui_frame()
-            
-            
+
             [_cam.camera.software_trigger() for _cam in cameras.values()]
-            time.sleep(.1)
+            time.sleep(0.1)
             dat = {}
             for _id, _cam in cameras.items():
                 new_frame = None
@@ -747,13 +832,13 @@ def calibrate(
                 # plt.imshow(_dat[0])
                 # plt.show()
                 height, width = _dat[0].shape
-                plt_val = cv2.merge([_dat[0]] *3)
+                plt_val = cv2.merge([_dat[0]] * 3)
                 plt_val = plt_val.astype("uint8")
                 # use_img = threshold_image(_dat[0].copy())
                 proc_img = _dat[0].copy()
                 # proc_img = cv2.normalize(_dat[0], None, 0, 255, cv2.NORM_MINMAX)
                 # proc_img = cv2.equalizeHist(proc_img.astype("uint8"))
-                clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+                clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
                 proc_img = clahe.apply(proc_img)
                 # print(threshold_image)
                 if detect_threshold_image:
@@ -761,12 +846,14 @@ def calibrate(
                     proc_img = threshold_image(proc_img)
                 # smooth = cv2.GaussianBlur(proc_img, (95, 95), 0)
                 # proc_img = cv2.divide(proc_img, smooth, scale=50)
-                
+
                 # TODO: add support for multiple boards here...
                 # detect board with largest number of markers in FOV...
                 aruco_dat, charuco_dat = detect_charuco(proc_img, boards)
-                
-                for _board_id, (_aruco_dat, _charuco_dat) in enumerate(zip(aruco_dat, charuco_dat)):
+
+                for _board_id, (_aruco_dat, _charuco_dat) in enumerate(
+                    zip(aruco_dat, charuco_dat)
+                ):
                     # add if we get more than three detections
                     if len(_aruco_dat[0]) > 3:
                         aruco_save_data[_id]["corners"].append(_aruco_dat[0])
@@ -778,37 +865,39 @@ def calibrate(
                         img_save_data[_id] += _dat
 
                         # draw results
-                        plt_val = cv2.aruco.drawDetectedMarkers(plt_val, *_aruco_dat, [0, 255, 255])
+                        plt_val = cv2.aruco.drawDetectedMarkers(
+                            plt_val, *_aruco_dat, [0, 255, 255]
+                        )
                         plt_val = cv2.aruco.drawDetectedCornersCharuco(
                             plt_val, *_charuco_dat, [255, 0, 0, 0]
                         )
-                    
+
                 plt_val = cv2.putText(
                     plt_val, str(frame_count[_id]), txt_pos, font, 1, (255, 255, 255)
                 )
 
                 frame_count[_id] += 1
-                    # SKIP pose if we do not have intrinsic and distortion estimates.
-                    # TODO: add corner subpixel refinement...
-                    # if intrinsic_matrix is not None:
-                    #     pose, rvec, tvec = estimate_pose(
-                    #         *charuco_dat,
-                    #         intrinsic_matrix[_id],
-                    #         distortion_coeffs[_id],
-                    #         board,
-                    #     )
+                # SKIP pose if we do not have intrinsic and distortion estimates.
+                # TODO: add corner subpixel refinement...
+                # if intrinsic_matrix is not None:
+                #     pose, rvec, tvec = estimate_pose(
+                #         *charuco_dat,
+                #         intrinsic_matrix[_id],
+                #         distortion_coeffs[_id],
+                #         board,
+                #     )
 
-                    #     pose_save_data[_id]["pose"].append(pose)
-                    #     pose_save_data[_id]["rvec"].append(rvec)
-                    #     pose_save_data[_id]["tvec"].append(tvec)
-                    #     plt_val = cv2.drawFrameAxes(
-                    #         plt_val, intrinsic_matrix[_id], distortion_coeffs[_id], rvec, tvec, 0.05
-                    #     )
+                #     pose_save_data[_id]["pose"].append(pose)
+                #     pose_save_data[_id]["rvec"].append(rvec)
+                #     pose_save_data[_id]["tvec"].append(tvec)
+                #     plt_val = cv2.drawFrameAxes(
+                #         plt_val, intrinsic_matrix[_id], distortion_coeffs[_id], rvec, tvec, 0.05
+                #     )
 
                 # convert to [0,1] float for dpg
-                plt_val = plt_val.astype("float32")  / 255.
+                plt_val = plt_val.astype("float32") / 255.0
                 dpg.set_value(f"texture_{cameras[_id].id}", plt_val)
-            
+
             dpg.render_dearpygui_frame()
 
     except (KeyboardInterrupt, EOFError):
