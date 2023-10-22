@@ -7,7 +7,7 @@ float frame_rate = 0;											 /* frame rate specified by user */
 int pulse_width = 500;											 /*Camera trigger pulse width*/
 unsigned long pulse_widths[20];
 int n_pulse_widths;
-int inter_frame_interal = 1000;
+int inter_frame_interal = 5000;
 uint32_t baudrate = 115200;										 /* set by fiat */
 unsigned long counter = 0;
 unsigned int pulse_counter = 0;
