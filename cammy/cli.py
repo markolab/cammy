@@ -87,7 +87,7 @@ txt_pos = (25, 25)
     "--hw-trigger-pulse-widths",
     type=int,
     multiple=True,
-    default=[500],
+    # default=[500],
     help="Hardware trigger pulse width (µsecs)"
 )
 @click.option("--record-counters", type=int, default=0, help="Record counter data")
@@ -223,11 +223,14 @@ def simple_preview(
         from cammy.trigger.trigger import TriggerDevice
 
         # if rate < 0, set to AcquisitionFrameRate of first cam
-        if hw_trigger_rate <= 0:
+        # if hw_trigger_rate <= 0:
+        if len(hw_trigger_pulse_widths) == 0:
             use_rate = np.round(
                 list(cameras.values())[0].get_feature("AcquisitionFrameRate")
             )
-            print(f"Setting hw trigger rate to {use_rate}")
+            use_period = 1 / use_rate
+            print(f"Setting hw trigger pulse width to {use_period}")
+            hw_trigger_pulse_widths = [use_period]
             hw_trigger_rate = use_rate
         trigger_dev = TriggerDevice(
             frame_rate=hw_trigger_rate,

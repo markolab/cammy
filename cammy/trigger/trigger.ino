@@ -5,8 +5,9 @@ int n_pins;														 /* number of digital pins */
 unsigned long frame_start, frame_period, start_time, max_pulses; /* micros ticks when frame began and when frame ends */
 float frame_rate = 0;											 /* frame rate specified by user */
 int pulse_width = 500;											 /*Camera trigger pulse width*/
-int pulse_widths[20];
+unsigned long pulse_widths[20];
 int n_pulse_widths;
+int inter_frame_interal = 1000;
 uint32_t baudrate = 115200;										 /* set by fiat */
 unsigned long counter = 0;
 unsigned int pulse_counter = 0;
@@ -294,7 +295,8 @@ void loop(void)
 		}
 
 		set_pins_low(); /* wait low until we're at the next period*/
-		while (micros() - start_time < frame_period)
+		// while (micros() - start_time < frame_period)
+		while (micros() - start_time < pulse_widths[pulse_counter] + additional_time + inter_frame_interal)
 		{
 		}
 		counter++;
