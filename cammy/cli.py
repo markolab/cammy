@@ -129,6 +129,7 @@ def simple_preview(
     server: bool,
     alternate_mode: int,
 ):
+    
     cli_params = locals()
 
     import dearpygui.dearpygui as dpg

@@ -33,7 +33,7 @@ class TriggerDevice:
             "pins": pins,
             "max_pulses": max_pulses,
             "alternate_mode": alternate_mode,
-            "pulse_widths": pulse_widths
+            "pulse_widths": list(pulse_widths)
         }
 
     def open(self):
