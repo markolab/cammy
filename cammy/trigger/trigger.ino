@@ -301,14 +301,14 @@ void loop(void)
 
 		set_pins_high(); /* pulse high at start */
 		// while (micros() - start_time < pulse_widths[pulse_counter] + additional_time)
-		while (micros() - start_time < pulse_widths[pulse_counter] - inter_frame_interal)
+		while (micros() - start_time < pulse_widths[pulse_counter])
 		{
 		}
 
 		set_pins_low(); /* wait low until we're at the next period*/
 		// while (micros() - start_time < frame_period)
 		// while (micros() - start_time < pulse_widths[pulse_counter] + additional_time + inter_frame_interal)
-		while (micros() - start_time < pulse_widths[pulse_counter])	
+		while (micros() - start_time < pulse_widths[pulse_counter] + pulse_width_low)	
 		{
 		}
 		counter++;

@@ -84,7 +84,7 @@ txt_pos = (25, 25)
     "--hw-trigger-pin-last", type=int, default=13, help="Final dig out pin to use on Arduino"
 )
 @click.option(
-    "--hw-trigger-pulse-widths",
+    "--hw-trigger-pulse-width",
     type=float,
     multiple=True,
     # default=[.02],
@@ -129,7 +129,7 @@ def simple_preview(
     hw_trigger: bool,
     hw_trigger_rate: float,
     hw_trigger_pin_last: int,
-    hw_trigger_pulse_widths: Iterable[float],
+    hw_trigger_pulse_width: Iterable[float],
     hw_trigger_pulse_low: float,
     record_counters: int,
     duration: float,
@@ -231,20 +231,20 @@ def simple_preview(
 
         # if rate < 0, set to AcquisitionFrameRate of first cam
         # if hw_trigger_rate <= 0:
-        if len(hw_trigger_pulse_widths) == 0:
+        if len(hw_trigger_pulse_width) == 0:
             use_rate = np.round(
                 list(cameras.values())[0].get_feature("AcquisitionFrameRate")
             )
             use_period = 1 / use_rate
             print(f"Setting hw trigger pulse width to {use_period}")
-            hw_trigger_pulse_widths = [use_period]
+            hw_trigger_pulse_width = [use_period]
             hw_trigger_rate = use_rate
         trigger_dev = TriggerDevice(
             frame_rate=hw_trigger_rate,
             pins=trigger_pins,
             duration=duration,
             alternate_mode=alternate_mode,
-            pulse_widths=hw_trigger_pulse_widths,
+            pulse_widths=hw_trigger_pulse_width,
             pulse_width_low=hw_trigger_pulse_low,
         )
     else:
