@@ -124,10 +124,10 @@ class AravisCamera(CammyCamera):
                 grab_time = system_timestamp
                 self.frame_count += 1
                 new_fps_val = 1 / (((grab_time - self._last_framegrab) / self._tick_frequency) + 1e-12)
-                # if np.isnan(self.fps):
-                self.fps = new_fps_val
-                # else:
-                    # self.fps = .1 * new_fps_val + .9 * self.fps
+                if np.isnan(self.fps):
+                    self.fps = new_fps_val
+                else:
+                    self.fps = .01 * new_fps_val + .99 * self.fps
                 
                 diff = (timestamps["frame_id"] - self.total_frames) - 1
                 if ~np.isnan(diff):
