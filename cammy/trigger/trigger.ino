@@ -6,8 +6,9 @@ unsigned long frame_start, frame_period, start_time, max_pulses; /* micros ticks
 float frame_rate = 0;											 /* frame rate specified by user */
 int pulse_width = 500;											 /*Camera trigger pulse width*/
 unsigned long pulse_widths[20];
+int pulse_width_low;
 int n_pulse_widths;
-int inter_frame_interal = 2000;									 /* need this so next exposure is ready...*/
+// int inter_frame_interal = 2000;									 /* need this so next exposure is ready...*/
 uint32_t baudrate = 115200;										 /* set by fiat */
 unsigned long counter = 0;
 unsigned int pulse_counter = 0;
@@ -113,6 +114,15 @@ void set_pulse_widths()
 		}
 		pulse_widths[i] = pulse_width;
 	}
+
+	while (Serial.available() == 0)
+	{
+	}
+	pulse_width_low = (unsigned int)Serial.parseFloat();
+
+	Serial.println("");
+	Serial.print("Pulse width low: ");
+	Serial.print(pulse_width_low);
 
 }
 

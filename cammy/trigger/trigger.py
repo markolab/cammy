@@ -17,6 +17,7 @@ class TriggerDevice:
         duration: float = 0,
         alternate_mode: int = 0,
         pulse_widths: Iterable[float] = [.03],
+        pulse_width_low: float = .002,
     ) -> None:
         if com is None:
             com = select_serial_port()
@@ -34,7 +35,8 @@ class TriggerDevice:
             "pins": pins,
             "max_pulses": max_pulses,
             "alternate_mode": alternate_mode,
-            "pulse_widths": [np.round(_pulse_width * 1e6).astype("int") for _pulse_width in pulse_widths]
+            "pulse_widths": [np.round(_pulse_width * 1e6).astype("int") for _pulse_width in pulse_widths],
+            "pulse_width_low": np.round(pulse_width_low * 1e6).astype("int")
         }
 
     def open(self):
@@ -57,12 +59,13 @@ class TriggerDevice:
             [len(self.command_params["pins"])]
             + self.command_params["pins"]
             + [
-                0.0,
-                0.0,
-                -1.0,
-                1,
-                0,
-            ]  # frame_rate = 0, max_pulses = 0 should set all pins low
+                0.0, # frame rate
+                0.0, # max pulses
+                -1.0, # alternate mode
+                1, # n pulses
+                10, # pulse width
+                10, # pulse width low
+            ]
         )
         command_string = ",".join(str(_) for _ in command_list)
         self.logger.info(f"Sending command string {command_string} to Arduino")
@@ -86,6 +89,7 @@ class TriggerDevice:
                 len(self.command_params["pulse_widths"]),
             ]
             + self.command_params["pulse_widths"]
+            + [self.command_params["pulse_width_low"]]
         )
         command_string = ",".join(str(_) for _ in command_list)
 

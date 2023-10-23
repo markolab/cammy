@@ -88,7 +88,13 @@ txt_pos = (25, 25)
     type=float,
     multiple=True,
     # default=[.02],
-    help="Hardware trigger pulse width (µsecs)"
+    help="Hardware trigger pulse hi width (secs)"
+)
+@click.option(
+    "--hw-trigger-pulse-width-low",
+    type=float,
+    default=.002,
+    help="Hardware trigger pulse low width (secs)"
 )
 @click.option("--record-counters", type=int, default=0, help="Record counter data")
 @click.option("--duration", type=float, default=0, help="Run for N minutes")
@@ -123,7 +129,8 @@ def simple_preview(
     hw_trigger: bool,
     hw_trigger_rate: float,
     hw_trigger_pin_last: int,
-    hw_trigger_pulse_widths: Iterable[int],
+    hw_trigger_pulse_widths: Iterable[float],
+    hw_trigger_pulse_low: float,
     record_counters: int,
     duration: float,
     server: bool,
@@ -238,6 +245,7 @@ def simple_preview(
             duration=duration,
             alternate_mode=alternate_mode,
             pulse_widths=hw_trigger_pulse_widths,
+            pulse_width_low=hw_trigger_pulse_low,
         )
     else:
         trigger_dev = None
