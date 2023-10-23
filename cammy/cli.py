@@ -240,7 +240,7 @@ def simple_preview(
             hw_trigger_pulse_width = [use_period]
             hw_trigger_rate = use_rate
         trigger_dev = TriggerDevice(
-            frame_rate=hw_trigger_rate,
+            # frame_rate=hw_trigger_rate,
             pins=trigger_pins,
             duration=duration,
             alternate_mode=alternate_mode,
