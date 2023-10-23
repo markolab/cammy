@@ -12,7 +12,7 @@ class TriggerDevice:
         self,
         com: Optional[str] = None,
         baudrate: int = 115200,
-        frame_rate: float = 100.0,
+        # frame_rate: float = 100.0,
         pins: Iterable[int] = [12, 13],
         duration: float = 0,
         alternate_mode: int = 0,
@@ -26,14 +26,14 @@ class TriggerDevice:
         self.com = com
         self.baudrate = baudrate
         self.dev = None
-        period = 1.0 / frame_rate  # period in seconds
-        max_pulses = (
-            duration * 60.0
-        ) / period  # number of pulses to meet experiment duration
+        # period = 1.0 / frame_rate  # period in seconds
+        # max_pulses = (
+        #     duration * 60.0
+        # ) / period  # number of pulses to meet experiment duration
         self.command_params = {
-            "frame_rate": frame_rate,
+            # "frame_rate": frame_rate,
             "pins": pins,
-            "max_pulses": max_pulses,
+            # "max_pulses": max_pulses,
             "alternate_mode": alternate_mode,
             "pulse_widths": [np.round(_pulse_width * 1e6).astype("int") for _pulse_width in pulse_widths],
             "pulse_width_low": np.round(pulse_width_low * 1e6).astype("int")
@@ -59,12 +59,12 @@ class TriggerDevice:
             [len(self.command_params["pins"])]
             + self.command_params["pins"]
             + [
-                0.0, # frame rate
-                0.0, # max pulses
+                # 0.0, # frame rate
+                # 0.0, # max pulses
                 -1.0, # alternate mode
                 1, # n pulses
-                10, # pulse width
-                10, # pulse width low
+                0, # pulse width
+                0, # pulse width low
             ]
         )
         command_string = ",".join(str(_) for _ in command_list)
@@ -83,8 +83,8 @@ class TriggerDevice:
             [len(self.command_params["pins"])]
             + self.command_params["pins"]
             + [
-                self.command_params["frame_rate"],
-                self.command_params["max_pulses"],
+                # self.command_params["frame_rate"],
+                # self.command_params["max_pulses"],
                 self.command_params["alternate_mode"],
                 len(self.command_params["pulse_widths"]),
             ]
