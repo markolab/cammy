@@ -91,7 +91,7 @@ txt_pos = (25, 25)
     help="Hardware trigger pulse hi width (secs)"
 )
 @click.option(
-    "--hw-trigger-pulse-width-low",
+    "--hw-trigger-pulse-low",
     type=float,
     default=.002,
     help="Hardware trigger pulse low width (secs)"
