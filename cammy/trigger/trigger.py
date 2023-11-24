@@ -47,6 +47,11 @@ class TriggerDevice:
         time.sleep(0.05)
         self.dev.reset_input_buffer()
         self.dev.setDTR(True)
+        self.dev.setDTR(False)
+        time.sleep(0.05)
+        self.dev.reset_input_buffer()
+        self.dev.setDTR(True)
+
         while True:
             if self.dev.in_waiting:
                 time.sleep(2)

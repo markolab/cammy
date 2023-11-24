@@ -30,11 +30,12 @@ def intrinsics_file_to_cv2(intrinsics_file):
     return intrinsic_matrix, distortion_coeffs
 
 
-def get_all_camera_ids(interface="aravis", n_cams=1):
+def get_all_camera_ids(interface="aravis", n_cams=1, prefix="basler"):
     if (interface == "aravis") or (interface == "all"):
         Aravis.update_device_list()
         n_cams = Aravis.get_n_devices()
         use_ids = [Aravis.get_device_id(i) for i in range(n_cams)]
+        use_ids = [_id for _id in use_ids if prefix in _id.lower()]
     elif (interface == "fake") or (interface == "fake_custom"):
         use_ids = {f"Fake_{i + 1}" for i in range(n_cams)}
     else:

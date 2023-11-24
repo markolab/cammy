@@ -37,13 +37,15 @@ class AravisCamera(CammyCamera):
         self._payload = self.camera.get_payload()  # size of payload
         self._genicam = self.device.get_genicam()  # genicam interface
 
+        print(id)
+        print(self.camera.is_uv_device())
         # NOT USING EXT_IDS just yet
         if jumbo_frames and self.camera.is_gv_device():
             self.camera.gv_set_packet_size(8000)
 
         if self.camera.is_uv_device():
             self.camera.uv_set_usb_mode(Aravis.UvUsbMode.ASYNC)
-        if self.camera.is_gv_device():
+        elif self.camera.is_gv_device():
             ext_ids = self.get_feature("GevGVSPExtendedIDMode")
             if ext_ids.lower() == "off":
                 self._frame_id_dtype = 16

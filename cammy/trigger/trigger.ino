@@ -106,7 +106,7 @@ void set_pulse_widths()
 		while (Serial.available() == 0)
 		{
 		}
-		int pulse_width = (unsigned int)Serial.parseFloat();
+	  long pulse_width = (unsigned long)Serial.parseFloat();
 		Serial.print(pulse_width);
 		if (i + 1 < n_pulse_widths)
 		{
@@ -118,7 +118,7 @@ void set_pulse_widths()
 	while (Serial.available() == 0)
 	{
 	}
-	pulse_width_low = (unsigned int)Serial.parseFloat();
+	pulse_width_low = (unsigned long)Serial.parseFloat();
 
 	Serial.println("");
 	Serial.print("Pulse width low: ");
