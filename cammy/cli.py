@@ -115,6 +115,12 @@ txt_pos = (25, 25)
     default=0,
     help="Alternate mode (0 for first set of lets constant, 1 for other, 2 for alternation)"
 )
+@click.option(
+    "--prefix",
+    type=str,
+    default=None,
+    help="Only uses cameras whose IDs start with this string (None to use all IDs)"
+)
 # fmt: on
 def simple_preview(
     interface: str,
@@ -135,6 +141,7 @@ def simple_preview(
     duration: float,
     server: bool,
     alternate_mode: int,
+    prefix: Optional[str],
 ):
     
     cli_params = locals()
@@ -172,7 +179,7 @@ def simple_preview(
         camera_dct = {}
 
     cameras = {}
-    ids = get_all_camera_ids(interface, n_cams=n_fake_cameras)
+    ids = get_all_camera_ids(interface, n_cams=n_fake_cameras, prefix=prefix)
 
     # TODO: TURN INTO AN AUTOMATIC CHECK, IF NO FRAMES ARE GETTING
     # ACQUIRED, PAUSE FOR 1 SEC AND RE-INITIALIZE
@@ -263,6 +270,7 @@ def simple_preview(
             "cameras": ids,
             "bit_depth": bit_depth,
             "camera_metadata": cameras_metadata,
+            "cli_parameters": cli_params,
         }
 
         write_dtype, codec = get_output_format(save_engine, bit_depth)
