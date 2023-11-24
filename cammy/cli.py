@@ -113,7 +113,7 @@ txt_pos = (25, 25)
     "--alternate-mode",
     type=int,
     default=0,
-    help="Alternate mode (0 for first set of lets constant, 1 for other, 2 for alternation)"
+    help="Alternate mode (0 for first set of lights constant, 1 for second lights constant, 2 for alternation)"
 )
 @click.option(
     "--prefix",
