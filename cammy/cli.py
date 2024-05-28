@@ -93,7 +93,8 @@ txt_pos = (25, 25)
 @click.option(
     "--hw-trigger-pulse-low",
     type=float,
-    default=.002,
+    multiple=True,
+    # default=.002,
     help="Hardware trigger pulse low width (secs)"
 )
 @click.option("--record-counters", type=int, default=0, help="Record counter data")
@@ -136,7 +137,7 @@ def simple_preview(
     hw_trigger_rate: float,
     hw_trigger_pin_last: int,
     hw_trigger_pulse_width: Iterable[float],
-    hw_trigger_pulse_low: float,
+    hw_trigger_pulse_low: Iterable[float],
     record_counters: int,
     duration: float,
     server: bool,
@@ -244,7 +245,8 @@ def simple_preview(
             )
             use_period = 1 / use_rate
             print(f"Setting hw trigger pulse width to {use_period}")
-            hw_trigger_pulse_width = [use_period]
+            hw_trigger_pulse_low=[.005]
+            hw_trigger_pulse_width = [use_period - .005]
             hw_trigger_rate = use_rate
         trigger_dev = TriggerDevice(
             # frame_rate=hw_trigger_rate,
@@ -252,7 +254,7 @@ def simple_preview(
             duration=duration,
             alternate_mode=alternate_mode,
             pulse_widths=hw_trigger_pulse_width,
-            pulse_width_low=hw_trigger_pulse_low,
+            pulse_widths_low=hw_trigger_pulse_low,
         )
     else:
         trigger_dev = None
@@ -688,7 +690,7 @@ def calibrate(
         from cammy.trigger.trigger import TriggerDevice
 
         trigger_dev = TriggerDevice(
-            frame_rate=-1, pins=[], alternate_mode=light_control
+            pins=[], alternate_mode=light_control
         )
         trigger_dev.start()
     else:

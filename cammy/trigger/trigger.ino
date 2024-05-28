@@ -6,6 +6,7 @@ unsigned long frame_start, frame_period, start_time, max_pulses; /* micros ticks
 // float frame_rate = 0;											 /* frame rate specified by user */
 // int pulse_width = 500;											 /*Camera trigger pulse width*/
 unsigned long pulse_widths[20];
+unsigned long pulse_widths_low[20];
 int pulse_width_low;
 int n_pulse_widths;
 // int inter_frame_interal = 2000;									 /* need this so next exposure is ready...*/
@@ -106,7 +107,7 @@ void set_pulse_widths()
 		while (Serial.available() == 0)
 		{
 		}
-	  long pulse_width = (unsigned long)Serial.parseFloat();
+	  	long pulse_width = (unsigned long)Serial.parseFloat();
 		Serial.print(pulse_width);
 		if (i + 1 < n_pulse_widths)
 		{
@@ -115,14 +116,28 @@ void set_pulse_widths()
 		pulse_widths[i] = pulse_width;
 	}
 
-	while (Serial.available() == 0)
+	for (int i = 0; i < n_pulse_widths; i++)
 	{
+		while (Serial.available() == 0)
+		{
+		}
+	  	long pulse_width_low = (unsigned long)Serial.parseFloat();
+		Serial.print(pulse_width_low);
+		if (i + 1 < n_pulse_widths)
+		{
+			Serial.print(",");
+		}
+		pulse_widths_low[i] = pulse_width_low;
 	}
-	pulse_width_low = (unsigned long)Serial.parseFloat();
 
-	Serial.println("");
-	Serial.print("Pulse width low: ");
-	Serial.print(pulse_width_low);
+	// while (Serial.available() == 0)
+	// {
+	// }
+	// pulse_width_low = (unsigned long)Serial.parseFloat();
+
+	// Serial.println("");
+	// Serial.print("Pulse width low: ");
+	// Serial.print(pulse_width_low);
 
 }
 
@@ -308,7 +323,7 @@ void loop(void)
 		set_pins_low(); /* wait low until we're at the next period*/
 		// while (micros() - start_time < frame_period)
 		// while (micros() - start_time < pulse_widths[pulse_counter] + additional_time + inter_frame_interal)
-		while (micros() - start_time < pulse_widths[pulse_counter] + pulse_width_low)	
+		while (micros() - start_time < pulse_widths[pulse_counter] + pulse_widths_low[pulse_counter])	
 		{
 		}
 		counter++;

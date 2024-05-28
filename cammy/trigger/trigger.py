@@ -17,7 +17,7 @@ class TriggerDevice:
         duration: float = 0,
         alternate_mode: int = 0,
         pulse_widths: Iterable[float] = [.03],
-        pulse_width_low: float = .002,
+        pulse_widths_low: float = [.002],
     ) -> None:
         if com is None:
             com = select_serial_port()
@@ -36,7 +36,7 @@ class TriggerDevice:
             # "max_pulses": max_pulses,
             "alternate_mode": alternate_mode,
             "pulse_widths": [np.round(_pulse_width * 1e6).astype("int") for _pulse_width in pulse_widths],
-            "pulse_width_low": np.round(pulse_width_low * 1e6).astype("int")
+            "pulse_widths_low": [np.round(_pulse_width_low * 1e6).astype("int") for _pulse_width_low in pulse_widths_low]
         }
 
     def open(self):
@@ -94,7 +94,7 @@ class TriggerDevice:
                 len(self.command_params["pulse_widths"]),
             ]
             + self.command_params["pulse_widths"]
-            + [self.command_params["pulse_width_low"]]
+            + self.command_params["pulse_widths_low"]
         )
         command_string = ",".join(str(_) for _ in command_list)
 
