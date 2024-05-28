@@ -67,6 +67,11 @@ void set_light_pins()
 {
 	pinMode(2, OUTPUT);
 	pinMode(3, OUTPUT);
+	if (alternate_condition == -1)
+	{
+		digitalWrite(2, LOW);
+		digitalWrite(3, LOW);
+	}
 	if (alternate_condition == 0)
 	{
 		digitalWrite(2, LOW);
@@ -89,7 +94,7 @@ void set_light_pins()
 	}
 
 	Serial.println("");
-	Serial.print("Set alternate condition to (0, 1 constant; 2 alternate; 3 alternate with second light inverted): ");
+	Serial.print("Set alternate condition to (0, 1 constant; -1=0 with 2nd light TTL HI; 2 alternate; 3 alternate with second light TTL HI): ");
 	Serial.print(alternate_condition);
 }
 
