@@ -252,12 +252,18 @@ void alternate_light_pins()
 {
 	noInterrupts();
 	// 2 ON
-	if (previous_light_pin == 3)
+	if (previous_light_pin == 3 && alternate_condition == 2)
 	{
 		digitalWrite(3, HIGH);
 		digitalWrite(2, LOW);
 		previous_light_pin = 2;
 	}
+  else if (previous_light_pin == 3 && alternate_condition == 3)
+  {
+    digitalWrite(3, LOW);
+    digitalWrite(2, LOW);
+    previous_light_pin = 2;
+  }
 	// 3 ON
 	else if (previous_light_pin == 2 && alternate_condition == 2)
 	{
