@@ -77,14 +77,19 @@ void set_light_pins()
 		digitalWrite(2, HIGH);
 		digitalWrite(3, LOW);
 	}
-	else
+	else if (alternate_condition == 2)
 	{
 		digitalWrite(2, HIGH);
 		digitalWrite(3, HIGH);
 	}
+	else
+	{
+		digitalWrite(2, HIGH);
+		digitalWrite(3, LOW); /* here this light uses TTL HI */
+	}
 
 	Serial.println("");
-	Serial.print("Set alternate condition to (0, 1 constant; 2 alternate): ");
+	Serial.print("Set alternate condition to (0, 1 constant; 2 alternate; 3 alternate with second light inverted): ");
 	Serial.print(alternate_condition);
 }
 
@@ -232,22 +237,38 @@ void set_light_pins_high()
 {
 	noInterrupts();
 	digitalWrite(2, HIGH);
-	digitalWrite(3, HIGH);
+	if (alternate_condition == 3)
+	{
+		digitalWrite(2, LOW);
+	}
+	else
+	{
+		digitalWrite(3, HIGH);
+	}
 	interrupts();
 }
 
 void alternate_light_pins()
 {
 	noInterrupts();
+	// 2 ON
 	if (previous_light_pin == 3)
 	{
 		digitalWrite(3, HIGH);
 		digitalWrite(2, LOW);
 		previous_light_pin = 2;
 	}
-	else if (previous_light_pin == 2)
+	// 3 ON
+	else if (previous_light_pin == 2 && alternate_condition == 2)
 	{
 		digitalWrite(3, LOW);
+		digitalWrite(2, HIGH);
+		previous_light_pin = 3;
+	}
+	// 3 ON TTL HI...
+	else if (previous_light_pin == 2 && alternate_condition == 3)
+	{
+		digitalWrite(3, HIGH);
 		digitalWrite(2, HIGH);
 		previous_light_pin = 3;
 	}
@@ -301,7 +322,7 @@ void loop(void)
 	{
 		start_time = micros();
 
-		if (alternate_condition == 2)
+		if (alternate_condition == 2 || alternate_condition == 3)
 		{
 			alternate_light_pins(); /* wait 20-50 usec for lights to turn on */
 			while (micros() - start_time < light_response_time)
