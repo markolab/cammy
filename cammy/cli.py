@@ -95,6 +95,12 @@ txt_pos = (25, 25)
     is_flag=True,
     help="Activate ZMQ server to send data to and control other python scripts",
 )
+@click.option(
+    "--camera-prefix",
+    type=str,
+    default="Lucid",
+    help="Prefix to filter cameras for recording",
+)
 def simple_preview(
     interface: str,
     buffer_size: int,
@@ -111,6 +117,7 @@ def simple_preview(
     record_counters: int,
     duration: float,
     server: bool,
+    camera_prefix: str,
 ):
     cli_params = locals()
 
@@ -147,7 +154,9 @@ def simple_preview(
         camera_dct = {}
 
     cameras = {}
-    ids = get_all_camera_ids(interface, n_cams=n_fake_cameras)
+    ids = get_all_camera_ids(interface, prefix=camera_prefix, n_cams=n_fake_cameras)
+    logging.info(f"Camera IDs: {ids}")
+
 
     # TODO: TURN INTO AN AUTOMATIC CHECK, IF NO FRAMES ARE GETTING
     # ACQUIRED, PAUSE FOR 1 SEC AND RE-INITIALIZE
@@ -724,12 +733,12 @@ def calibrate(
                 plt_val = plt_val.astype("uint8")
                 # use_img = threshold_image(_dat[0].copy())
                 proc_img = _dat[0].copy()
-                proc_img = cv2.normalize(_dat[0], None, 0, 255, cv2.NORM_MINMAX)
+                proc_img = 255 - cv2.normalize(_dat[0], None, 0, 255, cv2.NORM_MINMAX)
                 # proc_img = cv2.equalizeHist(proc_img.astype("uint8"))
                 clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
                 proc_img = clahe.apply(proc_img)
                 if threshold_image:
-                    proc_img = threshold_image(proc_img)
+                    proc_img = threshold_image(proc_img, invert=False)
                 # smooth = cv2.GaussianBlur(proc_img, (95, 95), 0)
                 # proc_img = cv2.divide(proc_img, smooth, scale=100)
                 

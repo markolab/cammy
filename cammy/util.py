@@ -30,7 +30,7 @@ def intrinsics_file_to_cv2(intrinsics_file):
     return intrinsic_matrix, distortion_coeffs
 
 
-def get_all_camera_ids(interface="aravis", n_cams=1):
+def get_all_camera_ids(interface="aravis", prefix="Lucid", n_cams=1):
     if (interface == "aravis") or (interface == "all"):
         Aravis.update_device_list()
         n_cams = Aravis.get_n_devices()
@@ -40,6 +40,8 @@ def get_all_camera_ids(interface="aravis", n_cams=1):
     else:
         raise RuntimeError(f"Did not understand interface {interface}")
     ids = {_id: interface for _id in use_ids}
+    if prefix is not None:
+        ids = {k: v for k, v in ids.items() if prefix in k}
     return ids
 
 
