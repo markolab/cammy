@@ -6,6 +6,8 @@ import sys
 import os
 import time
 import cv2
+import threading
+
 
 logging.basicConfig(
     stream=sys.stdout,
@@ -152,6 +154,7 @@ def simple_preview(
     import socket
     import datetime
     import zmq
+    from cammy.camera.aravis import acquisition_loop
 
     basedir = os.path.dirname(os.path.abspath(__file__))
     hostname = socket.gethostname()
@@ -465,6 +468,14 @@ def simple_preview(
             raise RuntimeError(f"Did not understand signal {start_signal}")
 
     [_cam.start_acquisition() for _cam in cameras.values()]
+    
+    threads = {}
+    for _id, _cam in cameras.items():
+        t = threading.Thread(target=acquisition_loop, args=(_cam,))
+        t.daemon = True
+        t.start()
+        t.display_frame = (None, None)
+        threads[_id] = t
 
     # if using a hardware trigger, send out signals now...
     if hw_trigger and (trigger_dev is not None):
@@ -498,21 +509,13 @@ def simple_preview(
     try:
         while dpg.is_dearpygui_running():
             dat = {}
-            for _id, _cam in cameras.items():
-                new_frame = None
-                new_ts = None
-
-                # do we need a separate thread for this, then grab whatever frame is latest???
-                while True:
-                    _dat = _cam.try_pop_frame()
-                    if _dat[0] is None:
-                        break
-                    else:
-                        if ~np.isfinite(start_time):
-                            start_time = time.perf_counter()
-                        new_frame = _dat[0]
-                        new_ts = _dat[1]
-                dat[_id] = (new_frame, new_ts)
+            for _id, _thread in threads.items():
+                with _thread.display_lock:
+                    dat[_id] = _thread.display_frame
+            
+            for _id, _dat in dat.items():
+                if ~np.isfinite(start_time) and (_dat[0] is not None):
+                    start_time = time.perf_counter()
 
             cur_duration = (time.perf_counter() - start_time) / 60.0
             for _id, _dat in dat.items():
@@ -584,6 +587,7 @@ def simple_preview(
             dpg.render_dearpygui_frame()
     finally:
         [_cam.stop_acquisition() for _cam in cameras.values()]
+        [_t.stop() for _t in threads.values()]
         if hw_trigger and (trigger_dev is not None):
             trigger_dev.stop()
         if server and (zsocket is not None):

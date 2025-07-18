@@ -12,6 +12,18 @@ from gi.repository import Aravis
 logger = logging.getLogger(__name__)
 
 
+def acquisition_loop(camera):
+    import time
+    while camera.running:
+        frame, ts = camera.try_pop_frame()
+        if frame is not None:
+            with camera.display_lock:
+                camera.display_frame = (frame, ts)
+            camera.save_queue.append((frame, ts))
+        else:
+            time.sleep(0.001)
+
+
 def intrinsics_file_to_cv2(intrinsics_file):
     import toml
 

@@ -299,3 +299,13 @@ def stream_cb(user_data, type, buffer):
         if not Aravis.make_thread_realtime(10) and \
             not Aravis.make_thread_high_priority(-10):
             print("Failed to make stream thread high priority")
+
+
+def acquisition_loop(camera):
+    import time
+    while True:
+        frame, ts = camera.try_pop_frame()
+        if frame is not None:
+            with camera.display_lock:
+                camera.display_frame = (frame, ts)
+        time.sleep(.001) # wait a short delay before polling again
