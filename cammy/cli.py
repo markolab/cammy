@@ -124,6 +124,12 @@ txt_pos = (25, 25)
     default=None,
     help="Only uses cameras whose IDs start with this string (None to use all IDs)"
 )
+@click.option(
+    "--display-time-downsample",
+    type=int,
+    default=1,
+    help="Display every nth frame (set to 0 for no display)"
+)
 # fmt: on
 def simple_preview(
     interface: str,
@@ -145,6 +151,7 @@ def simple_preview(
     server: bool,
     alternate_mode: int,
     prefix: Optional[str],
+    display_time_downsample: int,
 ):
     
     cli_params = locals()
@@ -507,6 +514,7 @@ def simple_preview(
     start_time = -np.inf
     prior_fps = np.nan
     cur_duration = 0
+    display_counter = 0
     try:
         while dpg.is_dearpygui_running():
             dat = {}
@@ -524,26 +532,29 @@ def simple_preview(
                 if _dat[0] is not None:
                     disp_min = dpg.get_value(f"texture_{_id}_min")
                     disp_max = dpg.get_value(f"texture_{_id}_max")
-                    height, width = _dat[0].shape
-                    disp_img = cv2.resize(
-                        _dat[0],
-                        (width // display_downsample, height // display_downsample),
-                    )
-                    plt_val = intensity_to_rgba(
-                        disp_img,
-                        minval=disp_min,
-                        maxval=disp_max,
-                        colormap=display_colormap,
-                    ).astype("float32")
-                    cv2.putText(
-                        plt_val,
-                        str(cameras[_id].frame_count),
-                        txt_pos,
-                        font,
-                        1,
-                        (1, 1, 1, 1),
-                    )
-                    dpg.set_value(f"texture_{cameras[_id].id}", plt_val)
+                    if (display_time_downsample > 0)  and ((display_counter % display_time_downsample) == 0):
+                        height, width = _dat[0].shape
+                        disp_img = cv2.resize(
+                            _dat[0],
+                            (width // display_downsample, height // display_downsample),
+                        )
+                        plt_val = intensity_to_rgba(
+                            disp_img,
+                            minval=disp_min,
+                            maxval=disp_max,
+                            colormap=display_colormap,
+                        ).astype("float32")
+                        cv2.putText(
+                            plt_val,
+                            str(cameras[_id].frame_count),
+                            txt_pos,
+                            font,
+                            1,
+                            (1, 1, 1, 1),
+                        )
+                        dpg.set_value(f"texture_{cameras[_id].id}", plt_val)
+                    else:
+                        pass
                     cameras[_id].count += 1
                     miss_frames = float(cameras[_id].missed_frames)
                     total_frames = float(cameras[_id].total_frames)
