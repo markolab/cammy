@@ -470,8 +470,9 @@ def simple_preview(
     [_cam.start_acquisition() for _cam in cameras.values()]
     
     threads = {}
+    acquisition_thread_shutdown_event = threading.Event()
     for _id, _cam in cameras.items():
-        t = threading.Thread(target=acquisition_loop, args=(_cam,))
+        t = threading.Thread(target=acquisition_loop, args=(_cam, acquisition_thread_shutdown_event))
         t.daemon = True
         t.start()
         t.display_frame = (None, None)
@@ -509,9 +510,10 @@ def simple_preview(
     try:
         while dpg.is_dearpygui_running():
             dat = {}
-            for _id, _thread in threads.items():
-                with _thread.display_lock:
-                    dat[_id] = _thread.display_frame
+            for _id, _cam in cameras.items():
+                with _cam.display_lock:
+                    dat[_id] = _cam.display_frame
+                    # print(_thread.display_frame)
             
             for _id, _dat in dat.items():
                 if ~np.isfinite(start_time) and (_dat[0] is not None):
@@ -587,7 +589,8 @@ def simple_preview(
             dpg.render_dearpygui_frame()
     finally:
         [_cam.stop_acquisition() for _cam in cameras.values()]
-        [_t.stop() for _t in threads.values()]
+        acquisition_thread_shutdown_event.set()
+        [_t.join() for _t in threads.values()]
         if hw_trigger and (trigger_dev is not None):
             trigger_dev.stop()
         if server and (zsocket is not None):

@@ -3,6 +3,7 @@ import os
 import ctypes
 import numpy as np
 import logging
+import threading
 from cammy.camera.base import CammyCamera
 from typing import Optional
 
@@ -31,6 +32,8 @@ class AravisCamera(CammyCamera):
             Aravis.enable_interface("Fake")
 
         self.camera = Aravis.Camera.new(id)
+        self.display_lock = threading.Lock()
+        self.display_frame = (None, None)
         Aravis.make_thread_high_priority(1)
 
         self.device = self.camera.get_device()
@@ -301,10 +304,11 @@ def stream_cb(user_data, type, buffer):
             print("Failed to make stream thread high priority")
 
 
-def acquisition_loop(camera):
+def acquisition_loop(camera, shutdown_event):
     import time
-    while True:
+    while not shutdown_event.is_set():
         frame, ts = camera.try_pop_frame()
+        # print(ts)
         if frame is not None:
             with camera.display_lock:
                 camera.display_frame = (frame, ts)
