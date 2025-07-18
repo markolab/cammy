@@ -548,7 +548,10 @@ def simple_preview(
                     # else:
                     #     smooth_fps = .01 * cur_fps + .99 * prior_fps
                     # prior_fps = smooth_fps
-                    percent_missed = (miss_frames / total_frames) * 100
+                    try:
+                        percent_missed = (miss_frames / total_frames) * 100
+                    except ZeroDivisionError:
+                        percent_missed = 0
                     dpg.set_value(
                         miss_status[_id],
                         f"{miss_frames} missed / {total_frames} total ({percent_missed:.1f}% missed)",

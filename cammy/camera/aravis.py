@@ -101,11 +101,13 @@ class AravisCamera(CammyCamera):
                 # self.missed_frames += 1
                 frame = None
                 timestamps = None
+                self.stream.push_buffer(buffer)
             elif status == Aravis.BufferStatus.SIZE_MISMATCH:
                 self.logger.debug("buffer size mismatch")
                 # self.missed_frames += 1
                 frame = None
                 timestamps = None
+                self.stream.push_buffer(buffer)
             elif status == Aravis.BufferStatus.SUCCESS:
                 frame = self._array_from_buffer_address(buffer)
                 timestamp = buffer.get_timestamp()
@@ -144,11 +146,12 @@ class AravisCamera(CammyCamera):
                 # user_data = buffer.get_user_data()
                 # for k, v in user_data.counter_data.items():
                 #     timestamps[k] = v
+                self.stream.push_buffer(buffer)
                 if self.save_queue is not None:
                     self.save_queue.put((frame, timestamps))
             else:
                 raise RuntimeError(f"Did not understand status: {status}")
-            self.stream.push_buffer(buffer)
+            #self.stream.push_buffer(buffer)
             return frame, timestamps
         else:
             return None, None
