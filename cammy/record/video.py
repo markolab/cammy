@@ -96,6 +96,7 @@ class RawVideoRecorder(BaseRecord):
 		timestamp_fields=["device_timestamp", "system_timestamp"],
 		write_dtype="uint16",
 		save_queue=None,
+		batch_size=20,
 	):
 
 		super(BaseRecord, self).__init__()
@@ -109,6 +110,9 @@ class RawVideoRecorder(BaseRecord):
 		self.filenames = {"video": filename, "timestamps": filename_timestamps}
 		self.timestamp_fields = timestamp_fields
 		self.write_dtype = write_dtype
+		self.frame_batch = []
+		self.timestamp_batch = []
+		self.batch_size = batch_size
 
 
 	def write_data(self, vdata, tstamps):
