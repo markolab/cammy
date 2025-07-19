@@ -130,6 +130,12 @@ txt_pos = (25, 25)
     default=1,
     help="Display every nth frame (set to 0 for no display)"
 )
+@click.option(
+    "--frame-writer-batch-size"
+    type=int,
+    default=100,
+    help="Number of frames to accumulate before writing out to file"
+)
 # fmt: on
 def simple_preview(
     interface: str,
@@ -152,6 +158,7 @@ def simple_preview(
     alternate_mode: int,
     prefix: Optional[str],
     display_time_downsample: int,
+    frame_writer_batch_size: int,
 ):
     
     cli_params = locals()
@@ -351,6 +358,7 @@ def simple_preview(
                     filename=os.path.join(save_path, f"{_id}.mkv"),
                     pixel_format=write_dtype[_id],
                     timestamp_fields=timestamp_fields,
+                    batch_size=frame_writer_batch_size,
                 )
             elif save_engine == "raw":
                 _recorder = RawVideoRecorder(
@@ -358,6 +366,7 @@ def simple_preview(
                     filename=os.path.join(save_path, f"{_id}.dat"),
                     write_dtype=write_dtype[_id],
                     timestamp_fields=timestamp_fields,
+                    batch_size=frame_writer_batch_size,
                 )
             else:
                 raise RuntimeError(
