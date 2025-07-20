@@ -151,7 +151,7 @@ class AravisCamera(CammyCamera):
                 #     timestamps[k] = v
                 self.stream.push_buffer(buffer)
                 if self.save_queue is not None:
-                    self.save_queue.put((frame, timestamps))
+                    self.save_queue.put_nowait((frame, timestamps))
             else:
                 raise RuntimeError(f"Did not understand status: {status}")
             #self.stream.push_buffer(buffer)
@@ -304,12 +304,15 @@ def stream_cb(user_data, type, buffer):
             print("Failed to make stream thread high priority")
 
 
-def acquisition_loop(camera, shutdown_event):
+def acquisition_loop(camera, shutdown_event, cpu_id=None):
     import time
+    if cpu_id is not None:
+        print(f"Setting affinity to {cpu_id}")
+        os.sched_setaffinity(0, {int(cpu_id)})
     while not shutdown_event.is_set():
         frame, ts = camera.try_pop_frame()
         # print(ts)
         if frame is not None:
-            with camera.display_lock:
-                camera.display_frame = (frame, ts)
-        time.sleep(.001) # wait a short delay before polling again
+            # with camera.display_lock:
+            camera.display_frame = (frame, ts)
+        # time.sleep(.001) # wait a short delay before polling again

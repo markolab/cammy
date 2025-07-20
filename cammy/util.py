@@ -136,7 +136,10 @@ def initialize_cameras(ids, configs, **kwargs):
                 for k2, v2 in v.items():
                     if k in _id:
                         use_config = {**use_config, **v2}
-        cameras[_id] = initialize_camera(_id, _interface, use_config, **kwargs)
+        try:
+            cameras[_id] = initialize_camera(_id, _interface, use_config, **kwargs)
+        except Exception as e:
+            print(e)
 
     return cameras
 

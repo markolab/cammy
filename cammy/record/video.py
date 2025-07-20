@@ -160,11 +160,11 @@ class RawVideoRecorder(BaseRecord):
 
 	def close_writer(self):
 		self.logger.info(f"Closing writer {self.name}")
-		if len(self.frame_batch) > 0:
-			self.write_data(self.frame_batch, self.timestamp_batch)
-			# clear the batch lists
-			self.frame_batch.clear()
-			self.timestamp_batch.clear()
+		# if len(self.frame_batch) > 0:
+		# 	self.write_data(self.frame_batch, self.timestamp_batch)
+		# 	# clear the batch lists
+		# 	self.frame_batch.clear()
+		# 	self.timestamp_batch.clear()
 		try:
 			self._video_file.flush()
 			os.fsync(self._video_file)

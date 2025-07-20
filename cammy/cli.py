@@ -6,12 +6,13 @@ import sys
 import os
 import time
 import cv2
+import psutil
 import threading
 
 
 logging.basicConfig(
     stream=sys.stdout,
-    level=logging.INFO,
+    level=logging.DEBUG,
     format="[%(asctime)s]:%(levelname)s:%(name)s %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
@@ -131,7 +132,7 @@ txt_pos = (25, 25)
     help="Display every nth frame (set to 0 for no display)"
 )
 @click.option(
-    "--frame-writer-batch-size"
+    "--frame-writer-batch-size",
     type=int,
     default=100,
     help="Number of frames to accumulate before writing out to file"
@@ -170,6 +171,7 @@ def simple_preview(
     import zmq
     from cammy.camera.aravis import acquisition_loop
 
+    ncores = psutil.cpu_count(logical=False)
     basedir = os.path.dirname(os.path.abspath(__file__))
     hostname = socket.gethostname()
 
@@ -487,8 +489,9 @@ def simple_preview(
     
     threads = {}
     acquisition_thread_shutdown_event = threading.Event()
-    for _id, _cam in cameras.items():
-        t = threading.Thread(target=acquisition_loop, args=(_cam, acquisition_thread_shutdown_event))
+    for i, (_id, _cam) in enumerate(cameras.items()):
+        cpu_id = np.minimum(i + 1, ncores)
+        t = threading.Thread(target=acquisition_loop, args=(_cam, acquisition_thread_shutdown_event, cpu_id))
         t.daemon = True
         t.start()
         t.display_frame = (None, None)
@@ -528,8 +531,8 @@ def simple_preview(
         while dpg.is_dearpygui_running():
             dat = {}
             for _id, _cam in cameras.items():
-                with _cam.display_lock:
-                    dat[_id] = _cam.display_frame
+                # with _cam.display_lock:
+                dat[_id] = _cam.display_frame
                     # print(_thread.display_frame)
             
             for _id, _dat in dat.items():
@@ -605,7 +608,7 @@ def simple_preview(
                         break
                 except zmq.Again:
                     pass
-            # time.sleep(0.005)
+            time.sleep(0.005)
             dpg.render_dearpygui_frame()
     finally:
         [_cam.stop_acquisition() for _cam in cameras.values()]
