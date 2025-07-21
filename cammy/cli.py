@@ -203,15 +203,15 @@ def simple_preview(
 
     # TODO: TURN INTO AN AUTOMATIC CHECK, IF NO FRAMES ARE GETTING
     # ACQUIRED, PAUSE FOR 1 SEC AND RE-INITIALIZE
-    cameras = initialize_cameras(
-        ids,
-        camera_dct,
-        jumbo_frames=jumbo_frames,
-        record_counters=record_counters,
-        buffer_size=buffer_size,
-    )
-    del cameras
-    time.sleep(2)
+    # cameras = initialize_cameras(
+    #     ids,
+    #     camera_dct,
+    #     jumbo_frames=jumbo_frames,
+    #     record_counters=record_counters,
+    #     buffer_size=buffer_size,
+    # )
+    # del cameras
+    # time.sleep(2)
 
     cameras_metadata = {}
     bit_depth = {}
@@ -531,8 +531,8 @@ def simple_preview(
         while dpg.is_dearpygui_running():
             dat = {}
             for _id, _cam in cameras.items():
-                # with _cam.display_lock:
-                dat[_id] = _cam.display_frame
+                with _cam.user_data.display_lock:
+                    dat[_id] = _cam.user_data.display_frame
                     # print(_thread.display_frame)
             
             for _id, _dat in dat.items():
@@ -568,19 +568,18 @@ def simple_preview(
                     else:
                         pass
                     cameras[_id].count += 1
-                    
-                    grab_time = dat[1]["system_timestamp"]
+                    grab_time = _dat[1]["system_timestamp"]
                     # cameras[_id].frame_count += 1
                     new_fps_val = 1 / (((grab_time - cameras[_id]._last_framegrab) / cameras[_id]._tick_frequency) + 1e-12)
                     if np.isnan(cameras[_id].fps):
                         cameras[_id].fps = new_fps_val
                     else:
-                        cameras[_id].fps = .01 * new_fps_val + .99 * self.fps
+                        cameras[_id].fps = .01 * new_fps_val + .99 * cameras[_id].fps
                     
-                    diff = (dat[1]["frame_id"] - cameras[_id].total_frames) - 1
+                    diff = (_dat[1]["frame_id"] - cameras[_id].total_frames) - 1
                     if ~np.isnan(diff):
                         cameras[_id].missed_frames += diff
-                    cameras[_id].total_frames = dat[1]["frame_id"]
+                    cameras[_id].total_frames = _dat[1]["frame_id"]
                     cameras[_id]._last_framegrab = grab_time
                          
                     cur_fps = cameras[_id].fps

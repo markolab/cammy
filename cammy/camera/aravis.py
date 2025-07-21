@@ -33,6 +33,7 @@ class AravisCamera(CammyCamera):
 
         self.camera = Aravis.Camera.new(id)
         self.display_lock = threading.Lock()
+        self.display_frame = (None, None)
         Aravis.make_thread_high_priority(1)
 
         self.device = self.camera.get_device()
@@ -80,9 +81,9 @@ class AravisCamera(CammyCamera):
             user_data = UserData(counters=counter_names, arv_obj=self)
             self.stream = self.camera.create_stream(callback, user_data)
         else:
-            self.user_data = UserDataSave(save_queue = save_queue, display_lock=self.display_lock, stream=None, display_frame=(None, None))
+            self.user_data = UserDataSave(save_queue = save_queue, display_lock=self.display_lock, stream=None, display_frame=self.display_frame)
             self._counters = {}
-            self.stream = self.camera.create_stream(stream_cb, None)
+            self.stream = self.camera.create_stream(stream_cb, self.user_data)
             self.user_data.stream = self.stream
 
         self.save_queue = save_queue
@@ -293,10 +294,11 @@ class UserData:
 
 class UserDataSave:
 
-    def __init__(self, save_queue, display_lock: threading.Lock,  stream: Aravis.Stream, display_frame=(None, None),) -> None:
+    def __init__(self, save_queue, display_lock: threading.Lock, stream=None, display_frame=(None, None)) -> None:
         self.queue = save_queue
         self.display_lock = display_lock
         self.display_frame = display_frame
+        self.stream = stream
         # need the aravis object to grab counter values...
 
 
@@ -313,6 +315,8 @@ def stream_cb(user_data, type, buffer):
             not Aravis.make_thread_high_priority(-10):
             print("Failed to make stream thread high priority")
     elif type == Aravis.StreamCallbackType.BUFFER_DONE:
+        if stream is None:
+            return
         status = buffer.get_status()
         if status == Aravis.BufferStatus.TIMEOUT:
             stream.push_buffer(buffer)
@@ -332,7 +336,7 @@ def stream_cb(user_data, type, buffer):
             }
             
             with user_data.display_lock:
-                user_data.display_frame = frame
+                user_data.display_frame = (frame, timestamps)
 
             if user_data.queue is not None:
                 user_data.queue.put_nowait((frame, timestamps))
