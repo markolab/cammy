@@ -387,7 +387,7 @@ def acquisition_loop(camera, shutdown_event, cpu_id=None):
     while not shutdown_event.is_set():
         frame, ts = camera.try_pop_frame()
         # print(ts)
-        if frame is not None:
+        if (frame is not None) and (camera.save_queue is not None):
             # with camera.display_lock:
             camera.display_frame = (frame, ts)
             camera.save_queue.put_nowait((frame, ts))
