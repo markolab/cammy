@@ -333,11 +333,12 @@ def stream_cb(user_data, type, buffer):
             timestamp = buffer.get_timestamp()
             system_timestamp = buffer.get_system_timestamp()
             frame_id = buffer.get_frame_id()
+            stream.push_buffer(buffer)
             timestamps = {
                 # "capture_number": user_data.camera.total_frames,
                 "device_timestamp": timestamp,
                 "system_timestamp": system_timestamp,
-                "frame_id": buffer.get_frame_id(),
+                "frame_id": frame_id,
             }
             
             with user_data.display_lock:
@@ -358,9 +359,8 @@ def stream_cb(user_data, type, buffer):
 
             if user_data.save_queue is not None:
                 # print("stashing buffer")
-                user_data.save_queue.put((frame, timestamps))
+                user_data.save_queue.put_nowait((frame, timestamps))
 
-            stream.push_buffer(buffer)
 
 
 # remember im_size is (height, width)
@@ -375,13 +375,13 @@ def array_from_buffer_address(buffer):
         addr = buffer.get_data()
         ptr = ctypes.cast(addr, INTP)
         im = np.ctypeslib.as_array(ptr, im_size)
-        im = im.copy()
+        # im = im.copy()
     elif pixel_format in (Aravis.PIXEL_FORMAT_MONO_12, Aravis.PIXEL_FORMAT_MONO_16, Aravis.PIXEL_FORMAT_COORD3D_C_16):
         INTP = ctypes.POINTER(ctypes.c_uint16)
         addr = buffer.get_data()
         ptr = ctypes.cast(addr, INTP)
         im = np.ctypeslib.as_array(ptr, im_size)
-        im = im.copy()
+        # im = im.copy()
     # TODO: sort out this combined format, coord3d_c16y8
     elif pixel_format.lower() in (Aravis.PIXEL_FORMAT_COORD3D_C_16 + Aravis.PIXEL_FORMAT_MONO8):
         INTP = ctypes.POINTER(ctypes.c_uint8 * 3) 
@@ -389,7 +389,7 @@ def array_from_buffer_address(buffer):
         ptr = ctypes.cast(addr, INTP)
         # return 3 8 bit images, pack first two in 16 bit depth image, last is IR
         im = np.ctypeslib.as_array(ptr, im_size)
-        im = im.astype("uint16").copy()
+        im = im.astype("uint16")
         im1 = im[:,:,1]<<8 | im[:,:,0]
         im2 = im[:,:,2].astype("uint8")
         im = (im1, im2)
