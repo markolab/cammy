@@ -4,11 +4,61 @@ import ctypes
 import numpy as np
 import logging
 import threading
+import queue
 from cammy.camera.base import CammyCamera
 from typing import Optional
 
 gi.require_version("Aravis", "0.8")
 from gi.repository import Aravis
+
+# ADD this memory pool class before your AravisCamera class
+class MemoryPool:
+    def __init__(self, frame_shape, dtype, pool_size=30):
+        """Pre-allocated memory pool for fast frame copying"""
+        self.pool = queue.Queue()
+        self.total_allocated = 0
+        self.pool_hits = 0
+        self.pool_misses = 0
+        
+        # Pre-allocate memory buffers
+        for _ in range(pool_size):
+            buffer = np.empty(frame_shape, dtype=dtype)
+            self.pool.put(buffer)
+            self.total_allocated += 1
+        
+        print(f"Memory pool created: {pool_size} buffers of {frame_shape} {dtype}")
+    
+    def get_buffer(self):
+        """Get a buffer from pool"""
+        try:
+            buffer = self.pool.get_nowait()
+            self.pool_hits += 1
+            return buffer
+        except queue.Empty:
+            # Pool exhausted - allocate new buffer
+            self.pool_misses += 1
+            return None
+    
+    def return_buffer(self, buffer):
+        """Return buffer to pool"""
+        try:
+            self.pool.put_nowait(buffer)
+        except queue.Full:
+            # Pool full - let buffer be garbage collected
+            pass
+    
+    def get_stats(self):
+        """Get pool usage statistics"""
+        return {
+            "total_allocated": self.total_allocated,
+            "pool_hits": self.pool_hits,
+            "pool_misses": self.pool_misses,
+            "hit_rate": self.pool_hits / (self.pool_hits + self.pool_misses) if (self.pool_hits + self.pool_misses) > 0 else 0
+        }
+
+
+
+
 
 # TODO:
 # 1) Get data from counters and append to timestamp file
@@ -90,6 +140,27 @@ class AravisCamera(CammyCamera):
         for i in range(buffer_size):
             self.stream.push_buffer(Aravis.Buffer.new_allocate(self._payload))
 
+
+    # ADD this to your AravisCamera.__init__ method (after setting up width/height):
+    def _setup_memory_pool(self):
+        """Initialize memory pool for fast frame copying"""
+        # Determine frame shape and dtype based on pixel format
+        frame_shape = (self._height, self._width)
+        
+        if self._pixel_format.lower() in ("mono12", "mono16", "coord3d_c16"):
+            dtype = np.uint16
+        else:
+            dtype = np.uint8
+        
+        # Create memory pool - size based on expected frame rate
+        # For 100 FPS, 30 buffers gives ~300ms of buffering
+        pool_size = 100
+        self.memory_pool = MemoryPool(frame_shape, dtype, pool_size)
+        
+        # Performance tracking
+        self._last_pool_stats = 0
+
+
     # https://github.com/SintefManufacturing/python-aravis/blob/master/aravis.py#L162
     def try_pop_frame(self):
         buffer = self.stream.try_pop_buffer()
@@ -163,6 +234,8 @@ class AravisCamera(CammyCamera):
     def _array_from_buffer_address(self, buffer):
         if not buffer:
             return None
+        
+        target_array = self.memory_pool.get_buffer()
         pixel_format = buffer.get_image_pixel_format()
         bits_per_pixel = pixel_format >> 16 & 0xFF
         if (bits_per_pixel == 8) & (self._pixel_format.lower() == "mono8"):
@@ -170,27 +243,27 @@ class AravisCamera(CammyCamera):
             addr = buffer.get_data()
             ptr = ctypes.cast(addr, INTP)
             im = np.ctypeslib.as_array(ptr, (buffer.get_image_height(), buffer.get_image_width()))
-            im = im.copy()
+            np.copyto(target_array, im)
         elif (bits_per_pixel in [12, 16]) & (self._pixel_format.lower() in ("mono12", "mono16", "coord3d_c16")):
             INTP = ctypes.POINTER(ctypes.c_uint16)
             addr = buffer.get_data()
             ptr = ctypes.cast(addr, INTP)
             im = np.ctypeslib.as_array(ptr, (buffer.get_image_height(), buffer.get_image_width()))
-            im = im.copy()
-        elif (bits_per_pixel == 24) & (self._pixel_format.lower() in ("coord3D_c16y8")):
-            INTP = ctypes.POINTER(ctypes.c_uint8 * 3) 
-            addr = buffer.get_data()
-            ptr = ctypes.cast(addr, INTP)
-            # return 3 8 bit images, pack first two in 16 bit depth image, last is IR
-            im = np.ctypeslib.as_array(ptr, (buffer.get_image_height(), buffer.get_image_width()))
-            im = im.astype("uint16").copy()
-            im1 = im[:,:,1]<<8 | im[:,:,0]
-            im2 = im[:,:,2].astype("uint8")
-            im = (im1, im2)
+            np.copyto(target_array, im)
+        # elif (bits_per_pixel == 24) & (self._pixel_format.lower() in ("coord3D_c16y8")):
+        #     INTP = ctypes.POINTER(ctypes.c_uint8 * 3) 
+        #     addr = buffer.get_data()
+        #     ptr = ctypes.cast(addr, INTP)
+        #     # return 3 8 bit images, pack first two in 16 bit depth image, last is IR
+        #     im = np.ctypeslib.as_array(ptr, (buffer.get_image_height(), buffer.get_image_width()))
+        #     im = im.astype("uint16").copy()
+        #     im1 = im[:,:,1]<<8 | im[:,:,0]
+        #     im2 = im[:,:,2].astype("uint8")
+        #     im = (im1, im2)
         else:
             raise RuntimeError(f"No unpacking strategy for {bits_per_pixel} bits with {self._pixel_format} format")
         
-        return im
+        return target_array
 
     def get_counter_parameters(self, counter_num):
         param_names = ["CounterEventSource", "CounterEventActivation"]
