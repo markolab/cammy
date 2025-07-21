@@ -113,7 +113,6 @@ class AravisCamera(CammyCamera):
 
         self._width = width
         self._height = height  # stage stream
-        self._setup_memory_pool()
         self._tick_frequency = 1e9  # TODO: replace with actual tick frequency from gv interface
         self.fps = np.nan
         self.frame_count = 0
@@ -121,7 +120,8 @@ class AravisCamera(CammyCamera):
         self._last_framegrab = np.nan
         # self._last_frame_id = np.nan
         self._spoof_cameras = [] # we use these to push extra images
-
+        self._setup_memory_pool()
+        
         self.id = id
 
         counter_names = [
