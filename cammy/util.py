@@ -79,7 +79,7 @@ def get_queues(ids=None) -> dict:
     if ids:
         queues = {}
         queues["display"] = {id: multiprocessing.Manager().Queue(100) for id in ids}
-        queues["storage"] = {id: multiprocessing.Manager().Queue(1000) for id in ids}
+        queues["storage"] = {id: multiprocessing.Manager().Queue(2000) for id in ids}
         return queues
     else:
         raise RuntimeError("Must specify IDs to construct queues")

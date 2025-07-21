@@ -351,6 +351,7 @@ def simple_preview(
         # dump settings to toml file (along with start time of recording and hostname)
         for _id, _cam in cameras.items():
             cameras[_id].save_queue = use_queues["storage"][_id]
+            cameras[_id].user_data.save_queue = use_queues["storage"][_id]
             timestamp_fields = ["frame_id", "device_timestamp", "system_timestamp"]
             if save_engine == "ffmpeg":
                 _recorder = FfmpegVideoRecorder(
@@ -568,23 +569,11 @@ def simple_preview(
                     else:
                         pass
                     cameras[_id].count += 1
-                    grab_time = _dat[1]["system_timestamp"]
-                    # cameras[_id].frame_count += 1
-                    new_fps_val = 1 / (((grab_time - cameras[_id]._last_framegrab) / cameras[_id]._tick_frequency) + 1e-12)
-                    if np.isnan(cameras[_id].fps):
-                        cameras[_id].fps = new_fps_val
-                    else:
-                        cameras[_id].fps = .01 * new_fps_val + .99 * cameras[_id].fps
-                    
-                    diff = (_dat[1]["frame_id"] - cameras[_id].total_frames) - 1
-                    if ~np.isnan(diff):
-                        cameras[_id].missed_frames += diff
-                    cameras[_id].total_frames = _dat[1]["frame_id"]
-                    cameras[_id]._last_framegrab = grab_time
-                         
-                    cur_fps = cameras[_id].fps
-                    miss_frames = float(cameras[_id].missed_frames)
-                    total_frames = float(cameras[_id].total_frames)
+            
+                    with cameras[_id].user_data.display_lock: 
+                        cur_fps = cameras[_id].user_data.fps
+                        miss_frames = float(cameras[_id].user_data.missed_frames)
+                        total_frames = float(cameras[_id].user_data.total_frames)
                     
                     # if np.isnan(prior_fps):
                     #     smooth_fps = cur_fps

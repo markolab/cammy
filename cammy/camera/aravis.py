@@ -72,6 +72,7 @@ class AravisCamera(CammyCamera):
         self._spoof_cameras = [] # we use these to push extra images
 
         self.id = id
+        self.save_queue = save_queue
 
         counter_names = [
             "_".join(self.get_counter_parameters(i).values()) for i in range(record_counters)
@@ -81,12 +82,11 @@ class AravisCamera(CammyCamera):
             user_data = UserData(counters=counter_names, arv_obj=self)
             self.stream = self.camera.create_stream(callback, user_data)
         else:
-            self.user_data = UserDataSave(save_queue = save_queue, display_lock=self.display_lock, stream=None, display_frame=self.display_frame)
+            self.user_data = UserDataSave(save_queue = self.save_queue, display_lock=self.display_lock, stream=None, display_frame=self.display_frame)
             self._counters = {}
             self.stream = self.camera.create_stream(stream_cb, self.user_data)
             self.user_data.stream = self.stream
 
-        self.save_queue = save_queue
         self.missed_frames = 0
         self.total_frames = 0
         
@@ -295,10 +295,14 @@ class UserData:
 class UserDataSave:
 
     def __init__(self, save_queue, display_lock: threading.Lock, stream=None, display_frame=(None, None)) -> None:
-        self.queue = save_queue
+        self.save_queue = save_queue
         self.display_lock = display_lock
         self.display_frame = display_frame
         self.stream = stream
+        self.last_framegrab = np.nan
+        self.total_frames = 0
+        self.fps = np.nan
+        self.missed_frames = 0
         # need the aravis object to grab counter values...
 
 
@@ -328,6 +332,7 @@ def stream_cb(user_data, type, buffer):
             frame = array_from_buffer_address(buffer)
             timestamp = buffer.get_timestamp()
             system_timestamp = buffer.get_system_timestamp()
+            frame_id = buffer.get_frame_id()
             timestamps = {
                 # "capture_number": user_data.camera.total_frames,
                 "device_timestamp": timestamp,
@@ -337,9 +342,23 @@ def stream_cb(user_data, type, buffer):
             
             with user_data.display_lock:
                 user_data.display_frame = (frame, timestamps)
+                grab_time = system_timestamp
+                # cameras[_id].frame_count += 1
+                new_fps_val = 1 / (((grab_time - user_data.last_framegrab) / 1e9) + 1e-12)
+                if np.isnan(user_data.fps):
+                    user_data.fps = new_fps_val
+                else:
+                    user_data.fps = .01 * new_fps_val + .99 * user_data.fps
+                
+                diff = (frame_id -  user_data.total_frames) - 1
+                if ~np.isnan(diff):
+                    user_data.missed_frames += diff
+                user_data.total_frames = frame_id
+                user_data.last_framegrab = grab_time
 
-            if user_data.queue is not None:
-                user_data.queue.put_nowait((frame, timestamps))
+            if user_data.save_queue is not None:
+                # print("stashing buffer")
+                user_data.save_queue.put((frame, timestamps))
 
             stream.push_buffer(buffer)
 
