@@ -224,6 +224,7 @@ class AravisCamera(CammyCamera):
                 self.stream.push_buffer(buffer)
                 if self.save_queue is not None:
                     self.save_queue.put_nowait((frame, timestamps))
+                self.memory_pool.return_buffer(frame)
             else:
                 raise RuntimeError(f"Did not understand status: {status}")
             #self.stream.push_buffer(buffer)
