@@ -222,9 +222,8 @@ class AravisCamera(CammyCamera):
                 # for k, v in user_data.counter_data.items():
                 #     timestamps[k] = v
                 self.stream.push_buffer(buffer)
-                if self.save_queue is not None:
-                    self.save_queue.put_nowait((frame, timestamps))
-                self.memory_pool.return_buffer(frame)
+                # if self.save_queue is not None:
+                #     self.save_queue.put_nowait((frame, timestamps))
             else:
                 raise RuntimeError(f"Did not understand status: {status}")
             #self.stream.push_buffer(buffer)
@@ -381,6 +380,7 @@ def stream_cb(user_data, type, buffer):
 
 def acquisition_loop(camera, shutdown_event, cpu_id=None):
     import time
+    # TODO: stash save queue HERE
     if cpu_id is not None:
         print(f"Setting affinity to {cpu_id}")
         os.sched_setaffinity(0, {int(cpu_id)})
@@ -390,4 +390,7 @@ def acquisition_loop(camera, shutdown_event, cpu_id=None):
         if frame is not None:
             # with camera.display_lock:
             camera.display_frame = (frame, ts)
+            camera.save_queue.put_nowait((frame, ts))
+            camera.memory_pool.return_buffer(frame)
+
         # time.sleep(.001) # wait a short delay before polling again
