@@ -33,7 +33,6 @@ class AravisCamera(CammyCamera):
 
         self.camera = Aravis.Camera.new(id)
         self.display_lock = threading.Lock()
-        self.display_frame = (None, None)
         Aravis.make_thread_high_priority(1)
 
         self.device = self.camera.get_device()
@@ -81,14 +80,19 @@ class AravisCamera(CammyCamera):
             user_data = UserData(counters=counter_names, arv_obj=self)
             self.stream = self.camera.create_stream(callback, user_data)
         else:
+            self.user_data = UserDataSave(save_queue = save_queue, display_lock=self.display_lock, stream=None, display_frame=(None, None))
             self._counters = {}
             self.stream = self.camera.create_stream(stream_cb, None)
+            self.user_data.stream = self.stream
 
         self.save_queue = save_queue
         self.missed_frames = 0
         self.total_frames = 0
+        
         for i in range(buffer_size):
             self.stream.push_buffer(Aravis.Buffer.new_allocate(self._payload))
+
+        
 
     # https://github.com/SintefManufacturing/python-aravis/blob/master/aravis.py#L162
     def try_pop_frame(self):
@@ -112,7 +116,7 @@ class AravisCamera(CammyCamera):
                 timestamps = None
                 self.stream.push_buffer(buffer)
             elif status == Aravis.BufferStatus.SUCCESS:
-                frame = self._array_from_buffer_address(buffer)
+                # frame = self._array_from_buffer_address(buffer)
                 timestamp = buffer.get_timestamp()
                 system_timestamp = buffer.get_system_timestamp()
                 timestamps = {
@@ -121,12 +125,12 @@ class AravisCamera(CammyCamera):
                     "system_timestamp": system_timestamp,
                     "frame_id": buffer.get_frame_id(),
                 }
-                if isinstance(frame, tuple):
-                    for _frame, _cam in zip(frame[1:], self._spoof_cameras):
-                        # send _frame and timestamps...        
-                        _cam.recv_queue.put((_frame, timestamps))
-                    # now proceed as if we only collected the first...
-                    frame = frame[0]
+                # if isinstance(frame, tuple):
+                #     for _frame, _cam in zip(frame[1:], self._spoof_cameras):
+                #         # send _frame and timestamps...        
+                #         _cam.recv_queue.put((_frame, timestamps))
+                #     # now proceed as if we only collected the first...
+                #     frame = frame[0]
                 
                 grab_time = system_timestamp
                 self.frame_count += 1
@@ -140,18 +144,15 @@ class AravisCamera(CammyCamera):
                 if ~np.isnan(diff):
                     self.missed_frames += diff
                 self.total_frames = timestamps["frame_id"]
-                # self._last_frame_id = timestamps["frame_id"]
-
-                # self.smooth_fps = (1 - self.fps_alpha) * self.fps + self.fps_alpha * self.prior_fps
-                # self.prior_fps = self.smooth_fps
-
                 self._last_framegrab = grab_time
-                # user_data = buffer.get_user_data()
-                # for k, v in user_data.counter_data.items():
-                #     timestamps[k] = v
-                self.stream.push_buffer(buffer)
+                frame = self._array_from_buffer_address(buffer)
+                # im_size = (buffer.get_image_height(), buffer.get_image_width)
+                # frame_data = (buffer.get_data(), self._pixel_format, im_size)
                 if self.save_queue is not None:
-                    self.save_queue.put_nowait((frame, timestamps))
+                    # need frame addr, pixel format, im_size
+                    self.save_queue.put_nowait(frame,  timestamps)
+                self.stream.push_buffer(buffer)
+                
             else:
                 raise RuntimeError(f"Did not understand status: {status}")
             #self.stream.push_buffer(buffer)
@@ -290,6 +291,14 @@ class UserData:
         self.camera = arv_obj
         # need the aravis object to grab counter values...
 
+class UserDataSave:
+
+    def __init__(self, save_queue, display_lock: threading.Lock,  stream: Aravis.Stream, display_frame=(None, None),) -> None:
+        self.queue = save_queue
+        self.display_lock = display_lock
+        self.display_frame = display_frame
+        # need the aravis object to grab counter values...
+
 
 def callback(user_data, cb_type, buffer):
     if buffer is not None:
@@ -298,10 +307,75 @@ def callback(user_data, cb_type, buffer):
 
 
 def stream_cb(user_data, type, buffer):
+    stream = user_data.stream
     if type == Aravis.StreamCallbackType.INIT:
         if not Aravis.make_thread_realtime(10) and \
             not Aravis.make_thread_high_priority(-10):
             print("Failed to make stream thread high priority")
+    elif type == Aravis.StreamCallbackType.BUFFER_DONE:
+        status = buffer.get_status()
+        if status == Aravis.BufferStatus.TIMEOUT:
+            stream.push_buffer(buffer)
+            return
+        elif status == Aravis.BufferStatus.SIZE_MISMATCH:
+            stream.push_buffer(buffer)
+            return
+        elif status == Aravis.BufferStatus.SUCCESS:
+            frame = array_from_buffer_address(buffer)
+            timestamp = buffer.get_timestamp()
+            system_timestamp = buffer.get_system_timestamp()
+            timestamps = {
+                # "capture_number": user_data.camera.total_frames,
+                "device_timestamp": timestamp,
+                "system_timestamp": system_timestamp,
+                "frame_id": buffer.get_frame_id(),
+            }
+            
+            with user_data.display_lock:
+                user_data.display_frame = frame
+
+            if user_data.queue is not None:
+                user_data.queue.put_nowait((frame, timestamps))
+
+            stream.push_buffer(buffer)
+
+
+# remember im_size is (height, width)
+def array_from_buffer_address(buffer):
+    im_size = (buffer.get_image_height(), buffer.get_image_width())
+    pixel_format = buffer.get_image_pixel_format()
+    bits_per_pixel = pixel_format >> 16 & 0xFF
+        
+    # pixel_format = Aravis.PI
+    if pixel_format == Aravis.PIXEL_FORMAT_MONO_8:
+        INTP = ctypes.POINTER(ctypes.c_uint8)
+        addr = buffer.get_data()
+        ptr = ctypes.cast(addr, INTP)
+        im = np.ctypeslib.as_array(ptr, im_size)
+        im = im.copy()
+    elif pixel_format in (Aravis.PIXEL_FORMAT_MONO_12, Aravis.PIXEL_FORMAT_MONO_16, Aravis.PIXEL_FORMAT_COORD3D_C_16):
+        INTP = ctypes.POINTER(ctypes.c_uint16)
+        addr = buffer.get_data()
+        ptr = ctypes.cast(addr, INTP)
+        im = np.ctypeslib.as_array(ptr, im_size)
+        im = im.copy()
+    # TODO: sort out this combined format, coord3d_c16y8
+    elif pixel_format.lower() in (Aravis.PIXEL_FORMAT_COORD3D_C_16 + Aravis.PIXEL_FORMAT_MONO8):
+        INTP = ctypes.POINTER(ctypes.c_uint8 * 3) 
+        addr = buffer.get_data()
+        ptr = ctypes.cast(addr, INTP)
+        # return 3 8 bit images, pack first two in 16 bit depth image, last is IR
+        im = np.ctypeslib.as_array(ptr, im_size)
+        im = im.astype("uint16").copy()
+        im1 = im[:,:,1]<<8 | im[:,:,0]
+        im2 = im[:,:,2].astype("uint8")
+        im = (im1, im2)
+    else:
+        raise RuntimeError(f"No unpacking strategy for {pixel_format} format")
+    
+    return im
+
+
 
 
 def acquisition_loop(camera, shutdown_event, cpu_id=None):

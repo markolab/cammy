@@ -487,15 +487,15 @@ def simple_preview(
 
     [_cam.start_acquisition() for _cam in cameras.values()]
     
-    threads = {}
-    acquisition_thread_shutdown_event = threading.Event()
-    for i, (_id, _cam) in enumerate(cameras.items()):
-        cpu_id = np.minimum(i + 1, ncores)
-        t = threading.Thread(target=acquisition_loop, args=(_cam, acquisition_thread_shutdown_event, cpu_id))
-        t.daemon = True
-        t.start()
-        t.display_frame = (None, None)
-        threads[_id] = t
+    # threads = {}
+    # acquisition_thread_shutdown_event = threading.Event()
+    # for i, (_id, _cam) in enumerate(cameras.items()):
+    #     cpu_id = np.minimum(i + 1, ncores)
+    #     t = threading.Thread(target=acquisition_loop, args=(_cam, acquisition_thread_shutdown_event, cpu_id))
+    #     t.daemon = True
+    #     t.start()
+    #     t.display_frame = (None, None)
+    #     threads[_id] = t
 
     # if using a hardware trigger, send out signals now...
     if hw_trigger and (trigger_dev is not None):
@@ -568,9 +568,25 @@ def simple_preview(
                     else:
                         pass
                     cameras[_id].count += 1
+                    
+                    grab_time = dat[1]["system_timestamp"]
+                    # cameras[_id].frame_count += 1
+                    new_fps_val = 1 / (((grab_time - cameras[_id]._last_framegrab) / cameras[_id]._tick_frequency) + 1e-12)
+                    if np.isnan(cameras[_id].fps):
+                        cameras[_id].fps = new_fps_val
+                    else:
+                        cameras[_id].fps = .01 * new_fps_val + .99 * self.fps
+                    
+                    diff = (dat[1]["frame_id"] - cameras[_id].total_frames) - 1
+                    if ~np.isnan(diff):
+                        cameras[_id].missed_frames += diff
+                    cameras[_id].total_frames = dat[1]["frame_id"]
+                    cameras[_id]._last_framegrab = grab_time
+                         
+                    cur_fps = cameras[_id].fps
                     miss_frames = float(cameras[_id].missed_frames)
                     total_frames = float(cameras[_id].total_frames)
-                    cur_fps = cameras[_id].fps
+                    
                     # if np.isnan(prior_fps):
                     #     smooth_fps = cur_fps
                     # else:
@@ -612,8 +628,8 @@ def simple_preview(
             dpg.render_dearpygui_frame()
     finally:
         [_cam.stop_acquisition() for _cam in cameras.values()]
-        acquisition_thread_shutdown_event.set()
-        [_t.join() for _t in threads.values()]
+        # acquisition_thread_shutdown_event.set()
+        # [_t.join() for _t in threads.values()]
         if hw_trigger and (trigger_dev is not None):
             trigger_dev.stop()
         if server and (zsocket is not None):
