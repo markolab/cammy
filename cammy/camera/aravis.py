@@ -5,59 +5,13 @@ import numpy as np
 import logging
 import threading
 import queue
+import pickle
+import zmq
 from cammy.camera.base import CammyCamera
 from typing import Optional
 
 gi.require_version("Aravis", "0.8")
 from gi.repository import Aravis
-
-# ADD this memory pool class before your AravisCamera class
-class MemoryPool:
-    def __init__(self, frame_shape, dtype, pool_size=200):
-        """Pre-allocated memory pool for fast frame copying"""
-        self.pool = queue.Queue()
-        self.total_allocated = 0
-        self.pool_hits = 0
-        self.pool_misses = 0
-        
-        # Pre-allocate memory buffers
-        for _ in range(pool_size):
-            buffer = np.empty(frame_shape, dtype="uint8")
-            self.pool.put(buffer)
-            self.total_allocated += 1
-        
-        print(f"Memory pool created: {pool_size} buffers of {frame_shape} {dtype}")
-    
-    def get_buffer(self):
-        """Get a buffer from pool"""
-        try:
-            buffer = self.pool.get_nowait()
-            self.pool_hits += 1
-            return buffer
-        except queue.Empty:
-            # Pool exhausted - allocate new buffer
-            self.pool_misses += 1
-            return None
-    
-    def return_buffer(self, buffer):
-        """Return buffer to pool"""
-        try:
-            self.pool.put_nowait(buffer)
-        except queue.Full:
-            # Pool full - let buffer be garbage collected
-            pass
-    
-    def get_stats(self):
-        """Get pool usage statistics"""
-        return {
-            "total_allocated": self.total_allocated,
-            "pool_hits": self.pool_hits,
-            "pool_misses": self.pool_misses,
-            "hit_rate": self.pool_hits / (self.pool_hits + self.pool_misses) if (self.pool_hits + self.pool_misses) > 0 else 0
-        }
-
-
-
 
 
 # TODO:
@@ -120,8 +74,7 @@ class AravisCamera(CammyCamera):
         self._last_framegrab = np.nan
         # self._last_frame_id = np.nan
         self._spoof_cameras = [] # we use these to push extra images
-        # self._setup_memory_pool()
-        
+        self.zmq_publisher = None
         self.id = id
 
         counter_names = [
@@ -135,31 +88,12 @@ class AravisCamera(CammyCamera):
             self._counters = {}
             self.stream = self.camera.create_stream(stream_cb, None)
 
+        # this is going to be zmq now...
         self.save_queue = save_queue
         self.missed_frames = 0
         self.total_frames = 0
         for i in range(buffer_size):
             self.stream.push_buffer(Aravis.Buffer.new_allocate(self._payload))
-
-
-    # ADD this to your AravisCamera.__init__ method (after setting up width/height):
-    def _setup_memory_pool(self):
-        """Initialize memory pool for fast frame copying"""
-        # Determine frame shape and dtype based on pixel format
-        frame_shape = (self._height, self._width)
-        
-        if self._pixel_format.lower() in ("mono12", "mono16", "coord3d_c16"):
-            dtype = np.uint16
-        else:
-            dtype = np.uint8
-        
-        # Create memory pool - size based on expected frame rate
-        # For 100 FPS, 30 buffers gives ~300ms of buffering
-        pool_size = 100
-        self.memory_pool = MemoryPool(frame_shape, dtype, pool_size)
-        
-        # Performance tracking
-        self._last_pool_stats = 0
 
 
     # https://github.com/SintefManufacturing/python-aravis/blob/master/aravis.py#L162
@@ -386,6 +320,7 @@ def stream_cb(user_data, type, buffer):
             print("Failed to make stream thread high priority")
 
 
+# alllllrighty time for zmq...
 def acquisition_loop(camera, shutdown_event, cpu_id=None):
     import time
     # TODO: stash save queue HERE
@@ -404,13 +339,23 @@ def acquisition_loop(camera, shutdown_event, cpu_id=None):
         frame, ts = camera.try_pop_frame()
         camera.logger.debug(f"Frame processing time: {time.perf_counter() - start_time}")
         # print(ts)
-        if (frame is not None) and (camera.save_queue is None):
+        if (frame is not None) and (camera.zmq_publisher is None):
             # with camera.display_lock:
             camera.display_frame = (frame, ts)
             # camera.memory_pool.return_buffer(frame)
-        elif (frame is not None) and (camera.save_queue is not None):  
+        elif (frame is not None) and (camera.zmq_publisher is not None):  
             camera.display_frame = (frame, ts)
-            camera.save_queue.put_nowait((frame, ts))
+            frame_data = {
+                "frame_bytes": frame.tobytes(),
+                "timestamps": ts
+            }
+            
+            # Serialize with fastest protocol
+            message = pickle.dumps(frame_data, protocol=pickle.HIGHEST_PROTOCOL)
+            
+            # Send message (non-blocking)
+            camera.zmq_publisher.send(message, zmq.NOBLOCK)
+            # camera.save_queue.put_nowait((frame, ts))
             camera.logger.debug(f"Frame processing time after save queue: {time.perf_counter() - start_time}")
             # camera.memory_pool.return_buffer(frame)
         # time.sleep(.001) # wait a short delay before polling again

@@ -98,6 +98,7 @@ class RawVideoRecorder(BaseRecord):
 		save_queue=None,
 		batch_size=20,
 		cpu_id=None,
+		zmq_address=None,
 	):
 
 		super(BaseRecord, self).__init__()
@@ -115,6 +116,7 @@ class RawVideoRecorder(BaseRecord):
 		self.timestamp_batch = []
 		self.batch_size = batch_size
 		self.cpu_id = cpu_id
+		self.zmq_address = zmq_address
 
 
 	def write_data(self, vdata, tstamps):

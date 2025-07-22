@@ -57,6 +57,7 @@ gui_ncols = 3  # number of cols before we start new row
 font = cv2.FONT_HERSHEY_SIMPLEX
 white = (255, 255, 255)
 txt_pos = (25, 25)
+zmq_start_port = 50165
 
 
 # TODO:
@@ -279,6 +280,7 @@ def simple_preview(
     else:
         trigger_dev = None
 
+    zmq_addresses = {}    
     if record:
         # from parameters construct single names...
         use_queues = get_queues(list(ids.keys()))
@@ -351,6 +353,12 @@ def simple_preview(
 
         # dump settings to toml file (along with start time of recording and hostname)
         for i, (_id, _cam) in enumerate(cameras.items()):
+            zmq_addresses[_id] = f"tcp://localhost:{zmq_start_port + i + 1}"
+            cameras[_id].zmq_context = zmq.Context()
+            cameras[_id].zmq_publisher = cameras[_id].zmq_context.socket(zmq.PUSH)
+            cameras[_id].zmq_publisher.bind(f"{zmq_addresses[_id]}")
+            logger.debug(f"Setting zmq port for {_id} to {zmq_addresses[_id]}")
+            #zmq here... 50166 + i for port
             cameras[_id].save_queue = use_queues["storage"][_id]
             timestamp_fields = ["frame_id", "device_timestamp", "system_timestamp"]
             if save_engine == "ffmpeg":
@@ -370,7 +378,8 @@ def simple_preview(
                     write_dtype=write_dtype[_id],
                     timestamp_fields=timestamp_fields,
                     batch_size=frame_writer_batch_size,
-                    cpu_id=i
+                    cpu_id=i,
+                    zmq_address=zmq_addresses[_id],
                 )
             else:
                 raise RuntimeError(
