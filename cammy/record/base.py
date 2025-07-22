@@ -35,6 +35,7 @@ class BaseRecord(threading.Thread):
 
 	# ADDING FRAME BATCHING FOR WRITES
 	def run(self):
+		import msgpack
 		if self.cpu_id is not None:
 			print(f"Setting affinity for saving process to {self.cpu_id}")
 			os.sched_setaffinity(0, {int(self.cpu_id)})
@@ -57,13 +58,17 @@ class BaseRecord(threading.Thread):
 				dat = None			
 				try:
 					# dat = self.save_queue.get_nowait()
-					message = self.zmq_socket.recv()
-					frame_batch = pickle.loads(message)
+					# message = self.zmq_socket.recv()
+					metadata = self.zmq_socket.recv_json()
+					timestamps = metadata["timestamps"]
+
+					frame_data = self.zmq_socket.recv(copy=True)
+					# frame_data = msgpack.loads(message)
 					print("MESSAGE RECEIVED")
 					# Reconstruct numpy array
-					frame_bytes = "".join([_dat["frame_bytes"] for _dat in frame_batch])
-					timestamps = [_dat["timestamps"] for _dat in frame_batch]
-					dat = (frame_bytes, timestamps)
+					# frame_bytes = b"".join([_dat["frame_bytes"] for _dat in frame_batch])
+					# timestamps = [_dat["timestamps"] for _dat in frame_batch]
+					dat = (frame_data, timestamps)
 
 					# Reconstruct frame
 					# frame = np.frombuffer(frame_bytes, dtype=dtype).reshape(shape)
@@ -72,16 +77,17 @@ class BaseRecord(threading.Thread):
 					continue
 
 				if dat is not None:
-					self.write_data(*dat)
-					# self.frame_batch.append(dat[0]) # list of bytes at this point
-					# self.timestamp_batch.append(dat[1])
+					# self.write_data(*dat)
+					self.frame_batch.append(dat[0]) # list of bytes at this point
+					self.timestamp_batch.append(dat[1])
 
 					# TODO double check that batch is written out at the end
-					# if len(self.frame_batch) >= self.batch_size:
-						# self.write_data(''.join(self.frame_batch), self.timestamp_batch)
-						# # clear the batch lists
-						# self.frame_batch.clear()
-						# self.timestamp_batch.clear()
+					if len(self.frame_batch) >= self.batch_size:
+						print("writing batch")
+						self.write_data(b''.join(self.frame_batch), self.timestamp_batch)
+						# clear the batch lists
+						self.frame_batch.clear()
+						self.timestamp_batch.clear()
 					# try:
 					# 	self.write_data(dat)
 					# except KeyboardInterrupt:

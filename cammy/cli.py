@@ -353,7 +353,7 @@ def simple_preview(
 
         # dump settings to toml file (along with start time of recording and hostname)
         for i, (_id, _cam) in enumerate(cameras.items()):
-            zmq_addresses[_id] = f"tcp://127.0.0.1:{zmq_start_port + i + 1}"
+            zmq_addresses[_id] = f"ipc://127.0.0.1:{zmq_start_port + i + 1}"
             logger.debug(f"Setting zmq port for {_id} to {zmq_addresses[_id]}")
             cameras[_id].zmq_context = zmq.Context()
             cameras[_id].zmq_publisher = cameras[_id].zmq_context.socket(zmq.PUSH)
