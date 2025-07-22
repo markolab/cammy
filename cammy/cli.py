@@ -226,12 +226,13 @@ def simple_preview(
         record_counters=record_counters,
         buffer_size=buffer_size,
     )
+    [_camera.initialize_acquisition_stream() for _camera in cameras.values()]
     for i, (k, v) in enumerate(cameras.items()):
         feature_dct = v.get_all_features()
         feature_dct = dict(sorted(feature_dct.items()))
 
         # make sure we set so we know how to decode frame buffers
-        v._pixel_format = feature_dct["PixelFormat"]
+        # v._pixel_format = feature_dct["PixelFormat"]
         _bit_depth, _spoof_ims = get_pixel_format_bit_depth(feature_dct["PixelFormat"])
         bit_depth[k] = _bit_depth
         cameras_metadata[k] = feature_dct
@@ -795,7 +796,7 @@ def calibrate(
         feature_dct = v.get_all_features()
         feature_dct = dict(sorted(feature_dct.items()))
         _bit_depth, _spoof_ims = get_pixel_format_bit_depth(feature_dct["PixelFormat"])
-        v._pixel_format = feature_dct["PixelFormat"]
+        # v._pixel_format = feature_dct["PixelFormat"]
         bit_depth[k] = _bit_depth
         disp_mins[k] = 0
         disp_maxs[k] = 2**_bit_depth
