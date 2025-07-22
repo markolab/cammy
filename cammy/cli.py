@@ -216,6 +216,7 @@ def simple_preview(
 
     # de-reference, then initialize again, now with updated settings...
     del cameras
+    gc.collect()
     time.sleep(2)
 
     cameras_metadata = {}
@@ -770,6 +771,7 @@ def calibrate(
     )
     ids = get_all_camera_ids(interface)
     cameras = initialize_cameras(ids, configs=camera_dct)
+    [_camera.initialize_stream() for _camera in cameras.values()]
 
     metadata = {"calibration": {}}
     metadata["calibration"]["session_time"] = init_timestamp_str
