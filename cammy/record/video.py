@@ -120,18 +120,7 @@ class RawVideoRecorder(BaseRecord):
 
 
 	def write_data(self, vdata, tstamps):
-		# vdata, tstamps = data
-		# if vdata.ndim == 3:
-		# 	for _frame in vdata:
-		# 		self._video_file.write(_frame.astype(self.write_dtype).tobytes())
-		# elif vdata.ndim == 2:
-		# 	self._video_file.write(vdata.astype(self.write_dtype).tobytes())
-		# else:
-		# 	raise RuntimeError("Frames must be 2d or 3d")
-		
-		# stack the list into a numpy array and write out...
 		if vdata is not None:
-			# self._video_file.write(np.stack(vdata).astype(self.write_dtype).tobytes())
 			self._video_file.write(vdata)
 		
 		# similarly, build a big string from the batch and write out...
@@ -141,16 +130,7 @@ class RawVideoRecorder(BaseRecord):
 				for _field in self.timestamp_fields:
 					write_string += f"{_tstamps[_field]}\t"
 				write_string += "\n"
-			self._tstamp_file.write(write_string)
-		
-		# if tstamps is not None:
-		# 	for _field in self.timestamp_fields:
-		# 		self._tstamp_file.write(f"{tstamps[_field]}\t")
-		# 	self._tstamp_file.write("\n")
-
-		# le
-		# leads to ill effects after lots of frames pile up
-		
+			self._tstamp_file.write(write_string)	
 
 
 	def open_writer(self):
@@ -165,11 +145,6 @@ class RawVideoRecorder(BaseRecord):
 
 	def close_writer(self):
 		self.logger.info(f"Closing writer {self.name}")
-		# if len(self.frame_batch) > 0:
-		# 	self.write_data(self.frame_batch, self.timestamp_batch)
-		# 	# clear the batch lists
-		# 	self.frame_batch.clear()
-		# 	self.timestamp_batch.clear()
 		try:
 			self._video_file.flush()
 			os.fsync(self._video_file)

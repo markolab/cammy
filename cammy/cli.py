@@ -639,12 +639,13 @@ def simple_preview(
         if record:
             # for every camera ID wait until the queue has been written out
             print("Issuing stop signal...")
-            for k, v in use_queues["storage"].items():
-                v.put(None)  # stop signal
-                time.sleep(0.1)
-                if v.qsize() is not None:
-                    while v.qsize() > 0:
-                        time.sleep(0.1)
+            # no longer using storage queues
+            # for k, v in use_queues["storage"].items():
+            #     v.put(None)  # stop signal
+            #     time.sleep(0.1)
+            #     if v.qsize() is not None:
+            #         while v.qsize() > 0:
+            #             time.sleep(0.1)
             for _recorder in recorders:
                 _recorder.is_running = 0
                 time.sleep(1)

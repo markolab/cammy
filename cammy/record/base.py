@@ -33,17 +33,18 @@ class BaseRecord(threading.Thread):
 		pass
 
 
-	# ADDING FRAME BATCHING FOR WRITES
 	def run(self):
-		import msgpack
 		if self.cpu_id is not None:
 			print(f"Setting affinity for saving process to {self.cpu_id}")
 			os.sched_setaffinity(0, {int(self.cpu_id)})
 
+		# we are mostly i/o limited here, so cede priority to acquisition
+		# threads if possible
 		try:
 			os.nice(5)
 		except:
 			pass
+
 		self.is_running = 1
 		self.zmq_context = zmq.Context()
 		self.zmq_socket = self.zmq_context.socket(zmq.PULL)
@@ -58,21 +59,10 @@ class BaseRecord(threading.Thread):
 				dat = None			
 				try:
 					# dat = self.save_queue.get_nowait()
-					# message = self.zmq_socket.recv()
 					metadata = self.zmq_socket.recv_json()
 					timestamps = metadata["timestamps"]
-
 					frame_data = self.zmq_socket.recv(copy=True)
-					# frame_data = msgpack.loads(message)
-					print("MESSAGE RECEIVED")
-					# Reconstruct numpy array
-					# frame_bytes = b"".join([_dat["frame_bytes"] for _dat in frame_batch])
-					# timestamps = [_dat["timestamps"] for _dat in frame_batch]
 					dat = (frame_data, timestamps)
-
-					# Reconstruct frame
-					# frame = np.frombuffer(frame_bytes, dtype=dtype).reshape(shape)
-
 				except (queue.Empty, KeyboardInterrupt, EOFError, UnpicklingError):
 					continue
 
@@ -81,19 +71,21 @@ class BaseRecord(threading.Thread):
 					self.frame_batch.append(dat[0]) # list of bytes at this point
 					self.timestamp_batch.append(dat[1])
 
-					# TODO double check that batch is written out at the end
 					if len(self.frame_batch) >= self.batch_size:
-						print("writing batch")
-						self.write_data(b''.join(self.frame_batch), self.timestamp_batch)
-						# clear the batch lists
-						self.frame_batch.clear()
-						self.timestamp_batch.clear()
+						try:
+							self.write_data(b''.join(self.frame_batch), self.timestamp_batch)
+							self.frame_batch.clear()
+							self.timestamp_batch.clear()
+						except KeyboardInterrupt:
+							# try to finish out
+							self.write_data(b''.join(self.frame_batch), self.timestamp_batch)
+							self.frame_batch.clear()
+							self.timestamp_batch.clear()
 					# try:
 					# 	self.write_data(dat)
 					# except KeyboardInterrupt:
 					# 	self.write_data(dat)
 				else:
-					print(f"Exiting recorder {self.name}")
 					self.close_writer()
 					break
 			else:

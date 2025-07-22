@@ -4,8 +4,6 @@ import ctypes
 import numpy as np
 import logging
 import threading
-import queue
-import pickle
 import zmq
 from cammy.camera.base import CammyCamera
 from typing import Optional
@@ -147,20 +145,9 @@ class AravisCamera(CammyCamera):
                 if ~np.isnan(diff):
                     self.missed_frames += diff
                 self.total_frames = timestamps["frame_id"]
-                # self._last_frame_id = timestamps["frame_id"]
-
-                # self.smooth_fps = (1 - self.fps_alpha) * self.fps + self.fps_alpha * self.prior_fps
-                # self.prior_fps = self.smooth_fps
-
                 self._last_framegrab = grab_time
-                # user_data = buffer.get_user_data()
-                # for k, v in user_data.counter_data.items():
-                #     timestamps[k] = v
                 stream_stats = self.stream.get_statistics()
                 self.logger.debug(f"Buffer pressure {stream_stats.n_completed_buffers - timestamps['frame_id']}")
-
-                # if self.save_queue is not None:
-                #     self.save_queue.put_nowait((frame, timestamps))
             else:
                 raise RuntimeError(f"Did not understand status: {status}")
             #self.stream.push_buffer(buffer)
@@ -172,11 +159,7 @@ class AravisCamera(CammyCamera):
     def _array_from_buffer_address(self, buffer):
         if not buffer:
             return None
-        
-        # target_array = self.memory_pool.get_buffer()
-        # if target_array is None:
-        #     print("test")
-        #     return None
+
         pixel_format = buffer.get_image_pixel_format()
         bits_per_pixel = pixel_format >> 16 & 0xFF
         if (bits_per_pixel == 8) & (self._pixel_format.lower() == "mono8"):
@@ -184,14 +167,14 @@ class AravisCamera(CammyCamera):
             addr = buffer.get_data()
             ptr = ctypes.cast(addr, INTP)
             im = np.ctypeslib.as_array(ptr, (buffer.get_image_height(), buffer.get_image_width()))
-            target_array = im.copy()
+            target_array = im.copy(order="C")
             # np.copyto(target_array, im)
         elif (bits_per_pixel in [12, 16]) & (self._pixel_format.lower() in ("mono12", "mono16", "coord3d_c16")):
             INTP = ctypes.POINTER(ctypes.c_uint16)
             addr = buffer.get_data()
             ptr = ctypes.cast(addr, INTP)
             im = np.ctypeslib.as_array(ptr, (buffer.get_image_height(), buffer.get_image_width()))
-            target_array = im.copy()
+            target_array = im.copy(order="C")
             # np.copyto(target_array, im)
         # elif (bits_per_pixel == 24) & (self._pixel_format.lower() in ("coord3D_c16y8")):
         #     INTP = ctypes.POINTER(ctypes.c_uint8 * 3) 
@@ -322,9 +305,9 @@ def stream_cb(user_data, type, buffer):
 
 # alllllrighty time for zmq...
 def acquisition_loop(camera, shutdown_event, cpu_id=None):
+    # NOTE: this is a mission critical loop, do everything to ensure
+    # that's it's own cpu with high priority
     import time
-    import msgpack
-    # TODO: stash save queue HERE
     if cpu_id is not None:
         print(f"Setting affinity to {cpu_id}")
         os.sched_setaffinity(0, {int(cpu_id)})
@@ -339,13 +322,13 @@ def acquisition_loop(camera, shutdown_event, cpu_id=None):
     
         start_time = time.perf_counter()
         frame, ts = camera.try_pop_frame()
+
         if frame is not None:
             camera.logger.debug(f"Frame processing time: {time.perf_counter() - start_time}")
         # print(ts)
         if (frame is not None) and (camera.zmq_publisher is None):
             # with camera.display_lock:
             camera.display_frame = (frame, ts)
-            # camera.memory_pool.return_buffer(frame)
         elif (frame is not None) and (camera.zmq_publisher is not None):  
             camera.display_frame = (frame, ts)
 
@@ -356,16 +339,10 @@ def acquisition_loop(camera, shutdown_event, cpu_id=None):
             }
             
             try:
-                # camera.zmq_publisher.send(message, zmq.NOBLOCK)
-                # Send metadata + zero-copy data
                 camera.zmq_publisher.send_json(metadata, zmq.SNDMORE)
                 camera.zmq_publisher.send(frame, copy=False)  # Zero-copy!
                 camera.logger.debug(f"Frame processing time after save queue: {time.perf_counter() - start_time}")
-                # frame_batch.clear()
             except zmq.error.Again as e:
                 camera.logger.debug("Skipping, peer not connected yet...")
             except Exception as e:
                 camera.logger.debug(e)
-            # camera.save_queue.put_nowait((frame, ts))
-            # camera.memory_pool.return_buffer(frame)
-        # time.sleep(.001) # wait a short delay before polling again
