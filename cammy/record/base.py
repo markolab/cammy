@@ -1,15 +1,19 @@
 import multiprocessing
+import threading
 import queue
 import os
 from typing import Optional
 from pickle import UnpicklingError
 
 # simple data writer, should be general enough to take 1d/2d/etc. data
-class BaseRecord(multiprocessing.Process):
-	def __init__(self, save_queue, filename, cpu_id=None, batch_size=16):
-		multiprocessing.Process.__init__(self)
+class BaseRecord(threading.Thread):
+	def __init__(self, save_queue, filename, cpu_id=None, batch_size=16, *args, **kwargs):
+		super().__init__(*args, **kwargs)
+		# multiprocessing.Process.__init__(self)
+		# threading.Thread.__init__(self)
 		self.save_queue = save_queue
-		self.is_running = multiprocessing.Value("i", 0)
+		# self.is_running = multiprocessing.Value("i", 0)
+		self.is_running = 0
 		self.id = id
 		self.filename=filename
 		self.frame_batch = []
