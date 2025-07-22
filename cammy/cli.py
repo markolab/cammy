@@ -9,7 +9,7 @@ import cv2
 import psutil
 import threading
 import gc
-gc.disable()
+# gc.disable()
 
 logging.basicConfig(
     stream=sys.stdout,
