@@ -1,11 +1,12 @@
 import multiprocessing
 import queue
+import os
 from typing import Optional
 from pickle import UnpicklingError
 
 # simple data writer, should be general enough to take 1d/2d/etc. data
 class BaseRecord(multiprocessing.Process):
-	def __init__(self, save_queue, filename, batch_size=16):
+	def __init__(self, save_queue, filename, cpu_id=None, batch_size=16):
 		multiprocessing.Process.__init__(self)
 		self.save_queue = save_queue
 		self.is_running = multiprocessing.Value("i", 0)
@@ -14,6 +15,7 @@ class BaseRecord(multiprocessing.Process):
 		self.frame_batch = []
 		self.timestamp_batch = []
 		self.batch_size = batch_size
+		self.cpu_id = cpu_id
 
 	def write_data(self, data):
 		pass
@@ -29,6 +31,14 @@ class BaseRecord(multiprocessing.Process):
 
 	# ADDING FRAME BATCHING FOR WRITES
 	def run(self):
+		if self.cpu_id is not None:
+			print(f"Setting affinity for saving process to {self.cpu_id}")
+			os.sched_setaffinity(0, {int(self.cpu_id)})
+
+		try:
+			os.nice(5)
+		except:
+			pass
 		self.is_running = 1
 		self.open_writer()
 		while True:

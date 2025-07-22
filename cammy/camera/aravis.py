@@ -13,7 +13,7 @@ from gi.repository import Aravis
 
 # ADD this memory pool class before your AravisCamera class
 class MemoryPool:
-    def __init__(self, frame_shape, dtype, pool_size=30):
+    def __init__(self, frame_shape, dtype, pool_size=200):
         """Pre-allocated memory pool for fast frame copying"""
         self.pool = queue.Queue()
         self.total_allocated = 0
@@ -22,7 +22,7 @@ class MemoryPool:
         
         # Pre-allocate memory buffers
         for _ in range(pool_size):
-            buffer = np.empty(frame_shape, dtype=dtype)
+            buffer = np.empty(frame_shape, dtype="uint8")
             self.pool.put(buffer)
             self.total_allocated += 1
         
@@ -84,7 +84,7 @@ class AravisCamera(CammyCamera):
         self.camera = Aravis.Camera.new(id)
         self.display_lock = threading.Lock()
         self.display_frame = (None, None)
-        Aravis.make_thread_high_priority(1)
+        # Aravis.make_thread_high_priority(1)
 
         self.device = self.camera.get_device()
         self._payload = self.camera.get_payload()  # size of payload
@@ -120,7 +120,7 @@ class AravisCamera(CammyCamera):
         self._last_framegrab = np.nan
         # self._last_frame_id = np.nan
         self._spoof_cameras = [] # we use these to push extra images
-        self._setup_memory_pool()
+        # self._setup_memory_pool()
         
         self.id = id
 
@@ -192,7 +192,8 @@ class AravisCamera(CammyCamera):
                     "device_timestamp": timestamp,
                     "system_timestamp": system_timestamp,
                     "frame_id": buffer.get_frame_id(),
-                }
+                } 
+                self.stream.push_buffer(buffer)
                 if isinstance(frame, tuple):
                     for _frame, _cam in zip(frame[1:], self._spoof_cameras):
                         # send _frame and timestamps...        
@@ -200,7 +201,7 @@ class AravisCamera(CammyCamera):
                     # now proceed as if we only collected the first...
                     frame = frame[0]
                 
-                grab_time = system_timestamp
+                grab_time = timestamp
                 self.frame_count += 1
                 new_fps_val = 1 / (((grab_time - self._last_framegrab) / self._tick_frequency) + 1e-12)
                 if np.isnan(self.fps):
@@ -221,7 +222,9 @@ class AravisCamera(CammyCamera):
                 # user_data = buffer.get_user_data()
                 # for k, v in user_data.counter_data.items():
                 #     timestamps[k] = v
-                self.stream.push_buffer(buffer)
+                stream_stats = self.stream.get_statistics()
+                self.logger.debug(f"Buffer pressure {stream_stats.n_completed_buffers - timestamps['frame_id']}")
+
                 # if self.save_queue is not None:
                 #     self.save_queue.put_nowait((frame, timestamps))
             else:
@@ -236,7 +239,10 @@ class AravisCamera(CammyCamera):
         if not buffer:
             return None
         
-        target_array = self.memory_pool.get_buffer()
+        # target_array = self.memory_pool.get_buffer()
+        # if target_array is None:
+        #     print("test")
+        #     return None
         pixel_format = buffer.get_image_pixel_format()
         bits_per_pixel = pixel_format >> 16 & 0xFF
         if (bits_per_pixel == 8) & (self._pixel_format.lower() == "mono8"):
@@ -244,13 +250,15 @@ class AravisCamera(CammyCamera):
             addr = buffer.get_data()
             ptr = ctypes.cast(addr, INTP)
             im = np.ctypeslib.as_array(ptr, (buffer.get_image_height(), buffer.get_image_width()))
-            np.copyto(target_array, im)
+            target_array = im.copy()
+            # np.copyto(target_array, im)
         elif (bits_per_pixel in [12, 16]) & (self._pixel_format.lower() in ("mono12", "mono16", "coord3d_c16")):
             INTP = ctypes.POINTER(ctypes.c_uint16)
             addr = buffer.get_data()
             ptr = ctypes.cast(addr, INTP)
             im = np.ctypeslib.as_array(ptr, (buffer.get_image_height(), buffer.get_image_width()))
-            np.copyto(target_array, im)
+            target_array = im.copy()
+            # np.copyto(target_array, im)
         # elif (bits_per_pixel == 24) & (self._pixel_format.lower() in ("coord3D_c16y8")):
         #     INTP = ctypes.POINTER(ctypes.c_uint8 * 3) 
         #     addr = buffer.get_data()
@@ -384,13 +392,25 @@ def acquisition_loop(camera, shutdown_event, cpu_id=None):
     if cpu_id is not None:
         print(f"Setting affinity to {cpu_id}")
         os.sched_setaffinity(0, {int(cpu_id)})
+
+    try:
+        os.nice(-10)
+    except:
+        pass
+
     while not shutdown_event.is_set():
+    
+        start_time = time.perf_counter()
         frame, ts = camera.try_pop_frame()
+        camera.logger.debug(f"Frame processing time: {time.perf_counter() - start_time}")
         # print(ts)
-        if (frame is not None) and (camera.save_queue is not None):
+        if (frame is not None) and (camera.save_queue is None):
             # with camera.display_lock:
             camera.display_frame = (frame, ts)
+            # camera.memory_pool.return_buffer(frame)
+        elif (frame is not None) and (camera.save_queue is not None):  
+            camera.display_frame = (frame, ts)
             camera.save_queue.put_nowait((frame, ts))
-            camera.memory_pool.return_buffer(frame)
-
+            camera.logger.debug(f"Frame processing time after save queue: {time.perf_counter() - start_time}")
+            # camera.memory_pool.return_buffer(frame)
         # time.sleep(.001) # wait a short delay before polling again

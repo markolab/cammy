@@ -8,7 +8,8 @@ import time
 import cv2
 import psutil
 import threading
-
+import gc
+gc.disable()
 
 logging.basicConfig(
     stream=sys.stdout,
@@ -203,15 +204,15 @@ def simple_preview(
 
     # TODO: TURN INTO AN AUTOMATIC CHECK, IF NO FRAMES ARE GETTING
     # ACQUIRED, PAUSE FOR 1 SEC AND RE-INITIALIZE
-    cameras = initialize_cameras(
-        ids,
-        camera_dct,
-        jumbo_frames=jumbo_frames,
-        record_counters=record_counters,
-        buffer_size=buffer_size,
-    )
-    del cameras
-    time.sleep(2)
+    # cameras = initialize_cameras(
+    #     ids,
+    #     camera_dct,
+    #     jumbo_frames=jumbo_frames,
+    #     record_counters=record_counters,
+    #     buffer_size=buffer_size,
+    # )
+    # del cameras
+    # time.sleep(2)
 
     cameras_metadata = {}
     bit_depth = {}
@@ -349,7 +350,7 @@ def simple_preview(
                 toml.dump(recording_metadata, f)
 
         # dump settings to toml file (along with start time of recording and hostname)
-        for _id, _cam in cameras.items():
+        for i, (_id, _cam) in enumerate(cameras.items()):
             cameras[_id].save_queue = use_queues["storage"][_id]
             timestamp_fields = ["frame_id", "device_timestamp", "system_timestamp"]
             if save_engine == "ffmpeg":
@@ -369,6 +370,7 @@ def simple_preview(
                     write_dtype=write_dtype[_id],
                     timestamp_fields=timestamp_fields,
                     batch_size=frame_writer_batch_size,
+                    cpu_id=i
                 )
             else:
                 raise RuntimeError(
@@ -490,10 +492,9 @@ def simple_preview(
     threads = {}
     acquisition_thread_shutdown_event = threading.Event()
     for i, (_id, _cam) in enumerate(cameras.items()):
-        cpu_id = np.minimum(i + 1, ncores)
+        cpu_id = np.minimum(i + 10, ncores)
         t = threading.Thread(target=acquisition_loop, args=(_cam, acquisition_thread_shutdown_event, cpu_id))
         t.daemon = True
-        t.start()
         t.display_frame = (None, None)
         threads[_id] = t
 
@@ -527,6 +528,7 @@ def simple_preview(
     prior_fps = np.nan
     cur_duration = 0
     display_counter = 0
+    [t.start() for t in threads.values()]
     try:
         while dpg.is_dearpygui_running():
             dat = {}
@@ -592,7 +594,7 @@ def simple_preview(
                     if "storage" in use_queues.keys():
                         for k, v in use_queues["storage"].items():
                             logging.debug(v.qsize())
-
+                        
             if (
                 np.isfinite(cur_duration)
                 and (duration > 0)
@@ -608,7 +610,7 @@ def simple_preview(
                         break
                 except zmq.Again:
                     pass
-            time.sleep(0.005)
+            # time.sleep(0.005)
             dpg.render_dearpygui_frame()
     finally:
         [_cam.stop_acquisition() for _cam in cameras.values()]
