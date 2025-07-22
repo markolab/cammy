@@ -12,18 +12,6 @@ from gi.repository import Aravis
 logger = logging.getLogger(__name__)
 
 
-def acquisition_loop(camera):
-    import time
-    while camera.running:
-        frame, ts = camera.try_pop_frame()
-        if frame is not None:
-            with camera.display_lock:
-                camera.display_frame = (frame, ts)
-            camera.save_queue.append((frame, ts))
-        else:
-            time.sleep(0.001)
-
-
 def intrinsics_file_to_cv2(intrinsics_file):
     import toml
 
@@ -76,10 +64,12 @@ def get_pixel_format_bit_depth(pixel_format):
 
 
 def get_queues(ids=None) -> dict:
+    import queue
     if ids:
         queues = {}
-        queues["display"] = {id: multiprocessing.Manager().Queue(100) for id in ids}
-        queues["storage"] = {id: multiprocessing.Manager().Queue(1000) for id in ids}
+        # queues["display"] = {id: multiprocessing.Manager().Queue(100) for id in ids}
+        # queues["storage"] = {id: multiprocessing.Manager().Queue(1000) for id in ids}
+        queues["storage"] = {id: queue.Queue(1000) for id in ids}
         return queues
     else:
         raise RuntimeError("Must specify IDs to construct queues")
@@ -136,10 +126,7 @@ def initialize_cameras(ids, configs, **kwargs):
                 for k2, v2 in v.items():
                     if k in _id:
                         use_config = {**use_config, **v2}
-        try:
-            cameras[_id] = initialize_camera(_id, _interface, use_config, **kwargs)
-        except Exception as e:
-            print(e)
+        cameras[_id] = initialize_camera(_id, _interface, use_config, **kwargs)
 
     return cameras
 
