@@ -205,15 +205,18 @@ def simple_preview(
 
     # TODO: TURN INTO AN AUTOMATIC CHECK, IF NO FRAMES ARE GETTING
     # ACQUIRED, PAUSE FOR 1 SEC AND RE-INITIALIZE
-    # cameras = initialize_cameras(
-    #     ids,
-    #     camera_dct,
-    #     jumbo_frames=jumbo_frames,
-    #     record_counters=record_counters,
-    #     buffer_size=buffer_size,
-    # )
-    # del cameras
-    # time.sleep(2)
+    # don't initialize streams, just alter settings
+    cameras = initialize_cameras(
+        ids,
+        camera_dct,
+        jumbo_frames=jumbo_frames,
+        record_counters=record_counters,
+        buffer_size=buffer_size,
+    )
+
+    # de-reference, then initialize again, now with updated settings...
+    del cameras
+    time.sleep(2)
 
     cameras_metadata = {}
     bit_depth = {}
@@ -640,13 +643,6 @@ def simple_preview(
         if record:
             # for every camera ID wait until the queue has been written out
             print("Issuing stop signal...")
-            # no longer using storage queues
-            # for k, v in use_queues["storage"].items():
-            #     v.put(None)  # stop signal
-            #     time.sleep(0.1)
-            #     if v.qsize() is not None:
-            #         while v.qsize() > 0:
-            #             time.sleep(0.1)
             for _recorder in recorders:
                 _recorder.is_running = 0
                 time.sleep(1)

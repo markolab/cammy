@@ -68,7 +68,6 @@ class AravisCamera(CammyCamera):
         self._spoof_cameras = [] # we use these to push extra images
         self.zmq_publisher = None
         self.id = id
-        self.stream = self.camera.create_stream(stream_cb, None)
 
         # this is going to be zmq now...
         self.missed_frames = 0
@@ -78,6 +77,7 @@ class AravisCamera(CammyCamera):
 
     def initialize_acquisition_stream(self):
         self._payload = self.camera.get_payload()  # size of payload
+        self.stream = self.camera.create_stream(stream_cb, None)
         for i in range(self.buffer_size):
             self.stream.push_buffer(Aravis.Buffer.new_allocate(self._payload))
         [x, y, width, height] = self.camera.get_region()
