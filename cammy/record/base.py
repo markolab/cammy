@@ -58,11 +58,11 @@ class BaseRecord(threading.Thread):
 				try:
 					# dat = self.save_queue.get_nowait()
 					message = self.zmq_socket.recv()
-					data = pickle.loads(message)
+					frame_batch = pickle.loads(message)
 					print("MESSAGE RECEIVED")
 					# Reconstruct numpy array
-					frame_bytes = data["frame_bytes"]
-					timestamps = data["timestamps"]
+					frame_bytes = "".join([_dat["frame_bytes"] for _dat in frame_batch])
+					timestamps = [_dat["timestamps"] for _dat in frame_batch]
 					dat = (frame_bytes, timestamps)
 
 					# Reconstruct frame
@@ -72,15 +72,16 @@ class BaseRecord(threading.Thread):
 					continue
 
 				if dat is not None:
-					self.frame_batch.append(dat[0]) # list of bytes at this point
-					self.timestamp_batch.append(dat[1])
+					self.write_data(*dat)
+					# self.frame_batch.append(dat[0]) # list of bytes at this point
+					# self.timestamp_batch.append(dat[1])
 
 					# TODO double check that batch is written out at the end
-					if len(self.frame_batch) >= self.batch_size:
-						self.write_data(''.join(self.frame_batch), self.timestamp_batch)
-						# clear the batch lists
-						self.frame_batch.clear()
-						self.timestamp_batch.clear()
+					# if len(self.frame_batch) >= self.batch_size:
+						# self.write_data(''.join(self.frame_batch), self.timestamp_batch)
+						# # clear the batch lists
+						# self.frame_batch.clear()
+						# self.timestamp_batch.clear()
 					# try:
 					# 	self.write_data(dat)
 					# except KeyboardInterrupt:

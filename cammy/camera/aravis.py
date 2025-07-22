@@ -321,7 +321,7 @@ def stream_cb(user_data, type, buffer):
 
 
 # alllllrighty time for zmq...
-def acquisition_loop(camera, shutdown_event, cpu_id=None):
+def acquisition_loop(camera, shutdown_event, cpu_id=None, batch_size=10):
     import time
     # TODO: stash save queue HERE
     if cpu_id is not None:
@@ -332,6 +332,8 @@ def acquisition_loop(camera, shutdown_event, cpu_id=None):
         os.nice(-10)
     except:
         pass
+
+    frame_batch = []
 
     while not shutdown_event.is_set():
     
@@ -346,23 +348,23 @@ def acquisition_loop(camera, shutdown_event, cpu_id=None):
         elif (frame is not None) and (camera.zmq_publisher is not None):  
             print("SENDING FRAME")
             camera.display_frame = (frame, ts)
-            frame_data = {
+            frame_batch.append({
                 "frame_bytes": frame.tobytes(),
                 "timestamps": ts
-            }
-            
+            })
+            if len(frame_batch) >= batch_size:    
             # Serialize with fastest protocol
-            message = pickle.dumps(frame_data, protocol=pickle.HIGHEST_PROTOCOL)
-            
-            # Send message (non-blocking)
-            try:
-                camera.zmq_publisher.send(message, zmq.NOBLOCK)
-                print("TEST")
-                camera.logger.debug(f"Frame processing time after save queue: {time.perf_counter() - start_time}")
-            except zmq.error.Again as e:
-                print("Skipping, peer not connected yet...")
-            except Exception as e:
-                print(e)
+                message = pickle.dumps(frame_batch, protocol=pickle.HIGHEST_PROTOCOL)
+                # Send message (non-blocking)
+                try:
+                    camera.zmq_publisher.send(message, zmq.NOBLOCK)
+                    print("TEST")
+                    camera.logger.debug(f"Frame processing time after save queue: {time.perf_counter() - start_time}")
+                    frame_batch.clear()
+                except zmq.error.Again as e:
+                    print("Skipping, peer not connected yet...")
+                except Exception as e:
+                    print(e)
             # camera.save_queue.put_nowait((frame, ts))
             # camera.memory_pool.return_buffer(frame)
         # time.sleep(.001) # wait a short delay before polling again
