@@ -353,11 +353,15 @@ def simple_preview(
 
         # dump settings to toml file (along with start time of recording and hostname)
         for i, (_id, _cam) in enumerate(cameras.items()):
-            zmq_addresses[_id] = f"tcp://localhost:{zmq_start_port + i + 1}"
+            zmq_addresses[_id] = f"tcp://127.0.0.1:{zmq_start_port + i + 1}"
+            logger.debug(f"Setting zmq port for {_id} to {zmq_addresses[_id]}")
             cameras[_id].zmq_context = zmq.Context()
             cameras[_id].zmq_publisher = cameras[_id].zmq_context.socket(zmq.PUSH)
-            cameras[_id].zmq_publisher.bind(f"{zmq_addresses[_id]}")
-            logger.debug(f"Setting zmq port for {_id} to {zmq_addresses[_id]}")
+            cameras[_id].zmq_publisher.setsockopt(zmq.SNDHWM, 1000)  # High water mark
+            cameras[_id].zmq_publisher.setsockopt(zmq.LINGER, 0)     # Don't block on close
+            cameras[_id].zmq_publisher.setsockopt(zmq.TCP_KEEPALIVE, 1)
+            cameras[_id].zmq_publisher.bind(zmq_addresses[_id])
+        
             #zmq here... 50166 + i for port
             cameras[_id].save_queue = use_queues["storage"][_id]
             timestamp_fields = ["frame_id", "device_timestamp", "system_timestamp"]
@@ -602,7 +606,8 @@ def simple_preview(
                         )
                     if "storage" in use_queues.keys():
                         for k, v in use_queues["storage"].items():
-                            logging.debug(v.qsize())
+                            pass
+                            # logging.debug(v.qsize())
                         
             if (
                 np.isfinite(cur_duration)

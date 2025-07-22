@@ -46,6 +46,10 @@ class BaseRecord(threading.Thread):
 		self.is_running = 1
 		self.zmq_context = zmq.Context()
 		self.zmq_socket = self.zmq_context.socket(zmq.PULL)
+		self.zmq_socket.setsockopt(zmq.RCVHWM, 1000)  # Receive high water mark
+		print(self.zmq_address)
+		self.zmq_socket.connect(self.zmq_address)
+
 		self.open_writer()
 
 		while True:
@@ -55,6 +59,7 @@ class BaseRecord(threading.Thread):
 					# dat = self.save_queue.get_nowait()
 					message = self.zmq_socket.recv()
 					data = pickle.loads(message)
+					print("MESSAGE RECEIVED")
 					# Reconstruct numpy array
 					frame_bytes = data["frame_bytes"]
 					timestamps = data["timestamps"]

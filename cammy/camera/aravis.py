@@ -344,6 +344,7 @@ def acquisition_loop(camera, shutdown_event, cpu_id=None):
             camera.display_frame = (frame, ts)
             # camera.memory_pool.return_buffer(frame)
         elif (frame is not None) and (camera.zmq_publisher is not None):  
+            print("SENDING FRAME")
             camera.display_frame = (frame, ts)
             frame_data = {
                 "frame_bytes": frame.tobytes(),
@@ -354,8 +355,14 @@ def acquisition_loop(camera, shutdown_event, cpu_id=None):
             message = pickle.dumps(frame_data, protocol=pickle.HIGHEST_PROTOCOL)
             
             # Send message (non-blocking)
-            camera.zmq_publisher.send(message, zmq.NOBLOCK)
+            try:
+                camera.zmq_publisher.send(message, zmq.NOBLOCK)
+                print("TEST")
+                camera.logger.debug(f"Frame processing time after save queue: {time.perf_counter() - start_time}")
+            except zmq.error.Again as e:
+                print("Skipping, peer not connected yet...")
+            except Exception as e:
+                print(e)
             # camera.save_queue.put_nowait((frame, ts))
-            camera.logger.debug(f"Frame processing time after save queue: {time.perf_counter() - start_time}")
             # camera.memory_pool.return_buffer(frame)
         # time.sleep(.001) # wait a short delay before polling again

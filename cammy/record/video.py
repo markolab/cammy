@@ -131,7 +131,8 @@ class RawVideoRecorder(BaseRecord):
 		
 		# stack the list into a numpy array and write out...
 		if vdata is not None:
-			self._video_file.write(np.stack(vdata).astype(self.write_dtype).tobytes())
+			# self._video_file.write(np.stack(vdata).astype(self.write_dtype).tobytes())
+			self._video_file.write(vdata)
 		
 		# similarly, build a big string from the batch and write out...
 		if tstamps is not None:
