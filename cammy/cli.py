@@ -139,6 +139,12 @@ zmq_start_port = 50165
     default=100,
     help="Number of frames to accumulate before writing out to file"
 )
+@click.option(
+    "-v", "--verbose",
+    type=bool,
+    is_flag=True,
+    help="Verbose logging"
+)
 # fmt: on
 def simple_preview(
     interface: str,
@@ -162,9 +168,16 @@ def simple_preview(
     prefix: Optional[str],
     display_time_downsample: int,
     frame_writer_batch_size: int,
+    verbose: bool,
 ):
     
     cli_params = locals()
+
+    if verbose:
+        logging.info("Setting logging to verbose")
+        logging.getLogger().setLevel(logging.DEBUG)
+    else:
+        logging.getLogger().setLevel(logging.INFO)
 
     import dearpygui.dearpygui as dpg
     import cv2
@@ -510,7 +523,7 @@ def simple_preview(
     threads = {}
     acquisition_thread_shutdown_event = threading.Event()
     for i, (_id, _cam) in enumerate(cameras.items()):
-        cpu_id = np.minimum(i + 10, ncores)
+        cpu_id = np.minimum(i + 5, ncores)
         t = threading.Thread(target=acquisition_loop, args=(_cam, acquisition_thread_shutdown_event, cpu_id))
         t.daemon = True
         t.display_frame = (None, None)
@@ -545,7 +558,9 @@ def simple_preview(
     start_time = -np.inf
     prior_fps = np.nan
     cur_duration = 0
-    display_counter = 0
+    display_counter = {}
+    for _camera in cameras.keys():
+        display_counter[_camera] = 0
     [t.start() for t in threads.values()]
     try:
         while dpg.is_dearpygui_running():
@@ -564,7 +579,7 @@ def simple_preview(
                 if _dat[0] is not None:
                     disp_min = dpg.get_value(f"texture_{_id}_min")
                     disp_max = dpg.get_value(f"texture_{_id}_max")
-                    if (display_time_downsample > 0)  and ((display_counter % display_time_downsample) == 0):
+                    if (display_time_downsample > 0)  and ((display_counter[_id] % display_time_downsample) == 0):
                         height, width = _dat[0].shape
                         disp_img = cv2.resize(
                             _dat[0],
@@ -587,6 +602,8 @@ def simple_preview(
                         dpg.set_value(f"texture_{cameras[_id].id}", plt_val)
                     else:
                         pass
+
+                    display_counter[_id] += 1
                     cameras[_id].count += 1
                     miss_frames = float(cameras[_id].missed_frames)
                     total_frames = float(cameras[_id].total_frames)
