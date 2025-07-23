@@ -12,6 +12,50 @@ from gi.repository import Aravis
 logger = logging.getLogger(__name__)
 
 
+def get_physical_core_map():
+    from collections import defaultdict
+    physical_cores = defaultdict(list)  # {core_id: [logical_cpu_ids]}
+    with open("/proc/cpuinfo", "r") as f:
+        core_id = None
+        processor = None
+        for line in f:
+            if line.startswith("processor"):
+                processor = int(line.strip().split(":")[1])
+            elif line.startswith("core id"):
+                core_id = int(line.strip().split(":")[1])
+            elif line.strip() == "" and processor is not None and core_id is not None:
+                physical_cores[core_id].append(processor)
+                processor = core_id = None
+    return physical_cores
+
+def get_ordered_core_list(ncameras):
+    import platform
+    import psutil
+    if platform.system().lower() == "linux":
+        core_map = get_physical_core_map()
+        # here we want acquisition to use separate cores if possible...
+        
+        all_cpus = []
+        for _core_list in core_map.values():
+            all_cpus += _core_list
+        
+        if len(all_cpus) < (ncameras * 2):
+            raise RuntimeError("The number of logical cores must exceed n(cameras) * 2")
+        acquisition_cpus = [v[0] for v in core_map.values()]
+
+        # now the priority is:
+        # 1. remaining physical cores
+        # 2. logical cores that don't overlap with acquisition
+        # 3. logical cores that do overlap with acquisition
+        writing_cpus = [v[0] for v in list(core_map.values())[ncameras:]]
+        writing_cpus += [v[1] for v in list(core_map.values())[ncameras:]]
+        writing_cpus += [v[1] for v in list(core_map.values())[:ncameras]]
+        core_list = acquisition_cpus + writing_cpus
+    else:
+        core_map = {i: [i] for i in range(psutil.get_cpu_count())}
+        core_list = list(core_map.keys())
+
+
 def intrinsics_file_to_cv2(intrinsics_file):
     import toml
 

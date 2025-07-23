@@ -9,6 +9,7 @@ import cv2
 import psutil
 import threading
 import gc
+import platform
 # gc.disable()
 
 logging.basicConfig(
@@ -29,6 +30,7 @@ from cammy.util import (
     get_output_format,
     get_pixel_format_bit_depth,
     mpl_to_cv2_colormap,
+    get_ordered_core_list,
     check_counters_equal,
 )
 from cammy.record.video import FfmpegVideoRecorder, RawVideoRecorder
@@ -272,6 +274,8 @@ def simple_preview(
     recorders = []
     write_dtype = {}
 
+    logger.INFO(f"Ordered cpu list {cpu_list}")
+
     if hw_trigger:
         logging.info(f"Trigger pins: {trigger_pins}")
         from cammy.trigger.trigger import TriggerDevice
@@ -298,7 +302,8 @@ def simple_preview(
     else:
         trigger_dev = None
 
-    zmq_addresses = {}    
+    zmq_addresses = {}
+    cpu_list = get_ordered_core_list() 
     if record:
         # from parameters construct single names...
         use_queues = get_queues(list(ids.keys()))
@@ -400,7 +405,7 @@ def simple_preview(
                     write_dtype=write_dtype[_id],
                     timestamp_fields=timestamp_fields,
                     batch_size=frame_writer_batch_size,
-                    cpu_id=i,
+                    cpu_id=cpu_list.pop(),
                     zmq_address=zmq_addresses[_id],
                 )
             else:
@@ -519,12 +524,12 @@ def simple_preview(
             raise RuntimeError(f"Did not understand signal {start_signal}")
 
     [_cam.start_acquisition() for _cam in cameras.values()]
-    
+
     threads = {}
     acquisition_thread_shutdown_event = threading.Event()
     for i, (_id, _cam) in enumerate(cameras.items()):
-        cpu_id = np.minimum(i + 5, ncores)
-        t = threading.Thread(target=acquisition_loop, args=(_cam, acquisition_thread_shutdown_event, cpu_id))
+        # cpu_id = np.minimum(i + 5, ncores)
+        t = threading.Thread(target=acquisition_loop, args=(_cam, acquisition_thread_shutdown_event, cpu_list.pop(0)))
         t.daemon = True
         t.display_frame = (None, None)
         threads[_id] = t
