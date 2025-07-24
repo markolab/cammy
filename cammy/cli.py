@@ -274,7 +274,14 @@ def simple_preview(
     recorders = []
     write_dtype = {}
 
-    logger.INFO(f"Ordered cpu list {cpu_list}")
+    cpu_list = get_ordered_core_list(len(cameras)) 
+    logger.info(f"Ordered cpu list {cpu_list}")
+    gui_cores = set([cpu_list.pop() for _ in range(2)]) # hard-coded for now
+    print(f"Setting affinity for GUI to {gui_cores}")
+    os.sched_setaffinity(0, gui_cores)
+
+    acquire_cpus = [cpu_list.pop(0) for _camera in cameras.keys()]
+    write_cpus = [cpu_list.pop(0) for _camera in cameras.keys()]
 
     if hw_trigger:
         logging.info(f"Trigger pins: {trigger_pins}")
@@ -303,7 +310,6 @@ def simple_preview(
         trigger_dev = None
 
     zmq_addresses = {}
-    cpu_list = get_ordered_core_list() 
     if record:
         # from parameters construct single names...
         use_queues = get_queues(list(ids.keys()))
@@ -405,7 +411,7 @@ def simple_preview(
                     write_dtype=write_dtype[_id],
                     timestamp_fields=timestamp_fields,
                     batch_size=frame_writer_batch_size,
-                    cpu_id=cpu_list.pop(),
+                    cpu_id=write_cpus.pop(0),
                     zmq_address=zmq_addresses[_id],
                 )
             else:
@@ -529,7 +535,7 @@ def simple_preview(
     acquisition_thread_shutdown_event = threading.Event()
     for i, (_id, _cam) in enumerate(cameras.items()):
         # cpu_id = np.minimum(i + 5, ncores)
-        t = threading.Thread(target=acquisition_loop, args=(_cam, acquisition_thread_shutdown_event, cpu_list.pop(0)))
+        t = threading.Thread(target=acquisition_loop, args=(_cam, acquisition_thread_shutdown_event, acquire_cpus.pop(0)))
         t.daemon = True
         t.display_frame = (None, None)
         threads[_id] = t

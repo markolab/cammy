@@ -41,19 +41,15 @@ def get_ordered_core_list(ncameras):
         
         if len(all_cpus) < (ncameras * 2):
             raise RuntimeError("The number of logical cores must exceed n(cameras) * 2")
-        acquisition_cpus = [v[0] for v in core_map.values()]
-
-        # now the priority is:
-        # 1. remaining physical cores
-        # 2. logical cores that don't overlap with acquisition
-        # 3. logical cores that do overlap with acquisition
-        writing_cpus = [v[0] for v in list(core_map.values())[ncameras:]]
-        writing_cpus += [v[1] for v in list(core_map.values())[ncameras:]]
-        writing_cpus += [v[1] for v in list(core_map.values())[:ncameras]]
-        core_list = acquisition_cpus + writing_cpus
+        
+        physical_cores = [v[0] for v in core_map.values()]
+        logical_cores = [v[1] for v in core_map.values()]
+        core_list = [physical_cores.pop() for _core in range(len(physical_cores))]
+        core_list += [logical_cores.pop(0) for _core in range(len(logical_cores))]
     else:
         core_map = {i: [i] for i in range(psutil.get_cpu_count())}
         core_list = list(core_map.keys())
+    return core_list
 
 
 def intrinsics_file_to_cv2(intrinsics_file):
