@@ -732,6 +732,12 @@ def save_intrinsics(
     default=-1,
     help="Turn on specific light bank with arduino (<0 to skip)",
 )
+@click.option(
+    "--display-downsample",
+    type=int,
+    default=1,
+    help="Downsample images for display",
+)
 def calibrate(
     camera_options_file: str,
     intrinsics_file: str,
@@ -740,6 +746,7 @@ def calibrate(
     record: bool,
     detect_threshold_image: bool,
     light_control: int,
+    display_downsample: int
 ):
     import cv2
     import socket
@@ -799,7 +806,7 @@ def calibrate(
     )
     ids = get_all_camera_ids(interface)
     cameras = initialize_cameras(ids, configs=camera_dct)
-    [_camera.initialize_stream() for _camera in cameras.values()]
+    [_camera.initialize_acquisition_stream() for _camera in cameras.values()]
 
     metadata = {"calibration": {}}
     metadata["calibration"]["session_time"] = init_timestamp_str
@@ -835,8 +842,8 @@ def calibrate(
                 dtype="float32",
             )
             dpg.add_raw_texture(
-                _cam._width,
-                _cam._height,
+                _cam._width // display_downsample,
+                _cam._height // display_downsample,
                 blank_data,
                 tag=f"texture_{_id}",
                 format=dpg.mvFormat_Float_rgb,
@@ -865,8 +872,8 @@ def calibrate(
         cur_key = f"Camera {_id}"
         dpg.set_item_pos(cur_key, (gui_x_offset, gui_y_offset))
 
-        width = _cam._width + 25
-        height = _cam._height + 100
+        width = _cam._width // display_downsample + 25
+        height = _cam._height // display_downsample + 100
 
         gui_x_max = int(np.maximum(gui_x_offset + width, gui_x_max))
         gui_y_max = int(np.maximum(gui_y_offset + height, gui_y_max))
@@ -996,6 +1003,11 @@ def calibrate(
 
                 # convert to [0,1] float for dpg
                 plt_val = plt_val.astype("float32") / 255.0
+                if display_downsample > 1:
+                    plt_val = cv2.resize(
+                                plt_val,
+                                (width // display_downsample, height // display_downsample),
+                            )
                 dpg.set_value(f"texture_{cameras[_id].id}", plt_val)
 
             dpg.render_dearpygui_frame()
