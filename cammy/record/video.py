@@ -96,6 +96,9 @@ class RawVideoRecorder(BaseRecord):
 		timestamp_fields=["device_timestamp", "system_timestamp"],
 		write_dtype="uint16",
 		save_queue=None,
+		batch_size=20,
+		cpu_id=None,
+		zmq_address=None,
 	):
 
 		super(BaseRecord, self).__init__()
@@ -109,25 +112,25 @@ class RawVideoRecorder(BaseRecord):
 		self.filenames = {"video": filename, "timestamps": filename_timestamps}
 		self.timestamp_fields = timestamp_fields
 		self.write_dtype = write_dtype
+		self.frame_batch = []
+		self.timestamp_batch = []
+		self.batch_size = batch_size
+		self.cpu_id = cpu_id
+		self.zmq_address = zmq_address
 
 
-	def write_data(self, data):
-		vdata, tstamps = data
-		if vdata.ndim == 3:
-			for _frame in vdata:
-				self._video_file.write(_frame.astype(self.write_dtype).tobytes())
-		elif vdata.ndim == 2:
-			self._video_file.write(vdata.astype(self.write_dtype).tobytes())
-		else:
-			raise RuntimeError("Frames must be 2d or 3d")
+	def write_data(self, vdata, tstamps):
+		if vdata is not None:
+			self._video_file.write(vdata)
 		
+		# similarly, build a big string from the batch and write out...
 		if tstamps is not None:
-			for _field in self.timestamp_fields:
-				self._tstamp_file.write(f"{tstamps[_field]}\t")
-			self._tstamp_file.write("\n")
-
-		# leads to ill effects after lots of frames pile up
-		
+			write_string = ""
+			for _tstamps in tstamps: # should be a list
+				for _field in self.timestamp_fields:
+					write_string += f"{_tstamps[_field]}\t"
+				write_string += "\n"
+			self._tstamp_file.write(write_string)	
 
 
 	def open_writer(self):

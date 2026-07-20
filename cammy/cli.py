@@ -6,10 +6,15 @@ import sys
 import os
 import time
 import cv2
+import psutil
+import threading
+import gc
+import platform
+# gc.disable()
 
 logging.basicConfig(
     stream=sys.stdout,
-    level=logging.INFO,
+    level=logging.DEBUG,
     format="[%(asctime)s]:%(levelname)s:%(name)s %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
@@ -25,6 +30,7 @@ from cammy.util import (
     get_output_format,
     get_pixel_format_bit_depth,
     mpl_to_cv2_colormap,
+    get_ordered_core_list,
     check_counters_equal,
 )
 from cammy.record.video import FfmpegVideoRecorder, RawVideoRecorder
@@ -53,6 +59,7 @@ gui_ncols = 3  # number of cols before we start new row
 font = cv2.FONT_HERSHEY_SIMPLEX
 white = (255, 255, 255)
 txt_pos = (25, 25)
+zmq_start_port = 50165
 
 
 # TODO:
@@ -122,6 +129,24 @@ txt_pos = (25, 25)
     default=None,
     help="Only uses cameras whose IDs start with this string (None to use all IDs)"
 )
+@click.option(
+    "--display-time-downsample",
+    type=int,
+    default=1,
+    help="Display every nth frame (set to 0 for no display)"
+)
+@click.option(
+    "--frame-writer-batch-size",
+    type=int,
+    default=100,
+    help="Number of frames to accumulate before writing out to file"
+)
+@click.option(
+    "-v", "--verbose",
+    type=bool,
+    is_flag=True,
+    help="Verbose logging"
+)
 # fmt: on
 def simple_preview(
     interface: str,
@@ -143,16 +168,27 @@ def simple_preview(
     server: bool,
     alternate_mode: int,
     prefix: Optional[str],
+    display_time_downsample: int,
+    frame_writer_batch_size: int,
+    verbose: bool,
 ):
     
     cli_params = locals()
+
+    if verbose:
+        logging.info("Setting logging to verbose")
+        logging.getLogger().setLevel(logging.DEBUG)
+    else:
+        logging.getLogger().setLevel(logging.INFO)
 
     import dearpygui.dearpygui as dpg
     import cv2
     import socket
     import datetime
     import zmq
+    from cammy.camera.aravis import acquisition_loop
 
+    ncores = psutil.cpu_count(logical=False)
     basedir = os.path.dirname(os.path.abspath(__file__))
     hostname = socket.gethostname()
 
@@ -184,6 +220,7 @@ def simple_preview(
 
     # TODO: TURN INTO AN AUTOMATIC CHECK, IF NO FRAMES ARE GETTING
     # ACQUIRED, PAUSE FOR 1 SEC AND RE-INITIALIZE
+    # don't initialize streams, just alter settings
     cameras = initialize_cameras(
         ids,
         camera_dct,
@@ -191,7 +228,10 @@ def simple_preview(
         record_counters=record_counters,
         buffer_size=buffer_size,
     )
+
+    # de-reference, then initialize again, now with updated settings...
     del cameras
+    gc.collect()
     time.sleep(2)
 
     cameras_metadata = {}
@@ -205,12 +245,13 @@ def simple_preview(
         record_counters=record_counters,
         buffer_size=buffer_size,
     )
+    [_camera.initialize_acquisition_stream() for _camera in cameras.values()]
     for i, (k, v) in enumerate(cameras.items()):
         feature_dct = v.get_all_features()
         feature_dct = dict(sorted(feature_dct.items()))
 
         # make sure we set so we know how to decode frame buffers
-        v._pixel_format = feature_dct["PixelFormat"]
+        # v._pixel_format = feature_dct["PixelFormat"]
         _bit_depth, _spoof_ims = get_pixel_format_bit_depth(feature_dct["PixelFormat"])
         bit_depth[k] = _bit_depth
         cameras_metadata[k] = feature_dct
@@ -232,6 +273,15 @@ def simple_preview(
 
     recorders = []
     write_dtype = {}
+
+    cpu_list = get_ordered_core_list(len(cameras)) 
+    logger.info(f"Ordered cpu list {cpu_list}")
+    gui_cores = set([cpu_list.pop() for _ in range(2)]) # hard-coded for now
+    print(f"Setting affinity for GUI to {gui_cores}")
+    os.sched_setaffinity(0, gui_cores)
+
+    acquire_cpus = [cpu_list.pop(0) for _camera in cameras.keys()]
+    write_cpus = [cpu_list.pop(0) for _camera in cameras.keys()]
 
     if hw_trigger:
         logging.info(f"Trigger pins: {trigger_pins}")
@@ -259,6 +309,7 @@ def simple_preview(
     else:
         trigger_dev = None
 
+    zmq_addresses = {}
     if record:
         # from parameters construct single names...
         use_queues = get_queues(list(ids.keys()))
@@ -330,7 +381,17 @@ def simple_preview(
                 toml.dump(recording_metadata, f)
 
         # dump settings to toml file (along with start time of recording and hostname)
-        for _id, _cam in cameras.items():
+        for i, (_id, _cam) in enumerate(cameras.items()):
+            zmq_addresses[_id] = f"ipc://127.0.0.1:{zmq_start_port + i + 1}"
+            logger.debug(f"Setting zmq port for {_id} to {zmq_addresses[_id]}")
+            cameras[_id].zmq_context = zmq.Context()
+            cameras[_id].zmq_publisher = cameras[_id].zmq_context.socket(zmq.PUSH)
+            cameras[_id].zmq_publisher.setsockopt(zmq.SNDHWM, 1000)  # High water mark
+            cameras[_id].zmq_publisher.setsockopt(zmq.LINGER, 0)     # Don't block on close
+            cameras[_id].zmq_publisher.setsockopt(zmq.TCP_KEEPALIVE, 1)
+            cameras[_id].zmq_publisher.bind(zmq_addresses[_id])
+        
+            #zmq here... 50166 + i for port
             cameras[_id].save_queue = use_queues["storage"][_id]
             timestamp_fields = ["frame_id", "device_timestamp", "system_timestamp"]
             if save_engine == "ffmpeg":
@@ -341,6 +402,7 @@ def simple_preview(
                     filename=os.path.join(save_path, f"{_id}.mkv"),
                     pixel_format=write_dtype[_id],
                     timestamp_fields=timestamp_fields,
+                    batch_size=frame_writer_batch_size,
                 )
             elif save_engine == "raw":
                 _recorder = RawVideoRecorder(
@@ -348,6 +410,9 @@ def simple_preview(
                     filename=os.path.join(save_path, f"{_id}.dat"),
                     write_dtype=write_dtype[_id],
                     timestamp_fields=timestamp_fields,
+                    batch_size=frame_writer_batch_size,
+                    cpu_id=write_cpus.pop(0),
+                    zmq_address=zmq_addresses[_id],
                 )
             else:
                 raise RuntimeError(
@@ -466,6 +531,15 @@ def simple_preview(
 
     [_cam.start_acquisition() for _cam in cameras.values()]
 
+    threads = {}
+    acquisition_thread_shutdown_event = threading.Event()
+    for i, (_id, _cam) in enumerate(cameras.items()):
+        # cpu_id = np.minimum(i + 5, ncores)
+        t = threading.Thread(target=acquisition_loop, args=(_cam, acquisition_thread_shutdown_event, acquire_cpus.pop(0)))
+        t.daemon = True
+        t.display_frame = (None, None)
+        threads[_id] = t
+
     # if using a hardware trigger, send out signals now...
     if hw_trigger and (trigger_dev is not None):
         # trigger_armed = np.array([_cam.get_feature("TriggerArmed") for _cam in cameras.values()])
@@ -495,50 +569,52 @@ def simple_preview(
     start_time = -np.inf
     prior_fps = np.nan
     cur_duration = 0
+    display_counter = {}
+    for _camera in cameras.keys():
+        display_counter[_camera] = 0
+    [t.start() for t in threads.values()]
     try:
         while dpg.is_dearpygui_running():
             dat = {}
             for _id, _cam in cameras.items():
-                new_frame = None
-                new_ts = None
-
-                # do we need a separate thread for this, then grab whatever frame is latest???
-                while True:
-                    _dat = _cam.try_pop_frame()
-                    if _dat[0] is None:
-                        break
-                    else:
-                        if ~np.isfinite(start_time):
-                            start_time = time.perf_counter()
-                        new_frame = _dat[0]
-                        new_ts = _dat[1]
-                dat[_id] = (new_frame, new_ts)
+                # with _cam.display_lock:
+                dat[_id] = _cam.display_frame
+                    # print(_thread.display_frame)
+            
+            for _id, _dat in dat.items():
+                if ~np.isfinite(start_time) and (_dat[0] is not None):
+                    start_time = time.perf_counter()
 
             cur_duration = (time.perf_counter() - start_time) / 60.0
             for _id, _dat in dat.items():
                 if _dat[0] is not None:
                     disp_min = dpg.get_value(f"texture_{_id}_min")
                     disp_max = dpg.get_value(f"texture_{_id}_max")
-                    height, width = _dat[0].shape
-                    disp_img = cv2.resize(
-                        _dat[0],
-                        (width // display_downsample, height // display_downsample),
-                    )
-                    plt_val = intensity_to_rgba(
-                        disp_img,
-                        minval=disp_min,
-                        maxval=disp_max,
-                        colormap=display_colormap,
-                    ).astype("float32")
-                    cv2.putText(
-                        plt_val,
-                        str(cameras[_id].frame_count),
-                        txt_pos,
-                        font,
-                        1,
-                        (1, 1, 1, 1),
-                    )
-                    dpg.set_value(f"texture_{cameras[_id].id}", plt_val)
+                    if (display_time_downsample > 0)  and ((display_counter[_id] % display_time_downsample) == 0):
+                        height, width = _dat[0].shape
+                        disp_img = cv2.resize(
+                            _dat[0],
+                            (width // display_downsample, height // display_downsample),
+                        )
+                        plt_val = intensity_to_rgba(
+                            disp_img,
+                            minval=disp_min,
+                            maxval=disp_max,
+                            colormap=display_colormap,
+                        ).astype("float32")
+                        cv2.putText(
+                            plt_val,
+                            str(cameras[_id].frame_count),
+                            txt_pos,
+                            font,
+                            1,
+                            (1, 1, 1, 1),
+                        )
+                        dpg.set_value(f"texture_{cameras[_id].id}", plt_val)
+                    else:
+                        pass
+
+                    display_counter[_id] += 1
                     cameras[_id].count += 1
                     miss_frames = float(cameras[_id].missed_frames)
                     total_frames = float(cameras[_id].total_frames)
@@ -563,8 +639,9 @@ def simple_preview(
                         )
                     if "storage" in use_queues.keys():
                         for k, v in use_queues["storage"].items():
-                            logging.debug(v.qsize())
-
+                            pass
+                            # logging.debug(v.qsize())
+                        
             if (
                 np.isfinite(cur_duration)
                 and (duration > 0)
@@ -584,6 +661,8 @@ def simple_preview(
             dpg.render_dearpygui_frame()
     finally:
         [_cam.stop_acquisition() for _cam in cameras.values()]
+        acquisition_thread_shutdown_event.set()
+        [_t.join() for _t in threads.values()]
         if hw_trigger and (trigger_dev is not None):
             trigger_dev.stop()
         if server and (zsocket is not None):
@@ -593,12 +672,6 @@ def simple_preview(
         if record:
             # for every camera ID wait until the queue has been written out
             print("Issuing stop signal...")
-            for k, v in use_queues["storage"].items():
-                v.put(None)  # stop signal
-                time.sleep(0.1)
-                if v.qsize() is not None:
-                    while v.qsize() > 0:
-                        time.sleep(0.1)
             for _recorder in recorders:
                 _recorder.is_running = 0
                 time.sleep(1)
@@ -659,6 +732,12 @@ def save_intrinsics(
     default=-1,
     help="Turn on specific light bank with arduino (<0 to skip)",
 )
+@click.option(
+    "--display-downsample",
+    type=int,
+    default=1,
+    help="Downsample images for display",
+)
 def calibrate(
     camera_options_file: str,
     intrinsics_file: str,
@@ -667,6 +746,7 @@ def calibrate(
     record: bool,
     detect_threshold_image: bool,
     light_control: int,
+    display_downsample: int
 ):
     import cv2
     import socket
@@ -726,6 +806,7 @@ def calibrate(
     )
     ids = get_all_camera_ids(interface)
     cameras = initialize_cameras(ids, configs=camera_dct)
+    [_camera.initialize_acquisition_stream() for _camera in cameras.values()]
 
     metadata = {"calibration": {}}
     metadata["calibration"]["session_time"] = init_timestamp_str
@@ -748,7 +829,7 @@ def calibrate(
         feature_dct = v.get_all_features()
         feature_dct = dict(sorted(feature_dct.items()))
         _bit_depth, _spoof_ims = get_pixel_format_bit_depth(feature_dct["PixelFormat"])
-        v._pixel_format = feature_dct["PixelFormat"]
+        # v._pixel_format = feature_dct["PixelFormat"]
         bit_depth[k] = _bit_depth
         disp_mins[k] = 0
         disp_maxs[k] = 2**_bit_depth
@@ -761,8 +842,8 @@ def calibrate(
                 dtype="float32",
             )
             dpg.add_raw_texture(
-                _cam._width,
-                _cam._height,
+                _cam._width // display_downsample,
+                _cam._height // display_downsample,
                 blank_data,
                 tag=f"texture_{_id}",
                 format=dpg.mvFormat_Float_rgb,
@@ -791,8 +872,8 @@ def calibrate(
         cur_key = f"Camera {_id}"
         dpg.set_item_pos(cur_key, (gui_x_offset, gui_y_offset))
 
-        width = _cam._width + 25
-        height = _cam._height + 100
+        width = _cam._width // display_downsample + 25
+        height = _cam._height // display_downsample + 100
 
         gui_x_max = int(np.maximum(gui_x_offset + width, gui_x_max))
         gui_y_max = int(np.maximum(gui_y_offset + height, gui_y_max))
@@ -922,6 +1003,11 @@ def calibrate(
 
                 # convert to [0,1] float for dpg
                 plt_val = plt_val.astype("float32") / 255.0
+                if display_downsample > 1:
+                    plt_val = cv2.resize(
+                                plt_val,
+                                (width // display_downsample, height // display_downsample),
+                            )
                 dpg.set_value(f"texture_{cameras[_id].id}", plt_val)
 
             dpg.render_dearpygui_frame()

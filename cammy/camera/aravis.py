@@ -3,11 +3,14 @@ import os
 import ctypes
 import numpy as np
 import logging
+import threading
+import zmq
 from cammy.camera.base import CammyCamera
 from typing import Optional
 
 gi.require_version("Aravis", "0.8")
 from gi.repository import Aravis
+
 
 # TODO:
 # 1) Get data from counters and append to timestamp file
@@ -31,10 +34,11 @@ class AravisCamera(CammyCamera):
             Aravis.enable_interface("Fake")
 
         self.camera = Aravis.Camera.new(id)
-        Aravis.make_thread_high_priority(1)
+        self.display_lock = threading.Lock()
+        self.display_frame = (None, None)
+        # Aravis.make_thread_high_priority(1)
 
         self.device = self.camera.get_device()
-        self._payload = self.camera.get_payload()  # size of payload
         self._genicam = self.device.get_genicam()  # genicam interface
 
         print(id)
@@ -55,37 +59,31 @@ class AravisCamera(CammyCamera):
             self._frame_id_bit_depth = 32
 
         self.logger = logging.getLogger(self.__class__.__name__)
-        [x, y, width, height] = self.camera.get_region()
-
-
-        self._width = width
-        self._height = height  # stage stream
         self._tick_frequency = 1e9  # TODO: replace with actual tick frequency from gv interface
         self.fps = np.nan
         self.frame_count = 0
-        self._pixel_format = pixel_format
+        # self._pixel_format = pixel_format
         self._last_framegrab = np.nan
         # self._last_frame_id = np.nan
         self._spoof_cameras = [] # we use these to push extra images
-
+        self.zmq_publisher = None
         self.id = id
 
-        counter_names = [
-            "_".join(self.get_counter_parameters(i).values()) for i in range(record_counters)
-        ]
-        if len(counter_names) > 0:
-            self._counters = {_counter: f"Counter{i}" for i, _counter in enumerate(counter_names)}
-            user_data = UserData(counters=counter_names, arv_obj=self)
-            self.stream = self.camera.create_stream(callback, user_data)
-        else:
-            self._counters = {}
-            self.stream = self.camera.create_stream(stream_cb, None)
-
-        self.save_queue = save_queue
+        # this is going to be zmq now...
         self.missed_frames = 0
         self.total_frames = 0
-        for i in range(buffer_size):
+        self.buffer_size = buffer_size
+        
+
+    def initialize_acquisition_stream(self):
+        self._payload = self.camera.get_payload()  # size of payload
+        self.stream = self.camera.create_stream(stream_cb, None)
+        for i in range(self.buffer_size):
             self.stream.push_buffer(Aravis.Buffer.new_allocate(self._payload))
+        [x, y, width, height] = self.camera.get_region()
+        self._width = width
+        self._height = height  # stage stream
+
 
     # https://github.com/SintefManufacturing/python-aravis/blob/master/aravis.py#L162
     def try_pop_frame(self):
@@ -117,7 +115,8 @@ class AravisCamera(CammyCamera):
                     "device_timestamp": timestamp,
                     "system_timestamp": system_timestamp,
                     "frame_id": buffer.get_frame_id(),
-                }
+                } 
+                self.stream.push_buffer(buffer)
                 if isinstance(frame, tuple):
                     for _frame, _cam in zip(frame[1:], self._spoof_cameras):
                         # send _frame and timestamps...        
@@ -125,7 +124,7 @@ class AravisCamera(CammyCamera):
                     # now proceed as if we only collected the first...
                     frame = frame[0]
                 
-                grab_time = system_timestamp
+                grab_time = timestamp
                 self.frame_count += 1
                 new_fps_val = 1 / (((grab_time - self._last_framegrab) / self._tick_frequency) + 1e-12)
                 if np.isnan(self.fps):
@@ -137,18 +136,9 @@ class AravisCamera(CammyCamera):
                 if ~np.isnan(diff):
                     self.missed_frames += diff
                 self.total_frames = timestamps["frame_id"]
-                # self._last_frame_id = timestamps["frame_id"]
-
-                # self.smooth_fps = (1 - self.fps_alpha) * self.fps + self.fps_alpha * self.prior_fps
-                # self.prior_fps = self.smooth_fps
-
                 self._last_framegrab = grab_time
-                # user_data = buffer.get_user_data()
-                # for k, v in user_data.counter_data.items():
-                #     timestamps[k] = v
-                self.stream.push_buffer(buffer)
-                if self.save_queue is not None:
-                    self.save_queue.put((frame, timestamps))
+                stream_stats = self.stream.get_statistics()
+                self.logger.debug(f"Buffer pressure {stream_stats.n_completed_buffers - timestamps['frame_id']}")
             else:
                 raise RuntimeError(f"Did not understand status: {status}")
             #self.stream.push_buffer(buffer)
@@ -160,34 +150,35 @@ class AravisCamera(CammyCamera):
     def _array_from_buffer_address(self, buffer):
         if not buffer:
             return None
+
         pixel_format = buffer.get_image_pixel_format()
         bits_per_pixel = pixel_format >> 16 & 0xFF
-        if (bits_per_pixel == 8) & (self._pixel_format.lower() == "mono8"):
+        if pixel_format == Aravis.PIXEL_FORMAT_MONO_8:
             INTP = ctypes.POINTER(ctypes.c_uint8)
             addr = buffer.get_data()
             ptr = ctypes.cast(addr, INTP)
             im = np.ctypeslib.as_array(ptr, (buffer.get_image_height(), buffer.get_image_width()))
-            im = im.copy()
-        elif (bits_per_pixel in [12, 16]) & (self._pixel_format.lower() in ("mono12", "mono16", "coord3d_c16")):
+            target_array = im.copy(order="C")
+        elif (pixel_format in (Aravis.PIXEL_FORMAT_MONO_12, Aravis.PIXEL_FORMAT_MONO_16, Aravis.PIXEL_FORMAT_COORD3D_C_16)):
             INTP = ctypes.POINTER(ctypes.c_uint16)
             addr = buffer.get_data()
             ptr = ctypes.cast(addr, INTP)
             im = np.ctypeslib.as_array(ptr, (buffer.get_image_height(), buffer.get_image_width()))
-            im = im.copy()
-        elif (bits_per_pixel == 24) & (self._pixel_format.lower() in ("coord3D_c16y8")):
-            INTP = ctypes.POINTER(ctypes.c_uint8 * 3) 
-            addr = buffer.get_data()
-            ptr = ctypes.cast(addr, INTP)
-            # return 3 8 bit images, pack first two in 16 bit depth image, last is IR
-            im = np.ctypeslib.as_array(ptr, (buffer.get_image_height(), buffer.get_image_width()))
-            im = im.astype("uint16").copy()
-            im1 = im[:,:,1]<<8 | im[:,:,0]
-            im2 = im[:,:,2].astype("uint8")
-            im = (im1, im2)
+            target_array = im.copy(order="C")
+        # elif (bits_per_pixel == 24) & (self._pixel_format.lower() in ("coord3D_c16y8")):
+        #     INTP = ctypes.POINTER(ctypes.c_uint8 * 3) 
+        #     addr = buffer.get_data()
+        #     ptr = ctypes.cast(addr, INTP)
+        #     # return 3 8 bit images, pack first two in 16 bit depth image, last is IR
+        #     im = np.ctypeslib.as_array(ptr, (buffer.get_image_height(), buffer.get_image_width()))
+        #     im = im.astype("uint16").copy()
+        #     im1 = im[:,:,1]<<8 | im[:,:,0]
+        #     im2 = im[:,:,2].astype("uint8")
+        #     im = (im1, im2)
         else:
-            raise RuntimeError(f"No unpacking strategy for {bits_per_pixel} bits with {self._pixel_format} format")
+            raise RuntimeError(f"No unpacking strategy for {bits_per_pixel} bits with {pixel_format} format")
         
-        return im
+        return target_array
 
     def get_counter_parameters(self, counter_num):
         param_names = ["CounterEventSource", "CounterEventActivation"]
@@ -280,22 +271,55 @@ class AravisCamera(CammyCamera):
         return return_dct
 
 
-class UserData:
-    def __init__(self, counters: Optional[dict], arv_obj: AravisCamera) -> None:
-        self.counters = counters
-        self.counter_data = {}
-        self.camera = arv_obj
-        # need the aravis object to grab counter values...
-
-
-def callback(user_data, cb_type, buffer):
-    if buffer is not None:
-        for k, v in user_data.counters.items():
-            user_data.counter_data[v] = user_data.camera.get_counter_value[k]
-
-
 def stream_cb(user_data, type, buffer):
     if type == Aravis.StreamCallbackType.INIT:
         if not Aravis.make_thread_realtime(10) and \
             not Aravis.make_thread_high_priority(-10):
             print("Failed to make stream thread high priority")
+
+
+# alllllrighty time for zmq...
+def acquisition_loop(camera, shutdown_event, cpu_id=None):
+    # NOTE: this is a mission critical loop, do everything to ensure
+    # that's it's own cpu with high priority
+    import time
+    if cpu_id is not None:
+        print(f"Setting affinity to {cpu_id}")
+        os.sched_setaffinity(0, {int(cpu_id)})
+
+    try:
+        os.nice(-10)
+    except:
+        pass
+
+
+    while not shutdown_event.is_set():
+    
+        start_time = time.perf_counter()
+        frame, ts = camera.try_pop_frame()
+
+        if frame is not None:
+            camera.logger.debug(f"Frame processing time: {time.perf_counter() - start_time}")
+        # print(ts)
+        if (frame is not None) and (camera.zmq_publisher is None):
+            # with camera.display_lock:
+            camera.display_frame = (frame, ts)
+        elif (frame is not None) and (camera.zmq_publisher is not None):  
+            camera.display_frame = (frame, ts)
+
+            metadata = {
+                'timestamps': ts,
+                'shape': frame.shape,
+                'dtype': str(frame.dtype)
+            }
+            
+            # FOR THE FUTURE:
+            # it's possible we just want a memoryview of the frame...
+            try:
+                camera.zmq_publisher.send_json(metadata, zmq.SNDMORE)
+                camera.zmq_publisher.send(frame, copy=False)  # Zero-copy!
+                camera.logger.debug(f"Frame processing time after save queue: {time.perf_counter() - start_time}")
+            except zmq.error.Again as e:
+                camera.logger.debug("Skipping, peer not connected yet...")
+            except Exception as e:
+                camera.logger.debug(e)

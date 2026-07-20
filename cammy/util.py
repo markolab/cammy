@@ -12,6 +12,46 @@ from gi.repository import Aravis
 logger = logging.getLogger(__name__)
 
 
+def get_physical_core_map():
+    from collections import defaultdict
+    physical_cores = defaultdict(list)  # {core_id: [logical_cpu_ids]}
+    with open("/proc/cpuinfo", "r") as f:
+        core_id = None
+        processor = None
+        for line in f:
+            if line.startswith("processor"):
+                processor = int(line.strip().split(":")[1])
+            elif line.startswith("core id"):
+                core_id = int(line.strip().split(":")[1])
+            elif line.strip() == "" and processor is not None and core_id is not None:
+                physical_cores[core_id].append(processor)
+                processor = core_id = None
+    return physical_cores
+
+def get_ordered_core_list(ncameras):
+    import platform
+    import psutil
+    if platform.system().lower() == "linux":
+        core_map = get_physical_core_map()
+        # here we want acquisition to use separate cores if possible...
+        
+        all_cpus = []
+        for _core_list in core_map.values():
+            all_cpus += _core_list
+        
+        if len(all_cpus) < (ncameras * 2):
+            raise RuntimeError("The number of logical cores must exceed n(cameras) * 2")
+        
+        physical_cores = [v[0] for v in core_map.values()]
+        logical_cores = [v[1] for v in core_map.values()]
+        core_list = [physical_cores.pop() for _core in range(len(physical_cores))]
+        core_list += [logical_cores.pop(0) for _core in range(len(logical_cores))]
+    else:
+        core_map = {i: [i] for i in range(psutil.get_cpu_count())}
+        core_list = list(core_map.keys())
+    return core_list
+
+
 def intrinsics_file_to_cv2(intrinsics_file):
     import toml
 
@@ -66,7 +106,7 @@ def get_pixel_format_bit_depth(pixel_format):
 def get_queues(ids=None) -> dict:
     if ids:
         queues = {}
-        queues["display"] = {id: multiprocessing.Manager().Queue(100) for id in ids}
+        # queues["display"] = {id: multiprocessing.Manager().Queue(100) for id in ids}
         queues["storage"] = {id: multiprocessing.Manager().Queue(1000) for id in ids}
         return queues
     else:
@@ -124,7 +164,10 @@ def initialize_cameras(ids, configs, **kwargs):
                 for k2, v2 in v.items():
                     if k in _id:
                         use_config = {**use_config, **v2}
-        cameras[_id] = initialize_camera(_id, _interface, use_config, **kwargs)
+        try:
+            cameras[_id] = initialize_camera(_id, _interface, use_config, **kwargs)
+        except:
+            pass
 
     return cameras
 
