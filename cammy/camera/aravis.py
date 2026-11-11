@@ -138,7 +138,8 @@ class AravisCamera(CammyCamera):
                 self.total_frames = timestamps["frame_id"]
                 self._last_framegrab = grab_time
                 stream_stats = self.stream.get_statistics()
-                self.logger.debug(f"Buffer pressure {stream_stats.n_completed_buffers - timestamps['frame_id']}")
+                # print(stream_stats)
+                # self.logger.debug(f"Buffer pressure {stream_stats.n_completed_buffers - timestamps['frame_id']}")
             else:
                 raise RuntimeError(f"Did not understand status: {status}")
             #self.stream.push_buffer(buffer)
