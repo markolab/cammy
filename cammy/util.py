@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 import logging
 import sys
+from functools import lru_cache
 
 gi.require_version("Aravis", "0.8")
 from gi.repository import Aravis
@@ -137,6 +138,29 @@ def intensity_to_rgba(frame, minval=1800, maxval=2200, colormap=cv2.COLORMAP_TUR
     rgb_frame = cv2.cvtColor(bgr_frame, cv2.COLOR_BGR2RGB)
     new_frame[:, :, :3] = rgb_frame / 255.0
     return new_frame
+
+
+def intensity_to_rgba_lut(frame, minval=1800, maxval=2200, colormap=cv2.COLORMAP_TURBO):
+    """Map a 2D uint8/uint16 image to float32 RGBA using a cached lookup table."""
+    if frame.ndim != 2 or frame.dtype not in (np.uint8, np.uint16):
+        raise ValueError("frame must be a 2D uint8 or uint16 array")
+    if not np.isfinite(minval) or not np.isfinite(maxval) or maxval <= minval:
+        raise ValueError("Display limits must be finite, with maxval greater than minval")
+    if isinstance(colormap, np.ndarray):
+        if colormap.dtype != np.uint8 or colormap.shape != (256, 1, 3):
+            raise ValueError("Custom colormap must be a uint8 array with shape (256, 1, 3)")
+        colormap = colormap.tobytes()
+    return _intensity_rgba_lut(minval, maxval, colormap)[frame]
+
+
+@lru_cache(maxsize=16)
+def _intensity_rgba_lut(minval, maxval, colormap):
+    # Bytes make custom colormaps hashable and detect changes to their contents.
+    if isinstance(colormap, bytes):
+        colormap = np.frombuffer(colormap, dtype=np.uint8).reshape(256, 1, 3)
+    values = np.arange(65536, dtype=np.uint16).reshape(-1, 1)
+    rgba = intensity_to_rgba(values, minval, maxval, colormap)
+    return rgba.astype(np.float32).reshape(65536, 4)
 
 
 def initialize_camera(id, interface: str, config={}, **kwargs):

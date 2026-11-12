@@ -86,8 +86,10 @@ class AravisCamera(CammyCamera):
 
 
     # https://github.com/SintefManufacturing/python-aravis/blob/master/aravis.py#L162
-    def try_pop_frame(self):
-        buffer = self.stream.try_pop_buffer()
+    # added timeout in ms
+    def try_pop_frame(self, timeout=50000):
+        # buffer = self.stream.try_pop_buffer()
+        buffer = self.stream.timeout_pop_buffer(timeout)
         if buffer:
             # self.total_frames += 1
             # can potentially use this, are bit depths handled automatically by aravis? 

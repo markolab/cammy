@@ -25,6 +25,7 @@ from typing import Optional, Iterable
 from cammy.util import (
     get_all_camera_ids,
     intensity_to_rgba,
+    intensity_to_rgba_lut, 
     get_queues,
     initialize_cameras,
     get_output_format,
@@ -86,6 +87,14 @@ zmq_start_port = 50165
 )
 @click.option("--display-colormap", type=str, default="turbo", help="Look-up-table")
 @click.option("--hw-trigger", is_flag=True, help="Trigger frames using an Arduino microcontroller")
+@click.option("--trigger-device", type=click.Choice(["arduino", "nucleo"]), default="arduino", help="Trigger firmware to use")
+@click.option("--trigger-port", type=str, default=None, help="Serial port of the trigger controller")
+@click.option("--light-mode", type=click.Choice(["surface", "fluorescence", "alternate"]), default=None, help="Nucleo light mode (defaults to --alternate-mode: 0, 1, or 2)")
+@click.option("--surface-illumination-percent", type=click.FloatRange(0, 100), default=100, help="Nucleo: percent of each surface exposure illuminated")
+@click.option("--fluorescence-illumination-percent", type=click.FloatRange(0, 100), default=100, help="Nucleo: percent of each fluorescence exposure illuminated")
+@click.option("--surface-voltage", type=click.FloatRange(0.7, 10), default=0.7, help="Nucleo: surface brightness voltage after 3.3x gain")
+@click.option("--fluorescence-voltage", type=click.FloatRange(0.7, 10), default=0.7, help="Nucleo: fluorescence brightness voltage after 3.3x gain")
+@click.option("--light-settle-us", type=click.IntRange(min=0), default=200, help="Nucleo: light settling time before D4 rises, included in pulse-low time")
 @click.option("--hw-trigger-rate", type=float, default=0.0, help="Trigger rate")
 @click.option(
     "--hw-trigger-pin-last", type=int, default=13, help="Final dig out pin to use on Arduino"
@@ -159,6 +168,14 @@ def simple_preview(
     display_downsample: int,
     display_colormap: Optional[str],
     hw_trigger: bool,
+    trigger_device: str,
+    trigger_port: Optional[str],
+    light_mode: Optional[str],
+    surface_illumination_percent: float,
+    fluorescence_illumination_percent: float,
+    surface_voltage: float,
+    fluorescence_voltage: float,
+    light_settle_us: int,
     hw_trigger_rate: float,
     hw_trigger_pin_last: int,
     hw_trigger_pulse_width: Iterable[float],
@@ -174,6 +191,15 @@ def simple_preview(
 ):
     
     cli_params = locals()
+
+    if trigger_device == "nucleo" and not hw_trigger:
+        raise click.UsageError("--trigger-device nucleo requires --hw-trigger")
+    if trigger_device == "nucleo" and light_mode is None:
+        light_mode = {0: "surface", 1: "fluorescence", 2: "alternate"}.get(alternate_mode)
+        if light_mode is None:
+            raise click.UsageError("Nucleo --alternate-mode must be 0, 1, or 2; or use --light-mode")
+    if trigger_device != "nucleo" and light_mode is not None:
+        raise click.UsageError("--light-mode requires --trigger-device nucleo")
 
     if verbose:
         logging.info("Setting logging to verbose")
@@ -284,28 +310,68 @@ def simple_preview(
     write_cpus = [cpu_list.pop(0) for _camera in cameras.keys()]
 
     if hw_trigger:
-        logging.info(f"Trigger pins: {trigger_pins}")
-        from cammy.trigger.trigger import TriggerDevice
-
-        # if rate < 0, set to AcquisitionFrameRate of first cam
-        # if hw_trigger_rate <= 0:
         if len(hw_trigger_pulse_width) == 0:
-            use_rate = np.round(
-                list(cameras.values())[0].get_feature("AcquisitionFrameRate")
-            )
+            if trigger_device == "nucleo" and hw_trigger_rate > 0:
+                use_rate = hw_trigger_rate
+            else:
+                use_rate = np.round(
+                    list(cameras.values())[0].get_feature("AcquisitionFrameRate")
+                )
             use_period = 1 / use_rate
             print(f"Setting hw trigger pulse width to {use_period}")
-            hw_trigger_pulse_low=[.005]
-            hw_trigger_pulse_width = [use_period - .005]
+            if trigger_device == "nucleo" and hw_trigger_pulse_low:
+                if len(hw_trigger_pulse_low) != 1:
+                    raise click.UsageError("Supply exposure widths when using multiple low intervals")
+            else:
+                hw_trigger_pulse_low = [.005]
+            hw_trigger_pulse_width = [use_period - hw_trigger_pulse_low[0]]
             hw_trigger_rate = use_rate
-        trigger_dev = TriggerDevice(
-            # frame_rate=hw_trigger_rate,
-            pins=trigger_pins,
-            duration=duration,
-            alternate_mode=alternate_mode,
-            pulse_widths=hw_trigger_pulse_width,
-            pulse_widths_low=hw_trigger_pulse_low,
-        )
+        if trigger_device == "nucleo":
+            from cammy.trigger.nucleo import NucleoTriggerDevice
+
+            for camera_id, features in cameras_metadata.items():
+                if (
+                    features.get("ExposureMode") != "TriggerWidth"
+                    or features.get("TriggerSelector") != "FrameStart"
+                    or features.get("TriggerMode") != "On"
+                    or features.get("TriggerActivation") != "RisingEdge"
+                    or features.get("TriggerSource") in (None, "Software")
+                ):
+                    raise click.UsageError(
+                        f"{camera_id}: Nucleo requires ExposureMode=TriggerWidth, "
+                        "TriggerSelector=FrameStart, TriggerMode=On, "
+                        "TriggerActivation=RisingEdge and a hardware "
+                        "TriggerSource wired to D4 in the camera options TOML"
+                    )
+            if not hw_trigger_pulse_low:
+                hw_trigger_pulse_low = [.002]
+            try:
+                trigger_dev = NucleoTriggerDevice(
+                    com=trigger_port,
+                    mode=light_mode,
+                    pulse_widths=hw_trigger_pulse_width,
+                    pulse_widths_low=hw_trigger_pulse_low,
+                    surface_illumination_percent=surface_illumination_percent,
+                    fluorescence_illumination_percent=fluorescence_illumination_percent,
+                    surface_voltage=surface_voltage,
+                    fluorescence_voltage=fluorescence_voltage,
+                    light_settle_us=light_settle_us,
+                )
+            except ValueError as exc:
+                raise click.UsageError(str(exc)) from exc
+            logging.info("Nucleo: D2 surface, D3 fluorescence, D4 camera; mode=%s", light_mode)
+        else:
+            from cammy.trigger.trigger import TriggerDevice
+
+            logging.info(f"Trigger pins: {trigger_pins}")
+            trigger_dev = TriggerDevice(
+                com=trigger_port,
+                pins=trigger_pins,
+                duration=duration,
+                alternate_mode=alternate_mode,
+                pulse_widths=hw_trigger_pulse_width,
+                pulse_widths_low=hw_trigger_pulse_low,
+            )
     else:
         trigger_dev = None
 
@@ -529,51 +595,50 @@ def simple_preview(
         else:
             raise RuntimeError(f"Did not understand signal {start_signal}")
 
-    [_cam.start_acquisition() for _cam in cameras.values()]
-
     threads = {}
     acquisition_thread_shutdown_event = threading.Event()
-    for i, (_id, _cam) in enumerate(cameras.items()):
-        # cpu_id = np.minimum(i + 5, ncores)
-        t = threading.Thread(target=acquisition_loop, args=(_cam, acquisition_thread_shutdown_event, acquire_cpus.pop(0)))
-        t.daemon = True
-        t.display_frame = (None, None)
-        threads[_id] = t
-
-    # if using a hardware trigger, send out signals now...
-    if hw_trigger and (trigger_dev is not None):
-        # trigger_armed = np.array([_cam.get_feature("TriggerArmed") for _cam in cameras.values()])
-        # while ~np.all(trigger_armed):
-        #     time.sleep(.5)
-        #     trigger_armed = np.array([_cam.get_feature("TriggerArmed") for _cam in cameras.values()])
-        #     logging.info("Waiting for trigger armed signal on all cameras...")
-        # logging.info("Starting Arduino...")
-        trigger_dev.start()
-
-    for _cam in cameras.values():
-        _cam.count = 0
-
-    dpg.create_viewport(title="Camera preview", width=gui_x_max, height=gui_y_max)
-
-    # dpg.set_viewport_vsync(False)
-    # dpg.show_metrics()
-    dpg.setup_dearpygui()
-    dpg.show_viewport()
-
-    # 3/7/23 REMOVED EXTRA START_ACQUISITION, PUT GPIO IN WEIRD STATE
-    # [print(_cam.camera.get_trigger_source()) for _cam in cameras.values()]
-
-    # push frame grabbing to separate thread...
-    # https://github.com/AravisProject/aravis/issues/754
-
-    start_time = -np.inf
-    prior_fps = np.nan
-    cur_duration = 0
-    display_counter = {}
-    for _camera in cameras.keys():
-        display_counter[_camera] = 0
-    [t.start() for t in threads.values()]
     try:
+        # Configure the Nucleo while stopped, before arming any camera.
+        if hw_trigger and trigger_device == "nucleo":
+            trigger_dev.open()
+        [_cam.start_acquisition() for _cam in cameras.values()]
+
+        for i, (_id, _cam) in enumerate(cameras.items()):
+            # cpu_id = np.minimum(i + 5, ncores)
+            t = threading.Thread(target=acquisition_loop, args=(_cam, acquisition_thread_shutdown_event, acquire_cpus.pop(0)))
+            t.daemon = True
+            t.display_frame = (None, None)
+            threads[_id] = t
+
+        for _cam in cameras.values():
+            _cam.count = 0
+
+        dpg.create_viewport(title="Camera preview", width=gui_x_max, height=gui_y_max)
+
+        # dpg.set_viewport_vsync(False)
+        # dpg.show_metrics()
+        dpg.setup_dearpygui()
+        dpg.show_viewport()
+
+        # 3/7/23 REMOVED EXTRA START_ACQUISITION, PUT GPIO IN WEIRD STATE
+        # [print(_cam.camera.get_trigger_source()) for _cam in cameras.values()]
+
+        # push frame grabbing to separate thread...
+        # https://github.com/AravisProject/aravis/issues/754
+
+        start_time = -np.inf
+        prior_fps = np.nan
+        cur_duration = 0
+        display_counter = {}
+        last_seen_frame = {}
+
+        for _camera in cameras.keys():
+            display_counter[_camera] = 0
+        [t.start() for t in threads.values()]
+        # Cameras and acquisition threads are ready before external timing starts.
+        if hw_trigger and (trigger_dev is not None):
+            trigger_dev.start()
+        
         while dpg.is_dearpygui_running():
             dat = {}
             for _id, _cam in cameras.items():
@@ -587,7 +652,8 @@ def simple_preview(
 
             cur_duration = (time.perf_counter() - start_time) / 60.0
             for _id, _dat in dat.items():
-                if _dat[0] is not None:
+                if _dat[0] is not None and _dat is not last_seen_frame.get(_id):
+                    last_seen_frame[_id] = _dat
                     disp_min = dpg.get_value(f"texture_{_id}_min")
                     disp_max = dpg.get_value(f"texture_{_id}_max")
                     if (display_time_downsample > 0)  and ((display_counter[_id] % display_time_downsample) == 0):
@@ -596,7 +662,7 @@ def simple_preview(
                             _dat[0],
                             (width // display_downsample, height // display_downsample),
                         )
-                        plt_val = intensity_to_rgba(
+                        plt_val = intensity_to_rgba_lut(
                             disp_img,
                             minval=disp_min,
                             maxval=disp_max,
@@ -660,11 +726,18 @@ def simple_preview(
             # time.sleep(0.005)
             dpg.render_dearpygui_frame()
     finally:
+        # Stop external exposures before shutting down the camera streams.
+        if hw_trigger and (trigger_dev is not None):
+            try:
+                if trigger_device == "nucleo":
+                    trigger_dev.close()
+                else:
+                    trigger_dev.stop()
+            except Exception:
+                logger.exception("Could not stop the trigger controller")
         [_cam.stop_acquisition() for _cam in cameras.values()]
         acquisition_thread_shutdown_event.set()
-        [_t.join() for _t in threads.values()]
-        if hw_trigger and (trigger_dev is not None):
-            trigger_dev.stop()
+        [_t.join() for _t in threads.values() if _t.ident is not None]
         if server and (zsocket is not None):
             # don't wait for the client, just bail (we want this to exit first)
             logger.info("Sending STOP to client...")
