@@ -25,6 +25,10 @@ class BaseRecord(threading.Thread):
 		pass
 
 
+	def write_batch(self, frames, timestamps):
+		self.write_data(b''.join(frames), timestamps)
+
+
 	def open_writer(self):
 		pass
 
@@ -72,15 +76,11 @@ class BaseRecord(threading.Thread):
 					self.timestamp_batch.append(dat[1])
 
 					if len(self.frame_batch) >= self.batch_size:
-						try:
-							self.write_data(b''.join(self.frame_batch), self.timestamp_batch)
-							self.frame_batch.clear()
-							self.timestamp_batch.clear()
-						except KeyboardInterrupt:
-							# try to finish out
-							self.write_data(b''.join(self.frame_batch), self.timestamp_batch)
-							self.frame_batch.clear()
-							self.timestamp_batch.clear()
+						# Do not retry the whole batch on interruption: some bytes may
+						# already be written, and replaying them would duplicate data.
+						self.write_batch(self.frame_batch, self.timestamp_batch)
+						self.frame_batch.clear()
+						self.timestamp_batch.clear()
 					# try:
 					# 	self.write_data(dat)
 					# except KeyboardInterrupt:

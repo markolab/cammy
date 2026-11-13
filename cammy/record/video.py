@@ -117,11 +117,34 @@ class RawVideoRecorder(BaseRecord):
 		self.batch_size = batch_size
 		self.cpu_id = cpu_id
 		self.zmq_address = zmq_address
+		self._iov_max = max(1, os.sysconf("SC_IOV_MAX"))
 
 
 	def write_data(self, vdata, tstamps):
-		if vdata is not None:
-			self._video_file.write(vdata)
+		self.write_batch([vdata] if vdata is not None else [], tstamps)
+
+
+	def write_batch(self, frames, tstamps):
+		# Memoryview slices advance through a short write without copying pixels.
+		buffers = [memoryview(frame).cast("B") for frame in frames]
+		buffers = [buffer for buffer in buffers if buffer.nbytes]
+		index = 0
+		while index < len(buffers):
+			try:
+				written = os.writev(
+					self._video_file.fileno(), buffers[index:index + self._iov_max]
+				)
+			except InterruptedError:
+				continue
+			if written <= 0:
+				raise OSError("writev made no progress writing the video batch")
+			while written > 0:
+				if written >= len(buffers[index]):
+					written -= len(buffers[index])
+					index += 1
+				else:
+					buffers[index] = buffers[index][written:]
+					written = 0
 		
 		# similarly, build a big string from the batch and write out...
 		if tstamps is not None:
@@ -134,7 +157,7 @@ class RawVideoRecorder(BaseRecord):
 
 
 	def open_writer(self):
-		video_file = open(self.filenames["video"], "wb")
+		video_file = open(self.filenames["video"], "wb", buffering=0)
 		tstamp_file = open(self.filenames["timestamps"], "w")
 		for _field in self.timestamp_fields:
 			tstamp_file.write(f"{_field}\t")
