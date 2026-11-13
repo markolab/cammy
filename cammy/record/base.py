@@ -65,7 +65,8 @@ class BaseRecord(threading.Thread):
 					# dat = self.save_queue.get_nowait()
 					metadata = self.zmq_socket.recv_json()
 					timestamps = metadata["timestamps"]
-					frame_data = self.zmq_socket.recv(copy=True)
+					# frame_data = self.zmq_socket.recv(copy=True)
+					frame_data = self.zmq_socket.recv(copy=False) # testing with no copy 11/13/2026	
 					dat = (frame_data, timestamps)
 				except (queue.Empty, KeyboardInterrupt, EOFError, UnpicklingError):
 					continue
