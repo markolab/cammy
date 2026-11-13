@@ -243,6 +243,10 @@ def simple_preview(
 
     cameras = {}
     ids = get_all_camera_ids(interface, n_cams=n_fake_cameras, prefix=prefix)
+    if not ids:
+        raise click.ClickException(
+            f"No cameras found for interface={interface!r}, prefix={prefix!r}"
+        )
 
     # TODO: TURN INTO AN AUTOMATIC CHECK, IF NO FRAMES ARE GETTING
     # ACQUIRED, PAUSE FOR 1 SEC AND RE-INITIALIZE
@@ -254,6 +258,10 @@ def simple_preview(
         record_counters=record_counters,
         buffer_size=buffer_size,
     )
+    if not cameras:
+        raise click.ClickException(
+            "No cameras could be initialized; see the camera initialization errors above."
+        )
 
     # de-reference, then initialize again, now with updated settings...
     del cameras
@@ -271,6 +279,10 @@ def simple_preview(
         record_counters=record_counters,
         buffer_size=buffer_size,
     )
+    if not cameras:
+        raise click.ClickException(
+            "No cameras could be initialized; see the camera initialization errors above."
+        )
     [_camera.initialize_acquisition_stream() for _camera in cameras.values()]
     for i, (k, v) in enumerate(cameras.items()):
         feature_dct = v.get_all_features()

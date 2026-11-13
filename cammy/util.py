@@ -169,7 +169,10 @@ def initialize_camera(id, interface: str, config={}, **kwargs):
 
         cam = AravisCamera(id=id, **kwargs)
         for k, v in config.items():
-            cam.set_feature(k, v)
+            try:
+                cam.set_feature(k, v)
+            except Exception as exc:
+                raise RuntimeError(f"Camera {id}: failed to set {k}={v!r}") from exc
     elif interface == "fake_custom":
         from cammy.camera.fake import FakeCamera
 
@@ -190,8 +193,8 @@ def initialize_cameras(ids, configs, **kwargs):
                         use_config = {**use_config, **v2}
         try:
             cameras[_id] = initialize_camera(_id, _interface, use_config, **kwargs)
-        except:
-            pass
+        except Exception:
+            logger.exception("Failed to initialize camera %s", _id)
 
     return cameras
 
