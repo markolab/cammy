@@ -77,7 +77,8 @@ class AravisCamera(CammyCamera):
 
     def initialize_acquisition_stream(self):
         self._payload = self.camera.get_payload()  # size of payload
-        self.stream = self.camera.create_stream(stream_cb, None)
+        # Keep packet reception out of Python callbacks and the GIL.
+        self.stream = self.camera.create_stream(None, None)
         for i in range(self.buffer_size):
             self.stream.push_buffer(Aravis.Buffer.new_allocate(self._payload))
         [x, y, width, height] = self.camera.get_region()
@@ -272,13 +273,6 @@ class AravisCamera(CammyCamera):
             return_dct[node_str] = self.get_feature(node_str)
 
         return return_dct
-
-
-def stream_cb(user_data, type, buffer):
-    if type == Aravis.StreamCallbackType.INIT:
-        if not Aravis.make_thread_realtime(10) and \
-            not Aravis.make_thread_high_priority(-10):
-            print("Failed to make stream thread high priority")
 
 
 # alllllrighty time for zmq...

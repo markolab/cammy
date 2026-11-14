@@ -3,6 +3,7 @@ import multiprocessing
 import cv2
 import numpy as np
 import logging
+import os
 import sys
 from functools import lru_cache
 
@@ -15,42 +16,48 @@ logger = logging.getLogger(__name__)
 
 def get_physical_core_map():
     from collections import defaultdict
-    physical_cores = defaultdict(list)  # {core_id: [logical_cpu_ids]}
-    with open("/proc/cpuinfo", "r") as f:
-        core_id = None
-        processor = None
-        for line in f:
-            if line.startswith("processor"):
-                processor = int(line.strip().split(":")[1])
-            elif line.startswith("core id"):
-                core_id = int(line.strip().split(":")[1])
-            elif line.strip() == "" and processor is not None and core_id is not None:
-                physical_cores[core_id].append(processor)
-                processor = core_id = None
+
+    physical_cores = defaultdict(list)
+    # Sibling CPU lists identify physical cores across sockets and SMT layouts.
+    # Only assign CPUs allowed by the current taskset/container affinity.
+    for cpu in sorted(os.sched_getaffinity(0)):
+        with open(f"/sys/devices/system/cpu/cpu{cpu}/topology/thread_siblings_list") as f:
+            physical_cores[f.read().strip()].append(cpu)
     return physical_cores
 
-def get_ordered_core_list(ncameras):
+
+def get_cpu_affinity(record=False):
+    """Give GUI one physical core and split the rest into disjoint worker pools."""
     import platform
-    import psutil
-    if platform.system().lower() == "linux":
-        core_map = get_physical_core_map()
-        # here we want acquisition to use separate cores if possible...
-        
-        all_cpus = []
-        for _core_list in core_map.values():
-            all_cpus += _core_list
-        
-        if len(all_cpus) < (ncameras * 2):
-            raise RuntimeError("The number of logical cores must exceed n(cameras) * 2")
-        
-        physical_cores = [v[0] for v in core_map.values()]
-        logical_cores = [v[1] for v in core_map.values()]
-        core_list = [physical_cores.pop() for _core in range(len(physical_cores))]
-        core_list += [logical_cores.pop(0) for _core in range(len(logical_cores))]
+
+    if platform.system().lower() != "linux":
+        return None, [None], [None]
+
+    cores = list(get_physical_core_map().values())
+    minimum = 3 if record else 2
+    if len(cores) < minimum:
+        raise ValueError(
+            f"Need at least {minimum} available physical cores for separate CPU "
+            f"affinity pools; found {len(cores)}"
+        )
+
+    gui_cpus = set(cores[0])
+    workers = cores[1:]
+    if record:
+        split = (len(workers) + 1) // 2
+        acquisition, recording = workers[:split], workers[split:]
     else:
-        core_map = {i: [i] for i in range(psutil.get_cpu_count())}
-        core_list = list(core_map.keys())
-    return core_list
+        acquisition, recording = workers, []
+
+    # Use one CPU per physical core before using its sibling hardware threads.
+    # Cameras can reuse CPUs within a pool without sharing cores across roles.
+    acquire_cpus = [core[0] for core in acquisition] + [
+        cpu for core in acquisition for cpu in core[1:]
+    ]
+    write_cpus = [core[0] for core in recording] + [
+        cpu for core in recording for cpu in core[1:]
+    ]
+    return gui_cpus, acquire_cpus, write_cpus
 
 
 def intrinsics_file_to_cv2(intrinsics_file):

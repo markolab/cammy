@@ -6,7 +6,6 @@ import sys
 import os
 import time
 import cv2
-import psutil
 import threading
 import gc
 import platform
@@ -31,7 +30,7 @@ from cammy.util import (
     get_output_format,
     get_pixel_format_bit_depth,
     mpl_to_cv2_colormap,
-    get_ordered_core_list,
+    get_cpu_affinity,
     check_counters_equal,
 )
 from cammy.record.video import FfmpegVideoRecorder, RawVideoRecorder
@@ -214,7 +213,6 @@ def simple_preview(
     import zmq
     from cammy.camera.aravis import acquisition_loop
 
-    ncores = psutil.cpu_count(logical=False)
     basedir = os.path.dirname(os.path.abspath(__file__))
     hostname = socket.gethostname()
 
@@ -283,7 +281,22 @@ def simple_preview(
         raise click.ClickException(
             "No cameras could be initialized; see the camera initialization errors above."
         )
-    [_camera.initialize_acquisition_stream() for _camera in cameras.values()]
+    try:
+        gui_cpus, acquire_cpus, write_cpus = get_cpu_affinity(record)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    logger.info(
+        "CPU affinity: GUI=%s, acquisition=%s, recording=%s",
+        gui_cpus, acquire_cpus, write_cpus,
+    )
+    try:
+        # Native Aravis receive threads inherit this mask on Ubuntu/Linux.
+        if gui_cpus is not None:
+            os.sched_setaffinity(0, set(acquire_cpus))
+        [_camera.initialize_acquisition_stream() for _camera in cameras.values()]
+    finally:
+        if gui_cpus is not None:
+            os.sched_setaffinity(0, gui_cpus)
     for i, (k, v) in enumerate(cameras.items()):
         feature_dct = v.get_all_features()
         feature_dct = dict(sorted(feature_dct.items()))
@@ -311,15 +324,6 @@ def simple_preview(
 
     recorders = []
     write_dtype = {}
-
-    cpu_list = get_ordered_core_list(len(cameras)) 
-    logger.info(f"Ordered cpu list {cpu_list}")
-    gui_cores = set([cpu_list.pop() for _ in range(2)]) # hard-coded for now
-    print(f"Setting affinity for GUI to {gui_cores}")
-    os.sched_setaffinity(0, gui_cores)
-
-    acquire_cpus = [cpu_list.pop(0) for _camera in cameras.keys()]
-    write_cpus = [cpu_list.pop(0) for _camera in cameras.keys()]
 
     if hw_trigger:
         if len(hw_trigger_pulse_width) == 0:
@@ -462,12 +466,19 @@ def simple_preview(
         for i, (_id, _cam) in enumerate(cameras.items()):
             zmq_addresses[_id] = f"ipc://127.0.0.1:{zmq_start_port + i + 1}"
             logger.debug(f"Setting zmq port for {_id} to {zmq_addresses[_id]}")
-            cameras[_id].zmq_context = zmq.Context()
-            cameras[_id].zmq_publisher = cameras[_id].zmq_context.socket(zmq.PUSH)
-            cameras[_id].zmq_publisher.setsockopt(zmq.SNDHWM, 1000)  # High water mark
-            cameras[_id].zmq_publisher.setsockopt(zmq.LINGER, 0)     # Don't block on close
-            cameras[_id].zmq_publisher.setsockopt(zmq.TCP_KEEPALIVE, 1)
-            cameras[_id].zmq_publisher.bind(zmq_addresses[_id])
+            try:
+                # Keep recording transport's native I/O threads off GUI/receive cores.
+                if gui_cpus is not None:
+                    os.sched_setaffinity(0, set(write_cpus))
+                cameras[_id].zmq_context = zmq.Context()
+                cameras[_id].zmq_publisher = cameras[_id].zmq_context.socket(zmq.PUSH)
+                cameras[_id].zmq_publisher.setsockopt(zmq.SNDHWM, 1000)  # High water mark
+                cameras[_id].zmq_publisher.setsockopt(zmq.LINGER, 0)     # Don't block on close
+                cameras[_id].zmq_publisher.setsockopt(zmq.TCP_KEEPALIVE, 1)
+                cameras[_id].zmq_publisher.bind(zmq_addresses[_id])
+            finally:
+                if gui_cpus is not None:
+                    os.sched_setaffinity(0, gui_cpus)
         
             #zmq here... 50166 + i for port
             cameras[_id].save_queue = use_queues["storage"][_id]
@@ -489,7 +500,7 @@ def simple_preview(
                     write_dtype=write_dtype[_id],
                     timestamp_fields=timestamp_fields,
                     batch_size=frame_writer_batch_size,
-                    cpu_id=write_cpus.pop(0),
+                    cpu_id=write_cpus[i % len(write_cpus)],
                     zmq_address=zmq_addresses[_id],
                 )
             else:
@@ -616,8 +627,10 @@ def simple_preview(
         [_cam.start_acquisition() for _cam in cameras.values()]
 
         for i, (_id, _cam) in enumerate(cameras.items()):
-            # cpu_id = np.minimum(i + 5, ncores)
-            t = threading.Thread(target=acquisition_loop, args=(_cam, acquisition_thread_shutdown_event, acquire_cpus.pop(0)))
+            t = threading.Thread(
+                target=acquisition_loop,
+                args=(_cam, acquisition_thread_shutdown_event, acquire_cpus[i % len(acquire_cpus)]),
+            )
             t.daemon = True
             t.display_frame = (None, None)
             threads[_id] = t
