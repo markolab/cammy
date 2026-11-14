@@ -77,8 +77,20 @@ class AravisCamera(CammyCamera):
 
     def initialize_acquisition_stream(self):
         self._payload = self.camera.get_payload()  # size of payload
+        requested_packet_size = (
+            self.camera.gv_get_packet_size() if self.camera.is_gv_device() else None
+        )
         # Keep packet reception out of Python callbacks and the GIL.
         self.stream = self.camera.create_stream(None, None)
+        if requested_packet_size is not None:
+            packet_size = self.camera.gv_get_packet_size()
+            self.logger.info("%s GigE packet size: %d bytes", self.id, packet_size)
+            if packet_size != requested_packet_size:
+                self.logger.warning(
+                    "%s GigE packet size changed from %d to %d bytes during stream setup; "
+                    "check NIC/switch jumbo-frame and MTU settings",
+                    self.id, requested_packet_size, packet_size,
+                )
         for i in range(self.buffer_size):
             self.stream.push_buffer(Aravis.Buffer.new_allocate(self._payload))
         [x, y, width, height] = self.camera.get_region()
