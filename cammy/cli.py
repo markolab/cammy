@@ -719,10 +719,10 @@ def simple_preview(
                         percent_missed = (miss_frames / total_frames) * 100
                     except ZeroDivisionError:
                         percent_missed = 0
-                    dpg.set_value(
-                        miss_status[_id],
-                        f"{miss_frames} missed / {total_frames} total ({percent_missed:.1f}% missed)",
-                    )
+                    miss_text = f"{miss_frames} missed / {total_frames} total ({percent_missed:.1f}% missed)"
+                    if record:
+                        miss_text += f" / {cameras[_id].recording_drops} recording queue drops"
+                    dpg.set_value(miss_status[_id], miss_text)
                     if cur_fps is not None:
                         dpg.set_value(
                             fps_status[_id],
@@ -768,6 +768,8 @@ def simple_preview(
             logger.info("Sending STOP to client...")
             zsocket.send_pyobj("EXIT", flags=zmq.NOBLOCK)
         if record:
+            for _id, _cam in cameras.items():
+                logger.info("%s: %d recording queue drops", _id, getattr(_cam, "recording_drops", 0))
             # for every camera ID wait until the queue has been written out
             print("Issuing stop signal...")
             for _recorder in recorders:

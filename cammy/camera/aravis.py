@@ -292,6 +292,7 @@ def acquisition_loop(camera, shutdown_event, cpu_id=None):
     # NOTE: this is a mission critical loop, do everything to ensure
     # that's it's own cpu with high priority
     import time
+    camera.recording_drops = 0
     if cpu_id is not None:
         print(f"Setting affinity to {cpu_id}")
         os.sched_setaffinity(0, {int(cpu_id)})
@@ -325,10 +326,11 @@ def acquisition_loop(camera, shutdown_event, cpu_id=None):
             # FOR THE FUTURE:
             # it's possible we just want a memoryview of the frame...
             try:
-                camera.zmq_publisher.send_json(metadata, zmq.SNDMORE)
-                camera.zmq_publisher.send(frame, copy=False)  # Zero-copy!
+                # Buffer normally; skip this recording frame if the queue is full.
+                camera.zmq_publisher.send_json(metadata, zmq.SNDMORE | zmq.NOBLOCK)
+                camera.zmq_publisher.send(frame, flags=zmq.NOBLOCK, copy=False)
                 camera.logger.debug(f"Frame processing time after save queue: {time.perf_counter() - start_time}")
-            except zmq.error.Again as e:
-                camera.logger.debug("Skipping, peer not connected yet...")
+            except zmq.Again:
+                camera.recording_drops += 1
             except Exception as e:
                 camera.logger.debug(e)
