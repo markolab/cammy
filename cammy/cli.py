@@ -25,7 +25,6 @@ from cammy.util import (
     get_all_camera_ids,
     intensity_to_rgba,
     intensity_to_rgba_lut, 
-    get_queues,
     initialize_cameras,
     get_output_format,
     get_pixel_format_bit_depth,
@@ -60,7 +59,6 @@ gui_ncols = 3  # number of cols before we start new row
 font = cv2.FONT_HERSHEY_SIMPLEX
 white = (255, 255, 255)
 txt_pos = (25, 25)
-zmq_start_port = 50165
 
 
 # TODO:
@@ -400,8 +398,6 @@ def simple_preview(
 
     zmq_addresses = {}
     if record:
-        # from parameters construct single names...
-        use_queues = get_queues(list(ids.keys()))
         metadata_path = os.path.join(basedir, "metadata.toml")
         show_fields = toml.load(metadata_path)["show_fields"]
         init_timestamp = datetime.datetime.now()
@@ -471,30 +467,27 @@ def simple_preview(
 
         # dump settings to toml file (along with start time of recording and hostname)
         for i, (_id, _cam) in enumerate(cameras.items()):
-            zmq_addresses[_id] = f"ipc://127.0.0.1:{zmq_start_port + i + 1}"
-            logger.debug(f"Setting zmq port for {_id} to {zmq_addresses[_id]}")
+            zmq_addresses[_id] = f"inproc://recording-{i}"
+            logger.debug(f"Setting zmq endpoint for {_id} to {zmq_addresses[_id]}")
             try:
                 # Keep recording transport's native I/O threads off GUI/receive cores.
                 if gui_cpus is not None:
                     os.sched_setaffinity(0, set(write_cpus))
-                cameras[_id].zmq_context = zmq.Context()
+                # inproc publishers and recorders must share the same context.
+                cameras[_id].zmq_context = zmq.Context.instance()
                 cameras[_id].zmq_publisher = cameras[_id].zmq_context.socket(zmq.PUSH)
                 cameras[_id].zmq_publisher.setsockopt(zmq.SNDHWM, RECORD_QUEUE_FRAMES)
                 cameras[_id].zmq_publisher.setsockopt(zmq.LINGER, 0)     # Don't block on close
-                cameras[_id].zmq_publisher.setsockopt(zmq.TCP_KEEPALIVE, 1)
                 cameras[_id].zmq_publisher.bind(zmq_addresses[_id])
             finally:
                 if gui_cpus is not None:
                     os.sched_setaffinity(0, gui_cpus)
         
-            #zmq here... 50166 + i for port
-            cameras[_id].save_queue = use_queues["storage"][_id]
             timestamp_fields = ["frame_id", "device_timestamp", "system_timestamp"]
             if save_engine == "ffmpeg":
                 _recorder = FfmpegVideoRecorder(
                     width=cameras[_id]._width,
                     height=cameras[_id]._height,
-                    save_queue=cameras[_id].save_queue,
                     filename=os.path.join(save_path, f"{_id}.mkv"),
                     pixel_format=write_dtype[_id],
                     timestamp_fields=timestamp_fields,
@@ -502,7 +495,6 @@ def simple_preview(
                 )
             elif save_engine == "raw":
                 _recorder = RawVideoRecorder(
-                    save_queue=cameras[_id].save_queue,
                     filename=os.path.join(save_path, f"{_id}.dat"),
                     write_dtype=write_dtype[_id],
                     timestamp_fields=timestamp_fields,
@@ -521,7 +513,6 @@ def simple_preview(
             recorders.append(_recorder)
     else:
         show_fields = {}
-        use_queues = {}
         save_path = None
         recording_metadata = None
 
@@ -700,7 +691,7 @@ def simple_preview(
                             minval=disp_min,
                             maxval=disp_max,
                             colormap=display_colormap,
-                        ).astype("float32")
+                        )
                         cv2.putText(
                             plt_val,
                             str(cameras[_id].frame_count),
@@ -742,10 +733,6 @@ def simple_preview(
                             fps_status[_id],
                             f"{cur_fps:.0f} {fps_unit}",
                         )
-                    if "storage" in use_queues.keys():
-                        for k, v in use_queues["storage"].items():
-                            pass
-                            # logging.debug(v.qsize())
                         
             if (
                 np.isfinite(cur_duration)

@@ -54,7 +54,7 @@ class BaseRecord(threading.Thread):
 			pass
 
 		self.is_running = 1
-		self.zmq_context = zmq.Context()
+		self.zmq_context = zmq.Context.instance()
 		self.zmq_socket = self.zmq_context.socket(zmq.PULL)
 		self.zmq_socket.setsockopt(zmq.RCVHWM, RECORD_QUEUE_FRAMES)
 		print(self.zmq_address)

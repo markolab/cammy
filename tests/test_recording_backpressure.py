@@ -9,6 +9,7 @@ import numpy as np
 import zmq
 
 from cammy.camera.aravis import acquisition_loop
+from cammy.camera.spoof import SpoofCamera
 
 
 class RecordingBackpressureTests(unittest.TestCase):
@@ -82,6 +83,27 @@ class RecordingBackpressureTests(unittest.TestCase):
             acquisition_loop(camera, shutdown)
         self.assertIs(camera.display_frame[0], frame)
         self.assertEqual(camera.recording_drops, 0)
+
+    def test_spoof_camera_uses_common_acquisition_without_storage_queue(self):
+        camera = SpoofCamera("spoof")
+        frame = np.zeros((2, 2), dtype=np.uint8)
+        timestamps = {"frame_id": 1}
+        camera.recv_queue.put((frame, timestamps))
+        shutdown = threading.Event()
+        pop_frame = camera.try_pop_frame
+
+        def pop_and_stop():
+            shutdown.set()
+            return pop_frame()
+
+        with patch("cammy.camera.aravis.os.nice"), \
+                patch.object(camera, "try_pop_frame", side_effect=pop_and_stop):
+            acquisition_loop(camera, shutdown)
+        self.assertIs(camera.display_frame[0], frame)
+        self.assertEqual(camera.display_frame[1], timestamps)
+        self.assertEqual(camera.frame_count, 1)
+        self.assertTrue(camera.recv_queue.empty())
+        self.assertIsNone(camera.save_queue)
 
 
 if __name__ == "__main__":

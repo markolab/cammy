@@ -157,9 +157,6 @@ class AravisCamera(CammyCamera):
                 if ~np.isnan(diff):
                     self.missed_frames += diff
                 self.total_frames = timestamps["frame_id"]
-                stream_stats = self.stream.get_statistics()
-                # print(stream_stats)
-                # self.logger.debug(f"Buffer pressure {stream_stats.n_completed_buffers - timestamps['frame_id']}")
             else:
                 raise RuntimeError(f"Did not understand status: {status}")
             #self.stream.push_buffer(buffer)
@@ -298,6 +295,7 @@ def acquisition_loop(camera, shutdown_event, cpu_id=None):
     # that's it's own cpu with high priority
     import time
     camera.recording_drops = 0
+    debug_enabled = camera.logger.isEnabledFor(logging.DEBUG)
     if cpu_id is not None:
         print(f"Setting affinity to {cpu_id}")
         os.sched_setaffinity(0, {int(cpu_id)})
@@ -310,11 +308,11 @@ def acquisition_loop(camera, shutdown_event, cpu_id=None):
 
     while not shutdown_event.is_set():
     
-        start_time = time.perf_counter()
+        start_time = time.perf_counter() if debug_enabled else None
         frame, ts = camera.try_pop_frame()
 
-        if frame is not None:
-            camera.logger.debug(f"Frame processing time: {time.perf_counter() - start_time}")
+        if frame is not None and debug_enabled:
+            camera.logger.debug("Frame processing time: %s", time.perf_counter() - start_time)
         # print(ts)
         if (frame is not None) and (camera.zmq_publisher is None):
             # with camera.display_lock:
@@ -334,7 +332,8 @@ def acquisition_loop(camera, shutdown_event, cpu_id=None):
                 # Buffer normally; skip this recording frame if the queue is full.
                 camera.zmq_publisher.send_json(metadata, zmq.SNDMORE | zmq.NOBLOCK)
                 camera.zmq_publisher.send(frame, flags=zmq.NOBLOCK, copy=False)
-                camera.logger.debug(f"Frame processing time after save queue: {time.perf_counter() - start_time}")
+                if debug_enabled:
+                    camera.logger.debug("Frame processing time after save queue: %s", time.perf_counter() - start_time)
             except zmq.Again:
                 camera.recording_drops += 1
             except Exception as e:

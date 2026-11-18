@@ -1,5 +1,4 @@
 import gi
-import multiprocessing
 import cv2
 import numpy as np
 import logging
@@ -109,16 +108,6 @@ def get_pixel_format_bit_depth(pixel_format):
         raise RuntimeError(f"Did not understand pixel format {pixel_format}")
 
     return bit_depth, spoof_ims
-
-
-def get_queues(ids=None) -> dict:
-    if ids:
-        queues = {}
-        # queues["display"] = {id: multiprocessing.Manager().Queue(100) for id in ids}
-        queues["storage"] = {id: multiprocessing.Manager().Queue(1000) for id in ids}
-        return queues
-    else:
-        raise RuntimeError("Must specify IDs to construct queues")
 
 
 # https://stackoverflow.com/questions/52498777/apply-matplotlib-or-custom-colormap-to-opencv-image

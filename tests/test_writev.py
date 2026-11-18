@@ -2,10 +2,12 @@ import errno
 import os
 from pathlib import Path
 import tempfile
+import threading
 import unittest
 from unittest.mock import Mock, patch
 
 import numpy as np
+import zmq
 
 from cammy.record.base import BaseRecord
 from cammy.record.video import RawVideoRecorder
@@ -146,7 +148,7 @@ class WritevTests(unittest.TestCase):
                 return os.write(fd, b"".join(buffers)[:2])
             raise KeyboardInterrupt()
 
-        with patch("cammy.record.base.zmq.Context", return_value=context), \
+        with patch("cammy.record.base.zmq.Context.instance", return_value=context), \
                 patch("cammy.record.base.os.nice"), \
                 patch.object(self.recorder, "open_writer"), \
                 patch("cammy.record.video.os.writev", side_effect=interrupted_write):
@@ -174,7 +176,7 @@ class WritevTests(unittest.TestCase):
                 raise OSError(errno.ENOSPC, "Simulated full disk")
             return real_writev(fd, buffers)
 
-        with patch("cammy.record.base.zmq.Context", return_value=context), \
+        with patch("cammy.record.base.zmq.Context.instance", return_value=context), \
                 patch("cammy.record.base.os.nice"), \
                 patch.object(self.recorder, "open_writer"), \
                 patch("cammy.record.video.os.writev", side_effect=fail_second_write):
@@ -184,6 +186,48 @@ class WritevTests(unittest.TestCase):
         self.assertEqual(self.recorder.frames_written, 1)
         self.assertEqual(self.recorder.frame_batch, [self.frames[1]])
         self.assert_output(self.frames[0], "frame_id\t\n0\t\n")
+
+    def test_inproc_writer_receives_frames_from_another_thread(self):
+        context = zmq.Context.instance()
+        self.recorder.zmq_address = "inproc://test-raw-writer"
+        self.recorder.batch_size = len(self.frames)
+        ready = threading.Event()
+
+        def publish():
+            with context.socket(zmq.PUSH) as publisher:
+                publisher.setsockopt(zmq.LINGER, 0)
+                publisher.setsockopt(zmq.SNDTIMEO, 2000)
+                publisher.bind(self.recorder.zmq_address)
+                ready.set()
+                for frame, timestamps in zip(self.frames, self.timestamps):
+                    publisher.send_json({"timestamps": timestamps}, zmq.SNDMORE)
+                    publisher.send(frame, copy=False)
+
+        write_batch = self.recorder.write_batch
+
+        def write_and_stop(frames, timestamps):
+            write_batch(frames, timestamps)
+            self.recorder.is_running = 0
+
+        def set_receive_timeout():
+            self.recorder.zmq_socket.setsockopt(zmq.RCVTIMEO, 2000)
+
+        sender = threading.Thread(target=publish, daemon=True)
+        sender.start()
+        self.assertTrue(ready.wait(2))
+        try:
+            with patch("cammy.record.base.os.nice"), \
+                    patch.object(self.recorder, "open_writer", side_effect=set_receive_timeout), \
+                    patch.object(self.recorder, "close_writer"), \
+                    patch.object(self.recorder, "write_batch", side_effect=write_and_stop):
+                self.recorder.run()
+            self.assertIs(self.recorder.zmq_context, context)
+            self.assertEqual(self.recorder.frames_written, len(self.frames))
+            self.assert_output(b"".join(self.frames))
+        finally:
+            sender.join(timeout=3)
+            self.recorder.zmq_socket.close(linger=0)
+        self.assertFalse(sender.is_alive())
 
 
 if __name__ == "__main__":
