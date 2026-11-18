@@ -7,6 +7,9 @@ import pickle
 from typing import Optional
 from pickle import UnpicklingError
 
+# Per socket: 64 frames at 2048x2048 Mono8 is 256 MiB.
+RECORD_QUEUE_FRAMES = 64
+
 # simple data writer, should be general enough to take 1d/2d/etc. data
 class BaseRecord(threading.Thread):
 	def __init__(self, save_queue, filename, cpu_id=None, batch_size=16, zmq_address=None):
@@ -38,6 +41,7 @@ class BaseRecord(threading.Thread):
 
 
 	def run(self):
+		self.frames_written = 0
 		if self.cpu_id is not None:
 			print(f"Setting affinity for saving process to {self.cpu_id}")
 			os.sched_setaffinity(0, {int(self.cpu_id)})
@@ -52,7 +56,7 @@ class BaseRecord(threading.Thread):
 		self.is_running = 1
 		self.zmq_context = zmq.Context()
 		self.zmq_socket = self.zmq_context.socket(zmq.PULL)
-		self.zmq_socket.setsockopt(zmq.RCVHWM, 1000)  # Receive high water mark
+		self.zmq_socket.setsockopt(zmq.RCVHWM, RECORD_QUEUE_FRAMES)
 		print(self.zmq_address)
 		self.zmq_socket.connect(self.zmq_address)
 
@@ -80,6 +84,7 @@ class BaseRecord(threading.Thread):
 						# Do not retry the whole batch on interruption: some bytes may
 						# already be written, and replaying them would duplicate data.
 						self.write_batch(self.frame_batch, self.timestamp_batch)
+						self.frames_written += len(self.frame_batch)
 						self.frame_batch.clear()
 						self.timestamp_batch.clear()
 					# try:

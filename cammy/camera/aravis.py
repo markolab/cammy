@@ -25,6 +25,7 @@ class AravisCamera(CammyCamera):
         record_counters: int = 0,
         pixel_format: str = "MONO16",
         fps_tau: float = 5,
+        fps_stride: int = 1,
         **kwargs,
     ):
         super(CammyCamera, self).__init__()
@@ -63,7 +64,7 @@ class AravisCamera(CammyCamera):
         self.fps = np.nan
         self.frame_count = 0
         # self._pixel_format = pixel_format
-        self._last_framegrab = np.nan
+        self._last_framegrab = [np.nan] * fps_stride
         # self._last_frame_id = np.nan
         self._spoof_cameras = [] # we use these to push extra images
         self.zmq_publisher = None
@@ -141,17 +142,21 @@ class AravisCamera(CammyCamera):
                 
                 grab_time = timestamp
                 self.frame_count += 1
-                new_fps_val = 1 / (((grab_time - self._last_framegrab) / self._tick_frequency) + 1e-12)
-                if np.isnan(self.fps):
-                    self.fps = new_fps_val
-                else:
-                    self.fps = .01 * new_fps_val + .99 * self.fps
+                # In alternate mode, compare timestamps from the same light bank.
+                fps_index = timestamps["frame_id"] % len(self._last_framegrab)
+                last_grab = self._last_framegrab[fps_index]
+                if grab_time > last_grab:
+                    new_fps_val = self._tick_frequency / (grab_time - last_grab)
+                    if np.isnan(self.fps):
+                        self.fps = new_fps_val
+                    else:
+                        self.fps = .01 * new_fps_val + .99 * self.fps
+                self._last_framegrab[fps_index] = grab_time
                 
                 diff = (timestamps["frame_id"] - self.total_frames) - 1
                 if ~np.isnan(diff):
                     self.missed_frames += diff
                 self.total_frames = timestamps["frame_id"]
-                self._last_framegrab = grab_time
                 stream_stats = self.stream.get_statistics()
                 # print(stream_stats)
                 # self.logger.debug(f"Buffer pressure {stream_stats.n_completed_buffers - timestamps['frame_id']}")

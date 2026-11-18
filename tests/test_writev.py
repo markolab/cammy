@@ -153,8 +153,37 @@ class WritevTests(unittest.TestCase):
             with self.assertRaises(KeyboardInterrupt):
                 self.recorder.run()
         self.assertEqual(calls, 2)
+        self.assertEqual(self.recorder.frames_written, 0)
         self.assertEqual(self.recorder.frame_batch, [self.frames[0]])
         self.assert_output(b"ab", "frame_id\t\n")
+
+    def test_run_counts_only_completed_batches_before_disk_error(self):
+        self.recorder.batch_size = 1
+        socket = Mock()
+        socket.recv_json.side_effect = [{"timestamps": ts} for ts in self.timestamps]
+        socket.recv.side_effect = self.frames
+        context = Mock()
+        context.socket.return_value = socket
+        real_writev = os.writev
+        calls = 0
+
+        def fail_second_write(fd, buffers):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise OSError(errno.ENOSPC, "Simulated full disk")
+            return real_writev(fd, buffers)
+
+        with patch("cammy.record.base.zmq.Context", return_value=context), \
+                patch("cammy.record.base.os.nice"), \
+                patch.object(self.recorder, "open_writer"), \
+                patch("cammy.record.video.os.writev", side_effect=fail_second_write):
+            with self.assertRaisesRegex(OSError, "Simulated full disk"):
+                self.recorder.run()
+        self.assertEqual(calls, 2)
+        self.assertEqual(self.recorder.frames_written, 1)
+        self.assertEqual(self.recorder.frame_batch, [self.frames[1]])
+        self.assert_output(self.frames[0], "frame_id\t\n0\t\n")
 
 
 if __name__ == "__main__":

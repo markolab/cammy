@@ -33,6 +33,7 @@ from cammy.util import (
     get_cpu_affinity,
     check_counters_equal,
 )
+from cammy.record.base import RECORD_QUEUE_FRAMES
 from cammy.record.video import FfmpegVideoRecorder, RawVideoRecorder
 from cammy.camera.spoof import SpoofCamera
 
@@ -146,7 +147,7 @@ zmq_start_port = 50165
 @click.option(
     "--frame-writer-batch-size",
     type=int,
-    default=100,
+    default=20,
     help="Number of frames to accumulate before writing out to file"
 )
 @click.option(
@@ -199,6 +200,10 @@ def simple_preview(
             raise click.UsageError("Nucleo --alternate-mode must be 0, 1, or 2; or use --light-mode")
     if trigger_device != "nucleo" and light_mode is not None:
         raise click.UsageError("--light-mode requires --trigger-device nucleo")
+
+    alternating = light_mode == "alternate" if trigger_device == "nucleo" else alternate_mode in (2, 3)
+    fps_stride = 2 if hw_trigger and alternating else 1
+    fps_unit = "FPS/channel" if fps_stride == 2 else "FPS"
 
     if verbose:
         logging.info("Setting logging to verbose")
@@ -255,6 +260,7 @@ def simple_preview(
         jumbo_frames=jumbo_frames,
         record_counters=record_counters,
         buffer_size=buffer_size,
+        fps_stride=fps_stride,
     )
     if not cameras:
         raise click.ClickException(
@@ -276,6 +282,7 @@ def simple_preview(
         jumbo_frames=jumbo_frames,
         record_counters=record_counters,
         buffer_size=buffer_size,
+        fps_stride=fps_stride,
     )
     if not cameras:
         raise click.ClickException(
@@ -472,7 +479,7 @@ def simple_preview(
                     os.sched_setaffinity(0, set(write_cpus))
                 cameras[_id].zmq_context = zmq.Context()
                 cameras[_id].zmq_publisher = cameras[_id].zmq_context.socket(zmq.PUSH)
-                cameras[_id].zmq_publisher.setsockopt(zmq.SNDHWM, 1000)  # High water mark
+                cameras[_id].zmq_publisher.setsockopt(zmq.SNDHWM, RECORD_QUEUE_FRAMES)
                 cameras[_id].zmq_publisher.setsockopt(zmq.LINGER, 0)     # Don't block on close
                 cameras[_id].zmq_publisher.setsockopt(zmq.TCP_KEEPALIVE, 1)
                 cameras[_id].zmq_publisher.bind(zmq_addresses[_id])
@@ -509,6 +516,7 @@ def simple_preview(
                 )
 
             _recorder.daemon = True
+            _cam.recorder = _recorder
             _recorder.start()
             recorders.append(_recorder)
     else:
@@ -582,7 +590,7 @@ def simple_preview(
                     **{**slider_defaults_max, **use_config["slider_defaults_max"]},
                 )
             miss_status[_id] = dpg.add_text("0 missed frames / 0 total")
-            fps_status[_id] = dpg.add_text("0 FPS")
+            fps_status[_id] = dpg.add_text(f"0 {fps_unit}")
             # add sliders/text boxes for exposure time and fps
             dpg.bind_font(default_font_small)
             dpg.set_global_font_scale(0.5)
@@ -721,12 +729,18 @@ def simple_preview(
                         percent_missed = 0
                     miss_text = f"{miss_frames} missed / {total_frames} total ({percent_missed:.1f}% missed)"
                     if record:
-                        miss_text += f" / {cameras[_id].recording_drops} recording queue drops"
+                        writer = cameras[_id].recorder
+                        miss_text += (
+                            f"\n{getattr(writer, 'frames_written', 0)} written / "
+                            f"{cameras[_id].recording_drops} recording queue drops"
+                        )
+                        if not writer.is_alive():
+                            miss_text += " / WRITER STOPPED (see terminal)"
                     dpg.set_value(miss_status[_id], miss_text)
                     if cur_fps is not None:
                         dpg.set_value(
                             fps_status[_id],
-                            f"{cur_fps:.0f} FPS",
+                            f"{cur_fps:.0f} {fps_unit}",
                         )
                     if "storage" in use_queues.keys():
                         for k, v in use_queues["storage"].items():
