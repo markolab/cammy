@@ -1,6 +1,5 @@
 import gi
 import os
-import ctypes
 import numpy as np
 import logging
 import threading
@@ -235,31 +234,18 @@ class AravisCamera(CammyCamera):
         pixel_format = buffer.get_image_pixel_format()
         bits_per_pixel = pixel_format >> 16 & 0xFF
         if pixel_format == Aravis.PIXEL_FORMAT_MONO_8:
-            INTP = ctypes.POINTER(ctypes.c_uint8)
-            addr = buffer.get_data()
-            ptr = ctypes.cast(addr, INTP)
-            im = np.ctypeslib.as_array(ptr, (buffer.get_image_height(), buffer.get_image_width()))
-            target_array = im.copy(order="C")
+            dtype = np.uint8
         elif (pixel_format in (Aravis.PIXEL_FORMAT_MONO_12, Aravis.PIXEL_FORMAT_MONO_16, Aravis.PIXEL_FORMAT_COORD3D_C_16)):
-            INTP = ctypes.POINTER(ctypes.c_uint16)
-            addr = buffer.get_data()
-            ptr = ctypes.cast(addr, INTP)
-            im = np.ctypeslib.as_array(ptr, (buffer.get_image_height(), buffer.get_image_width()))
-            target_array = im.copy(order="C")
-        # elif (bits_per_pixel == 24) & (self._pixel_format.lower() in ("coord3D_c16y8")):
-        #     INTP = ctypes.POINTER(ctypes.c_uint8 * 3) 
-        #     addr = buffer.get_data()
-        #     ptr = ctypes.cast(addr, INTP)
-        #     # return 3 8 bit images, pack first two in 16 bit depth image, last is IR
-        #     im = np.ctypeslib.as_array(ptr, (buffer.get_image_height(), buffer.get_image_width()))
-        #     im = im.astype("uint16").copy()
-        #     im1 = im[:,:,1]<<8 | im[:,:,0]
-        #     im2 = im[:,:,2].astype("uint8")
-        #     im = (im1, im2)
+            dtype = np.uint16
         else:
             raise RuntimeError(f"No unpacking strategy for {bits_per_pixel} bits with {pixel_format} format")
-        
-        return target_array
+
+        height, width = buffer.get_image_height(), buffer.get_image_width()
+        data = buffer.get_data()
+        frame = np.frombuffer(data, dtype=dtype, count=height * width).reshape(height, width)
+        # PyGObject returns an owned bytes snapshot; NumPy keeps it alive after
+        # the Aravis buffer is recycled. Copy only if the binding returns mutable data.
+        return frame if isinstance(data, bytes) else frame.copy(order="C")
 
     def get_counter_parameters(self, counter_num):
         param_names = ["CounterEventSource", "CounterEventActivation"]
