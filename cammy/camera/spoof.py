@@ -23,6 +23,8 @@ class SpoofCamera(CammyCamera):
         self.camera = id
         self.id = id
         self.logger = logging.getLogger(self.__class__.__name__)
+        self.display_frame = (None, None)
+        self.zmq_publisher = None
 
         self.frame_count = 0
         self._last_framegrab = np.nan

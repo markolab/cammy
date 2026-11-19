@@ -1,15 +1,49 @@
 import gi
 import os
-import ctypes
 import numpy as np
 import logging
 import threading
+import sys
 import zmq
 from cammy.camera.base import CammyCamera
+from pathlib import Path
 from typing import Optional
 
 gi.require_version("Aravis", "0.8")
 from gi.repository import Aravis
+
+
+def set_receiver_realtime_priority(priority):
+    """Set priority once for this process's native GigE receiver threads."""
+    if priority == 0:
+        return
+    logger = logging.getLogger(__name__)
+    if sys.platform != "linux":
+        logger.warning("Receiver realtime priority requires Linux; keeping existing scheduling")
+        return
+
+    tids = []
+    try:
+        for task in Path("/proc/self/task").iterdir():
+            try:
+                if (task / "comm").read_text().strip() == "arv_gv_stream":
+                    tids.append(int(task.name))
+            except FileNotFoundError:
+                continue  # A thread may exit while we enumerate it.
+    except OSError as exc:
+        logger.warning("Could not find Aravis receiver threads: %s", exc)
+        return
+    if not tids:
+        logger.warning("No arv_gv_stream receiver threads found; realtime priority was not applied")
+
+    for tid in sorted(tids):
+        try:
+            os.sched_setscheduler(tid, os.SCHED_RR, os.sched_param(priority))
+        except OSError as exc:
+            logger.warning("Could not set Aravis receiver TID %d to SCHED_RR priority %d: %s; "
+                           "keeping existing scheduling", tid, priority, exc)
+        else:
+            logger.info("Aravis receiver TID %d: SCHED_RR priority %d", tid, priority)
 
 
 # TODO:
@@ -25,6 +59,7 @@ class AravisCamera(CammyCamera):
         record_counters: int = 0,
         pixel_format: str = "MONO16",
         fps_tau: float = 5,
+        fps_stride: int = 1,
         **kwargs,
     ):
         super(CammyCamera, self).__init__()
@@ -45,26 +80,24 @@ class AravisCamera(CammyCamera):
         print(self.camera.is_uv_device())
         # NOT USING EXT_IDS just yet
         if jumbo_frames and self.camera.is_gv_device():
-            self.camera.gv_set_packet_size(8000)
+            self.camera.gv_set_packet_size(8192)
 
+        self._frame_id_modulus = None
         if self.camera.is_uv_device():
             self.camera.uv_set_usb_mode(Aravis.UvUsbMode.ASYNC)
         elif self.camera.is_gv_device():
             ext_ids = self.get_feature("GevGVSPExtendedIDMode")
             if ext_ids.lower() == "off":
-                self._frame_id_dtype = 16
-            else:
-                self._frame_id_bit_depth = 64
-        else:
-            self._frame_id_bit_depth = 32
+                # Legacy GigE IDs run from 1 through 65535, skipping zero.
+                self._frame_id_modulus = 65535
 
         self.logger = logging.getLogger(self.__class__.__name__)
         self._tick_frequency = 1e9  # TODO: replace with actual tick frequency from gv interface
         self.fps = np.nan
         self.frame_count = 0
         # self._pixel_format = pixel_format
-        self._last_framegrab = np.nan
-        # self._last_frame_id = np.nan
+        self._last_framegrab = [np.nan] * fps_stride
+        self._last_frame_id = None
         self._spoof_cameras = [] # we use these to push extra images
         self.zmq_publisher = None
         self.id = id
@@ -77,7 +110,20 @@ class AravisCamera(CammyCamera):
 
     def initialize_acquisition_stream(self):
         self._payload = self.camera.get_payload()  # size of payload
-        self.stream = self.camera.create_stream(stream_cb, None)
+        requested_packet_size = (
+            self.camera.gv_get_packet_size() if self.camera.is_gv_device() else None
+        )
+        # Keep packet reception out of Python callbacks and the GIL.
+        self.stream = self.camera.create_stream(None, None)
+        if requested_packet_size is not None:
+            packet_size = self.camera.gv_get_packet_size()
+            self.logger.info("%s GigE packet size: %d bytes", self.id, packet_size)
+            if packet_size != requested_packet_size:
+                self.logger.warning(
+                    "%s GigE packet size changed from %d to %d bytes during stream setup; "
+                    "check NIC/switch jumbo-frame and MTU settings",
+                    self.id, requested_packet_size, packet_size,
+                )
         for i in range(self.buffer_size):
             self.stream.push_buffer(Aravis.Buffer.new_allocate(self._payload))
         [x, y, width, height] = self.camera.get_region()
@@ -85,9 +131,30 @@ class AravisCamera(CammyCamera):
         self._height = height  # stage stream
 
 
+    def log_stream_statistics(self):
+        """Sample from the GUI thread, independently of frame acquisition."""
+        free, queued = self.stream.get_n_buffers()
+        # GvStream.get_statistics() shadows the base method with packet counters.
+        completed, failures, underruns = Aravis.Stream.get_statistics(self.stream)
+        packet_stats = ""
+        if isinstance(self.stream, Aravis.GvStream):
+            resent, missing = Aravis.GvStream.get_statistics(self.stream)
+            packet_stats = f" resent_packets={resent} missing_packets={missing}"
+        writer = getattr(self, "recorder", None)
+        self.logger.info(
+            "%s stream: free_buffers=%d queued_buffers=%d completed=%d failures=%d "
+            "underruns=%d acquired=%d missed=%d written=%d recording_drops=%d%s",
+            self.id, free, queued, completed, failures, underruns,
+            self.frame_count, self.missed_frames, getattr(writer, "frames_written", 0),
+            getattr(self, "recording_drops", 0), packet_stats,
+        )
+
+
     # https://github.com/SintefManufacturing/python-aravis/blob/master/aravis.py#L162
-    def try_pop_frame(self):
-        buffer = self.stream.try_pop_buffer()
+    # added timeout in ms
+    def try_pop_frame(self, timeout=50000):
+        # buffer = self.stream.try_pop_buffer()
+        buffer = self.stream.timeout_pop_buffer(timeout)
         if buffer:
             # self.total_frames += 1
             # can potentially use this, are bit depths handled automatically by aravis? 
@@ -124,22 +191,34 @@ class AravisCamera(CammyCamera):
                     # now proceed as if we only collected the first...
                     frame = frame[0]
                 
+                frame_id = timestamps["frame_id"]
+                advance = 1
+                if self._last_frame_id is not None:
+                    advance = frame_id - self._last_frame_id
+                    if self._frame_id_modulus is not None:
+                        advance %= self._frame_id_modulus
+                        if advance > self._frame_id_modulus // 2:
+                            advance = 0  # Backward/reset ID, rather than a forward gap.
+                    if advance <= 0:
+                        advance = 1
+                        self._last_framegrab = [np.nan] * len(self._last_framegrab)
+                self._last_frame_id = frame_id
+                self.missed_frames += advance - 1
+                self.total_frames += advance
+
                 grab_time = timestamp
                 self.frame_count += 1
-                new_fps_val = 1 / (((grab_time - self._last_framegrab) / self._tick_frequency) + 1e-12)
-                if np.isnan(self.fps):
-                    self.fps = new_fps_val
-                else:
-                    self.fps = .01 * new_fps_val + .99 * self.fps
+                # In alternate mode, compare timestamps from the same light bank.
+                fps_index = (self.total_frames - 1) % len(self._last_framegrab)
+                last_grab = self._last_framegrab[fps_index]
+                if grab_time > last_grab:
+                    new_fps_val = self._tick_frequency / (grab_time - last_grab)
+                    if np.isnan(self.fps):
+                        self.fps = new_fps_val
+                    else:
+                        self.fps = .01 * new_fps_val + .99 * self.fps
+                self._last_framegrab[fps_index] = grab_time
                 
-                diff = (timestamps["frame_id"] - self.total_frames) - 1
-                if ~np.isnan(diff):
-                    self.missed_frames += diff
-                self.total_frames = timestamps["frame_id"]
-                self._last_framegrab = grab_time
-                stream_stats = self.stream.get_statistics()
-                # print(stream_stats)
-                # self.logger.debug(f"Buffer pressure {stream_stats.n_completed_buffers - timestamps['frame_id']}")
             else:
                 raise RuntimeError(f"Did not understand status: {status}")
             #self.stream.push_buffer(buffer)
@@ -155,31 +234,18 @@ class AravisCamera(CammyCamera):
         pixel_format = buffer.get_image_pixel_format()
         bits_per_pixel = pixel_format >> 16 & 0xFF
         if pixel_format == Aravis.PIXEL_FORMAT_MONO_8:
-            INTP = ctypes.POINTER(ctypes.c_uint8)
-            addr = buffer.get_data()
-            ptr = ctypes.cast(addr, INTP)
-            im = np.ctypeslib.as_array(ptr, (buffer.get_image_height(), buffer.get_image_width()))
-            target_array = im.copy(order="C")
+            dtype = np.uint8
         elif (pixel_format in (Aravis.PIXEL_FORMAT_MONO_12, Aravis.PIXEL_FORMAT_MONO_16, Aravis.PIXEL_FORMAT_COORD3D_C_16)):
-            INTP = ctypes.POINTER(ctypes.c_uint16)
-            addr = buffer.get_data()
-            ptr = ctypes.cast(addr, INTP)
-            im = np.ctypeslib.as_array(ptr, (buffer.get_image_height(), buffer.get_image_width()))
-            target_array = im.copy(order="C")
-        # elif (bits_per_pixel == 24) & (self._pixel_format.lower() in ("coord3D_c16y8")):
-        #     INTP = ctypes.POINTER(ctypes.c_uint8 * 3) 
-        #     addr = buffer.get_data()
-        #     ptr = ctypes.cast(addr, INTP)
-        #     # return 3 8 bit images, pack first two in 16 bit depth image, last is IR
-        #     im = np.ctypeslib.as_array(ptr, (buffer.get_image_height(), buffer.get_image_width()))
-        #     im = im.astype("uint16").copy()
-        #     im1 = im[:,:,1]<<8 | im[:,:,0]
-        #     im2 = im[:,:,2].astype("uint8")
-        #     im = (im1, im2)
+            dtype = np.uint16
         else:
             raise RuntimeError(f"No unpacking strategy for {bits_per_pixel} bits with {pixel_format} format")
-        
-        return target_array
+
+        height, width = buffer.get_image_height(), buffer.get_image_width()
+        data = buffer.get_data()
+        frame = np.frombuffer(data, dtype=dtype, count=height * width).reshape(height, width)
+        # PyGObject returns an owned bytes snapshot; NumPy keeps it alive after
+        # the Aravis buffer is recycled. Copy only if the binding returns mutable data.
+        return frame if isinstance(data, bytes) else frame.copy(order="C")
 
     def get_counter_parameters(self, counter_num):
         param_names = ["CounterEventSource", "CounterEventActivation"]
@@ -272,18 +338,13 @@ class AravisCamera(CammyCamera):
         return return_dct
 
 
-def stream_cb(user_data, type, buffer):
-    if type == Aravis.StreamCallbackType.INIT:
-        if not Aravis.make_thread_realtime(10) and \
-            not Aravis.make_thread_high_priority(-10):
-            print("Failed to make stream thread high priority")
-
-
 # alllllrighty time for zmq...
 def acquisition_loop(camera, shutdown_event, cpu_id=None):
     # NOTE: this is a mission critical loop, do everything to ensure
     # that's it's own cpu with high priority
     import time
+    camera.recording_drops = 0
+    debug_enabled = camera.logger.isEnabledFor(logging.DEBUG)
     if cpu_id is not None:
         print(f"Setting affinity to {cpu_id}")
         os.sched_setaffinity(0, {int(cpu_id)})
@@ -296,11 +357,11 @@ def acquisition_loop(camera, shutdown_event, cpu_id=None):
 
     while not shutdown_event.is_set():
     
-        start_time = time.perf_counter()
+        start_time = time.perf_counter() if debug_enabled else None
         frame, ts = camera.try_pop_frame()
 
-        if frame is not None:
-            camera.logger.debug(f"Frame processing time: {time.perf_counter() - start_time}")
+        if frame is not None and debug_enabled:
+            camera.logger.debug("Frame processing time: %s", time.perf_counter() - start_time)
         # print(ts)
         if (frame is not None) and (camera.zmq_publisher is None):
             # with camera.display_lock:
@@ -317,10 +378,12 @@ def acquisition_loop(camera, shutdown_event, cpu_id=None):
             # FOR THE FUTURE:
             # it's possible we just want a memoryview of the frame...
             try:
-                camera.zmq_publisher.send_json(metadata, zmq.SNDMORE)
-                camera.zmq_publisher.send(frame, copy=False)  # Zero-copy!
-                camera.logger.debug(f"Frame processing time after save queue: {time.perf_counter() - start_time}")
-            except zmq.error.Again as e:
-                camera.logger.debug("Skipping, peer not connected yet...")
+                # Buffer normally; skip this recording frame if the queue is full.
+                camera.zmq_publisher.send_json(metadata, zmq.SNDMORE | zmq.NOBLOCK)
+                camera.zmq_publisher.send(frame, flags=zmq.NOBLOCK, copy=False)
+                if debug_enabled:
+                    camera.logger.debug("Frame processing time after save queue: %s", time.perf_counter() - start_time)
+            except zmq.Again:
+                camera.recording_drops += 1
             except Exception as e:
                 camera.logger.debug(e)

@@ -1,9 +1,10 @@
 import gi
-import multiprocessing
 import cv2
 import numpy as np
 import logging
+import os
 import sys
+from functools import lru_cache
 
 gi.require_version("Aravis", "0.8")
 from gi.repository import Aravis
@@ -14,42 +15,56 @@ logger = logging.getLogger(__name__)
 
 def get_physical_core_map():
     from collections import defaultdict
-    physical_cores = defaultdict(list)  # {core_id: [logical_cpu_ids]}
-    with open("/proc/cpuinfo", "r") as f:
-        core_id = None
-        processor = None
-        for line in f:
-            if line.startswith("processor"):
-                processor = int(line.strip().split(":")[1])
-            elif line.startswith("core id"):
-                core_id = int(line.strip().split(":")[1])
-            elif line.strip() == "" and processor is not None and core_id is not None:
-                physical_cores[core_id].append(processor)
-                processor = core_id = None
+
+    physical_cores = defaultdict(list)
+    # Sibling CPU lists identify physical cores across sockets and SMT layouts.
+    # Only assign CPUs allowed by the current taskset/container affinity.
+    for cpu in sorted(os.sched_getaffinity(0)):
+        with open(f"/sys/devices/system/cpu/cpu{cpu}/topology/thread_siblings_list") as f:
+            physical_cores[f.read().strip()].append(cpu)
     return physical_cores
 
-def get_ordered_core_list(ncameras):
+
+def get_cpu_affinity(record=False, writer_cores=None):
+    """Give GUI one physical core and split the rest into disjoint worker pools."""
     import platform
-    import psutil
-    if platform.system().lower() == "linux":
-        core_map = get_physical_core_map()
-        # here we want acquisition to use separate cores if possible...
-        
-        all_cpus = []
-        for _core_list in core_map.values():
-            all_cpus += _core_list
-        
-        if len(all_cpus) < (ncameras * 2):
-            raise RuntimeError("The number of logical cores must exceed n(cameras) * 2")
-        
-        physical_cores = [v[0] for v in core_map.values()]
-        logical_cores = [v[1] for v in core_map.values()]
-        core_list = [physical_cores.pop() for _core in range(len(physical_cores))]
-        core_list += [logical_cores.pop(0) for _core in range(len(logical_cores))]
+
+    if platform.system().lower() != "linux":
+        if writer_cores is not None:
+            logger.warning("--writer-cores only applies on Linux")
+        return None, [None], [None]
+
+    cores = list(get_physical_core_map().values())
+    minimum = 3 if record else 2
+    if len(cores) < minimum:
+        raise ValueError(
+            f"Need at least {minimum} available physical cores for separate CPU "
+            f"affinity pools; found {len(cores)}"
+        )
+
+    gui_cpus = set(cores[0])
+    workers = cores[1:]
+    if record:
+        if writer_cores is None:
+            writer_cores = len(workers) // 2
+        if not 1 <= writer_cores < len(workers):
+            raise ValueError(
+                f"--writer-cores must be between 1 and {len(workers) - 1} "
+                f"with {len(cores)} available physical cores"
+            )
+        acquisition, recording = workers[:-writer_cores], workers[-writer_cores:]
     else:
-        core_map = {i: [i] for i in range(psutil.get_cpu_count())}
-        core_list = list(core_map.keys())
-    return core_list
+        acquisition, recording = workers, []
+
+    # Use one CPU per physical core before using its sibling hardware threads.
+    # Cameras can reuse CPUs within a pool without sharing cores across roles.
+    acquire_cpus = [core[0] for core in acquisition] + [
+        cpu for core in acquisition for cpu in core[1:]
+    ]
+    write_cpus = [core[0] for core in recording] + [
+        cpu for core in recording for cpu in core[1:]
+    ]
+    return gui_cpus, acquire_cpus, write_cpus
 
 
 def intrinsics_file_to_cv2(intrinsics_file):
@@ -103,16 +118,6 @@ def get_pixel_format_bit_depth(pixel_format):
     return bit_depth, spoof_ims
 
 
-def get_queues(ids=None) -> dict:
-    if ids:
-        queues = {}
-        # queues["display"] = {id: multiprocessing.Manager().Queue(100) for id in ids}
-        queues["storage"] = {id: multiprocessing.Manager().Queue(1000) for id in ids}
-        return queues
-    else:
-        raise RuntimeError("Must specify IDs to construct queues")
-
-
 # https://stackoverflow.com/questions/52498777/apply-matplotlib-or-custom-colormap-to-opencv-image
 def mpl_to_cv2_colormap(cmap_name):
     import matplotlib.pyplot as plt
@@ -139,13 +144,39 @@ def intensity_to_rgba(frame, minval=1800, maxval=2200, colormap=cv2.COLORMAP_TUR
     return new_frame
 
 
+def intensity_to_rgba_lut(frame, minval=1800, maxval=2200, colormap=cv2.COLORMAP_TURBO):
+    """Map a 2D uint8/uint16 image to float32 RGBA using a cached lookup table."""
+    if frame.ndim != 2 or frame.dtype not in (np.uint8, np.uint16):
+        raise ValueError("frame must be a 2D uint8 or uint16 array")
+    if not np.isfinite(minval) or not np.isfinite(maxval) or maxval <= minval:
+        raise ValueError("Display limits must be finite, with maxval greater than minval")
+    if isinstance(colormap, np.ndarray):
+        if colormap.dtype != np.uint8 or colormap.shape != (256, 1, 3):
+            raise ValueError("Custom colormap must be a uint8 array with shape (256, 1, 3)")
+        colormap = colormap.tobytes()
+    return _intensity_rgba_lut(minval, maxval, colormap)[frame]
+
+
+@lru_cache(maxsize=16)
+def _intensity_rgba_lut(minval, maxval, colormap):
+    # Bytes make custom colormaps hashable and detect changes to their contents.
+    if isinstance(colormap, bytes):
+        colormap = np.frombuffer(colormap, dtype=np.uint8).reshape(256, 1, 3)
+    values = np.arange(65536, dtype=np.uint16).reshape(-1, 1)
+    rgba = intensity_to_rgba(values, minval, maxval, colormap)
+    return rgba.astype(np.float32).reshape(65536, 4)
+
+
 def initialize_camera(id, interface: str, config={}, **kwargs):
     if (interface == "aravis") or (interface == "all"):
         from cammy.camera.aravis import AravisCamera
 
         cam = AravisCamera(id=id, **kwargs)
         for k, v in config.items():
-            cam.set_feature(k, v)
+            try:
+                cam.set_feature(k, v)
+            except Exception as exc:
+                raise RuntimeError(f"Camera {id}: failed to set {k}={v!r}") from exc
     elif interface == "fake_custom":
         from cammy.camera.fake import FakeCamera
 
@@ -166,8 +197,8 @@ def initialize_cameras(ids, configs, **kwargs):
                         use_config = {**use_config, **v2}
         try:
             cameras[_id] = initialize_camera(_id, _interface, use_config, **kwargs)
-        except:
-            pass
+        except Exception:
+            logger.exception("Failed to initialize camera %s", _id)
 
     return cameras
 

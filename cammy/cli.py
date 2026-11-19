@@ -6,7 +6,6 @@ import sys
 import os
 import time
 import cv2
-import psutil
 import threading
 import gc
 import platform
@@ -25,14 +24,15 @@ from typing import Optional, Iterable
 from cammy.util import (
     get_all_camera_ids,
     intensity_to_rgba,
-    get_queues,
+    intensity_to_rgba_lut, 
     initialize_cameras,
     get_output_format,
     get_pixel_format_bit_depth,
     mpl_to_cv2_colormap,
-    get_ordered_core_list,
+    get_cpu_affinity,
     check_counters_equal,
 )
+from cammy.record.base import RECORD_QUEUE_FRAMES
 from cammy.record.video import FfmpegVideoRecorder, RawVideoRecorder
 from cammy.camera.spoof import SpoofCamera
 
@@ -59,7 +59,6 @@ gui_ncols = 3  # number of cols before we start new row
 font = cv2.FONT_HERSHEY_SIMPLEX
 white = (255, 255, 255)
 txt_pos = (25, 25)
-zmq_start_port = 50165
 
 
 # TODO:
@@ -71,7 +70,31 @@ zmq_start_port = 50165
 @click.option("--buffer-size", "-b", type=int, default=5, help="Buffer size")
 @click.option("--n-fake-cameras", type=int, default=1)
 @click.option("--record", is_flag=True, help="Save frames to disk")
+@click.option(
+    "--writer-cores",
+    type=click.IntRange(min=1),
+    default=None,
+    help="Linux physical cores reserved for writers; remaining worker cores go to acquisition. "
+         "Requires --record. Default: half the worker cores."
+)
 @click.option("--jumbo-frames", default=True, type=bool, help="Turn on jumbo frames (GigE only)")
+@click.option(
+    "--share-gui-core",
+    is_flag=True,
+    help="Let Linux Aravis receivers also use the GUI core. Requires --display-time-downsample 0.",
+)
+@click.option(
+    "--receiver-realtime-priority",
+    type=click.IntRange(min=0, max=99),
+    default=0,
+    help="Linux GigE receiver SCHED_RR priority (1-99; 0 disables). Try 10. "
+         "Requires realtime scheduling permission."
+)
+@click.option(
+    "--stream-stats",
+    is_flag=True,
+    help="Log Aravis buffer, frame, packet, and recording counters once per second."
+)
 @click.option(
     "--save-engine",
     type=click.Choice(["ffmpeg", "raw"]),
@@ -86,6 +109,14 @@ zmq_start_port = 50165
 )
 @click.option("--display-colormap", type=str, default="turbo", help="Look-up-table")
 @click.option("--hw-trigger", is_flag=True, help="Trigger frames using an Arduino microcontroller")
+@click.option("--trigger-device", type=click.Choice(["arduino", "nucleo"]), default="arduino", help="Trigger firmware to use")
+@click.option("--trigger-port", type=str, default=None, help="Serial port of the trigger controller")
+@click.option("--light-mode", type=click.Choice(["surface", "fluorescence", "alternate"]), default=None, help="Nucleo light mode (defaults to --alternate-mode: 0, 1, or 2)")
+@click.option("--surface-illumination-percent", type=click.FloatRange(0, 100), default=100, help="Nucleo: percent of each surface exposure illuminated")
+@click.option("--fluorescence-illumination-percent", type=click.FloatRange(0, 100), default=100, help="Nucleo: percent of each fluorescence exposure illuminated")
+@click.option("--surface-voltage", type=click.FloatRange(0.7, 10), default=0.7, help="Nucleo: surface brightness voltage after 3.3x gain")
+@click.option("--fluorescence-voltage", type=click.FloatRange(0.7, 10), default=0.7, help="Nucleo: fluorescence brightness voltage after 3.3x gain")
+@click.option("--light-settle-us", type=click.IntRange(min=0), default=200, help="Nucleo: light settling time before D4 rises, included in pulse-low time")
 @click.option("--hw-trigger-rate", type=float, default=0.0, help="Trigger rate")
 @click.option(
     "--hw-trigger-pin-last", type=int, default=13, help="Final dig out pin to use on Arduino"
@@ -105,6 +136,7 @@ zmq_start_port = 50165
     help="Hardware trigger pulse low width (secs)"
 )
 @click.option("--record-counters", type=int, default=0, help="Record counter data")
+@click.option("--gain-db", type=click.FloatRange(min=0), help="Override the camera TOML with a manual GenICam gain in dB.")
 @click.option("--duration", type=float, default=0, help="Run for N minutes")
 @click.option(
     "--camera-options",
@@ -136,9 +168,16 @@ zmq_start_port = 50165
     help="Display every nth frame (set to 0 for no display)"
 )
 @click.option(
+    "--record-queue-frames",
+    type=click.IntRange(min=1),
+    default=RECORD_QUEUE_FRAMES,
+    help="Recording queue frames per camera on each side of the connection. "
+         "Queue RAM is roughly 2 x this value x frame bytes, plus writer batches."
+)
+@click.option(
     "--frame-writer-batch-size",
     type=int,
-    default=100,
+    default=20,
     help="Number of frames to accumulate before writing out to file"
 )
 @click.option(
@@ -153,12 +192,25 @@ def simple_preview(
     buffer_size: int,
     n_fake_cameras: int,
     camera_options: Optional[str],
+    gain_db: Optional[float],
     record: bool,
+    writer_cores: Optional[int],
     jumbo_frames: bool,
+    share_gui_core: bool,
+    receiver_realtime_priority: int,
+    stream_stats: bool,
     save_engine: str,
     display_downsample: int,
     display_colormap: Optional[str],
     hw_trigger: bool,
+    trigger_device: str,
+    trigger_port: Optional[str],
+    light_mode: Optional[str],
+    surface_illumination_percent: float,
+    fluorescence_illumination_percent: float,
+    surface_voltage: float,
+    fluorescence_voltage: float,
+    light_settle_us: int,
     hw_trigger_rate: float,
     hw_trigger_pin_last: int,
     hw_trigger_pulse_width: Iterable[float],
@@ -169,11 +221,31 @@ def simple_preview(
     alternate_mode: int,
     prefix: Optional[str],
     display_time_downsample: int,
+    record_queue_frames: int,
     frame_writer_batch_size: int,
     verbose: bool,
 ):
     
     cli_params = locals()
+
+    if gain_db is not None and (not np.isfinite(gain_db) or interface == "fake_custom"):
+        raise click.UsageError("--gain-db requires a finite gain and an Aravis camera")
+    if writer_cores is not None and not record:
+        raise click.UsageError("--writer-cores requires --record")
+    if share_gui_core and display_time_downsample != 0:
+        raise click.UsageError("--share-gui-core requires --display-time-downsample 0")
+    if trigger_device == "nucleo" and not hw_trigger:
+        raise click.UsageError("--trigger-device nucleo requires --hw-trigger")
+    if trigger_device == "nucleo" and light_mode is None:
+        light_mode = {0: "surface", 1: "fluorescence", 2: "alternate"}.get(alternate_mode)
+        if light_mode is None:
+            raise click.UsageError("Nucleo --alternate-mode must be 0, 1, or 2; or use --light-mode")
+    if trigger_device != "nucleo" and light_mode is not None:
+        raise click.UsageError("--light-mode requires --trigger-device nucleo")
+
+    alternating = light_mode == "alternate" if trigger_device == "nucleo" else alternate_mode in (2, 3)
+    fps_stride = 2 if hw_trigger and alternating else 1
+    fps_unit = "FPS/channel" if fps_stride == 2 else "FPS"
 
     if verbose:
         logging.info("Setting logging to verbose")
@@ -186,9 +258,8 @@ def simple_preview(
     import socket
     import datetime
     import zmq
-    from cammy.camera.aravis import acquisition_loop
+    from cammy.camera.aravis import AravisCamera, acquisition_loop, set_receiver_realtime_priority
 
-    ncores = psutil.cpu_count(logical=False)
     basedir = os.path.dirname(os.path.abspath(__file__))
     hostname = socket.gethostname()
 
@@ -217,6 +288,10 @@ def simple_preview(
 
     cameras = {}
     ids = get_all_camera_ids(interface, n_cams=n_fake_cameras, prefix=prefix)
+    if not ids:
+        raise click.ClickException(
+            f"No cameras found for interface={interface!r}, prefix={prefix!r}"
+        )
 
     # TODO: TURN INTO AN AUTOMATIC CHECK, IF NO FRAMES ARE GETTING
     # ACQUIRED, PAUSE FOR 1 SEC AND RE-INITIALIZE
@@ -227,7 +302,12 @@ def simple_preview(
         jumbo_frames=jumbo_frames,
         record_counters=record_counters,
         buffer_size=buffer_size,
+        fps_stride=fps_stride,
     )
+    if not cameras:
+        raise click.ClickException(
+            "No cameras could be initialized; see the camera initialization errors above."
+        )
 
     # de-reference, then initialize again, now with updated settings...
     del cameras
@@ -244,8 +324,43 @@ def simple_preview(
         jumbo_frames=jumbo_frames,
         record_counters=record_counters,
         buffer_size=buffer_size,
+        fps_stride=fps_stride,
     )
-    [_camera.initialize_acquisition_stream() for _camera in cameras.values()]
+    if not cameras:
+        raise click.ClickException(
+            "No cameras could be initialized; see the camera initialization errors above."
+        )
+    if gain_db is not None:
+        for camera_id, camera in cameras.items():
+            try:
+                camera.set_feature("GainAuto", "Off")
+                camera.set_feature("Gain", str(gain_db))
+            except Exception as exc:
+                raise click.ClickException(f"{camera_id}: could not set gain to {gain_db} dB: {exc}") from exc
+    try:
+        gui_cpus, acquire_cpus, write_cpus = get_cpu_affinity(record, writer_cores=writer_cores)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    logger.info(
+        "CPU affinity: GUI=%s, acquisition=%s, recording=%s",
+        gui_cpus, acquire_cpus, write_cpus,
+    )
+    try:
+        # Native Aravis receive threads inherit this mask on Ubuntu/Linux.
+        if gui_cpus is not None:
+            receiver_cpus = set(acquire_cpus)
+            if share_gui_core:
+                receiver_cpus.update(gui_cpus)
+            os.sched_setaffinity(0, receiver_cpus)
+            logger.info("Aravis receiver CPUs: %s", sorted(receiver_cpus))
+        elif share_gui_core:
+            logger.info("--share-gui-core only applies on Linux")
+        for camera in cameras.values():
+            camera.initialize_acquisition_stream()
+    finally:
+        if gui_cpus is not None:
+            os.sched_setaffinity(0, gui_cpus)
+    set_receiver_realtime_priority(receiver_realtime_priority)
     for i, (k, v) in enumerate(cameras.items()):
         feature_dct = v.get_all_features()
         feature_dct = dict(sorted(feature_dct.items()))
@@ -274,45 +389,74 @@ def simple_preview(
     recorders = []
     write_dtype = {}
 
-    cpu_list = get_ordered_core_list(len(cameras)) 
-    logger.info(f"Ordered cpu list {cpu_list}")
-    gui_cores = set([cpu_list.pop() for _ in range(2)]) # hard-coded for now
-    print(f"Setting affinity for GUI to {gui_cores}")
-    os.sched_setaffinity(0, gui_cores)
-
-    acquire_cpus = [cpu_list.pop(0) for _camera in cameras.keys()]
-    write_cpus = [cpu_list.pop(0) for _camera in cameras.keys()]
-
     if hw_trigger:
-        logging.info(f"Trigger pins: {trigger_pins}")
-        from cammy.trigger.trigger import TriggerDevice
-
-        # if rate < 0, set to AcquisitionFrameRate of first cam
-        # if hw_trigger_rate <= 0:
         if len(hw_trigger_pulse_width) == 0:
-            use_rate = np.round(
-                list(cameras.values())[0].get_feature("AcquisitionFrameRate")
-            )
+            if trigger_device == "nucleo" and hw_trigger_rate > 0:
+                use_rate = hw_trigger_rate
+            else:
+                use_rate = np.round(
+                    list(cameras.values())[0].get_feature("AcquisitionFrameRate")
+                )
             use_period = 1 / use_rate
             print(f"Setting hw trigger pulse width to {use_period}")
-            hw_trigger_pulse_low=[.005]
-            hw_trigger_pulse_width = [use_period - .005]
+            if trigger_device == "nucleo" and hw_trigger_pulse_low:
+                if len(hw_trigger_pulse_low) != 1:
+                    raise click.UsageError("Supply exposure widths when using multiple low intervals")
+            else:
+                hw_trigger_pulse_low = [.005]
+            hw_trigger_pulse_width = [use_period - hw_trigger_pulse_low[0]]
             hw_trigger_rate = use_rate
-        trigger_dev = TriggerDevice(
-            # frame_rate=hw_trigger_rate,
-            pins=trigger_pins,
-            duration=duration,
-            alternate_mode=alternate_mode,
-            pulse_widths=hw_trigger_pulse_width,
-            pulse_widths_low=hw_trigger_pulse_low,
-        )
+        if trigger_device == "nucleo":
+            from cammy.trigger.nucleo import NucleoTriggerDevice
+
+            for camera_id, features in cameras_metadata.items():
+                if (
+                    features.get("ExposureMode") != "TriggerWidth"
+                    or features.get("TriggerSelector") != "FrameStart"
+                    or features.get("TriggerMode") != "On"
+                    or features.get("TriggerActivation") != "RisingEdge"
+                    or features.get("TriggerSource") in (None, "Software")
+                ):
+                    raise click.UsageError(
+                        f"{camera_id}: Nucleo requires ExposureMode=TriggerWidth, "
+                        "TriggerSelector=FrameStart, TriggerMode=On, "
+                        "TriggerActivation=RisingEdge and a hardware "
+                        "TriggerSource wired to D4 in the camera options TOML"
+                    )
+            if not hw_trigger_pulse_low:
+                hw_trigger_pulse_low = [.002]
+            try:
+                trigger_dev = NucleoTriggerDevice(
+                    com=trigger_port,
+                    mode=light_mode,
+                    pulse_widths=hw_trigger_pulse_width,
+                    pulse_widths_low=hw_trigger_pulse_low,
+                    surface_illumination_percent=surface_illumination_percent,
+                    fluorescence_illumination_percent=fluorescence_illumination_percent,
+                    surface_voltage=surface_voltage,
+                    fluorescence_voltage=fluorescence_voltage,
+                    light_settle_us=light_settle_us,
+                )
+            except ValueError as exc:
+                raise click.UsageError(str(exc)) from exc
+            logging.info("Nucleo: D2 surface, D3 fluorescence, D4 camera; mode=%s", light_mode)
+        else:
+            from cammy.trigger.trigger import TriggerDevice
+
+            logging.info(f"Trigger pins: {trigger_pins}")
+            trigger_dev = TriggerDevice(
+                com=trigger_port,
+                pins=trigger_pins,
+                duration=duration,
+                alternate_mode=alternate_mode,
+                pulse_widths=hw_trigger_pulse_width,
+                pulse_widths_low=hw_trigger_pulse_low,
+            )
     else:
         trigger_dev = None
 
     zmq_addresses = {}
     if record:
-        # from parameters construct single names...
-        use_queues = get_queues(list(ids.keys()))
         metadata_path = os.path.join(basedir, "metadata.toml")
         show_fields = toml.load(metadata_path)["show_fields"]
         init_timestamp = datetime.datetime.now()
@@ -382,23 +526,27 @@ def simple_preview(
 
         # dump settings to toml file (along with start time of recording and hostname)
         for i, (_id, _cam) in enumerate(cameras.items()):
-            zmq_addresses[_id] = f"ipc://127.0.0.1:{zmq_start_port + i + 1}"
-            logger.debug(f"Setting zmq port for {_id} to {zmq_addresses[_id]}")
-            cameras[_id].zmq_context = zmq.Context()
-            cameras[_id].zmq_publisher = cameras[_id].zmq_context.socket(zmq.PUSH)
-            cameras[_id].zmq_publisher.setsockopt(zmq.SNDHWM, 1000)  # High water mark
-            cameras[_id].zmq_publisher.setsockopt(zmq.LINGER, 0)     # Don't block on close
-            cameras[_id].zmq_publisher.setsockopt(zmq.TCP_KEEPALIVE, 1)
-            cameras[_id].zmq_publisher.bind(zmq_addresses[_id])
+            zmq_addresses[_id] = f"inproc://recording-{i}"
+            logger.debug(f"Setting zmq endpoint for {_id} to {zmq_addresses[_id]}")
+            try:
+                # Keep recording transport's native I/O threads off GUI/receive cores.
+                if gui_cpus is not None:
+                    os.sched_setaffinity(0, set(write_cpus))
+                # inproc publishers and recorders must share the same context.
+                cameras[_id].zmq_context = zmq.Context.instance()
+                cameras[_id].zmq_publisher = cameras[_id].zmq_context.socket(zmq.PUSH)
+                cameras[_id].zmq_publisher.setsockopt(zmq.SNDHWM, record_queue_frames)
+                cameras[_id].zmq_publisher.setsockopt(zmq.LINGER, 0)     # Don't block on close
+                cameras[_id].zmq_publisher.bind(zmq_addresses[_id])
+            finally:
+                if gui_cpus is not None:
+                    os.sched_setaffinity(0, gui_cpus)
         
-            #zmq here... 50166 + i for port
-            cameras[_id].save_queue = use_queues["storage"][_id]
             timestamp_fields = ["frame_id", "device_timestamp", "system_timestamp"]
             if save_engine == "ffmpeg":
                 _recorder = FfmpegVideoRecorder(
                     width=cameras[_id]._width,
                     height=cameras[_id]._height,
-                    save_queue=cameras[_id].save_queue,
                     filename=os.path.join(save_path, f"{_id}.mkv"),
                     pixel_format=write_dtype[_id],
                     timestamp_fields=timestamp_fields,
@@ -406,25 +554,24 @@ def simple_preview(
                 )
             elif save_engine == "raw":
                 _recorder = RawVideoRecorder(
-                    save_queue=cameras[_id].save_queue,
                     filename=os.path.join(save_path, f"{_id}.dat"),
                     write_dtype=write_dtype[_id],
                     timestamp_fields=timestamp_fields,
                     batch_size=frame_writer_batch_size,
-                    cpu_id=write_cpus.pop(0),
+                    cpu_id=write_cpus[i % len(write_cpus)],
                     zmq_address=zmq_addresses[_id],
+                    queue_frames=record_queue_frames,
                 )
             else:
                 raise RuntimeError(
                     f"Did not understanding VideoRecorder option {save_engine}"
                 )
 
-            _recorder.daemon = True
-            _recorder.start()
+            _recorder.daemon = False
+            _cam.recorder = _recorder
             recorders.append(_recorder)
     else:
         show_fields = {}
-        use_queues = {}
         save_path = None
         recording_metadata = None
 
@@ -493,7 +640,7 @@ def simple_preview(
                     **{**slider_defaults_max, **use_config["slider_defaults_max"]},
                 )
             miss_status[_id] = dpg.add_text("0 missed frames / 0 total")
-            fps_status[_id] = dpg.add_text("0 FPS")
+            fps_status[_id] = dpg.add_text(f"0 {fps_unit}")
             # add sliders/text boxes for exposure time and fps
             dpg.bind_font(default_font_small)
             dpg.set_global_font_scale(0.5)
@@ -529,52 +676,66 @@ def simple_preview(
         else:
             raise RuntimeError(f"Did not understand signal {start_signal}")
 
-    [_cam.start_acquisition() for _cam in cameras.values()]
-
     threads = {}
     acquisition_thread_shutdown_event = threading.Event()
-    for i, (_id, _cam) in enumerate(cameras.items()):
-        # cpu_id = np.minimum(i + 5, ncores)
-        t = threading.Thread(target=acquisition_loop, args=(_cam, acquisition_thread_shutdown_event, acquire_cpus.pop(0)))
-        t.daemon = True
-        t.display_frame = (None, None)
-        threads[_id] = t
-
-    # if using a hardware trigger, send out signals now...
-    if hw_trigger and (trigger_dev is not None):
-        # trigger_armed = np.array([_cam.get_feature("TriggerArmed") for _cam in cameras.values()])
-        # while ~np.all(trigger_armed):
-        #     time.sleep(.5)
-        #     trigger_armed = np.array([_cam.get_feature("TriggerArmed") for _cam in cameras.values()])
-        #     logging.info("Waiting for trigger armed signal on all cameras...")
-        # logging.info("Starting Arduino...")
-        trigger_dev.start()
-
-    for _cam in cameras.values():
-        _cam.count = 0
-
-    dpg.create_viewport(title="Camera preview", width=gui_x_max, height=gui_y_max)
-
-    # dpg.set_viewport_vsync(False)
-    # dpg.show_metrics()
-    dpg.setup_dearpygui()
-    dpg.show_viewport()
-
-    # 3/7/23 REMOVED EXTRA START_ACQUISITION, PUT GPIO IN WEIRD STATE
-    # [print(_cam.camera.get_trigger_source()) for _cam in cameras.values()]
-
-    # push frame grabbing to separate thread...
-    # https://github.com/AravisProject/aravis/issues/754
-
-    start_time = -np.inf
-    prior_fps = np.nan
-    cur_duration = 0
-    display_counter = {}
-    for _camera in cameras.keys():
-        display_counter[_camera] = 0
-    [t.start() for t in threads.values()]
+    recording_errors = []
     try:
+        # Configure the Nucleo while stopped, before arming any camera.
+        if hw_trigger and trigger_device == "nucleo":
+            trigger_dev.open()
+        for _recorder in recorders:
+            _recorder.start()
+        for _recorder in recorders:
+            _recorder.ready.wait()
+            if _recorder.error is not None:
+                raise click.ClickException(f"Could not open recording {_recorder.filename}: {_recorder.error}")
+        [_cam.start_acquisition() for _cam in cameras.values()]
+
+        for i, (_id, _cam) in enumerate(cameras.items()):
+            t = threading.Thread(
+                target=acquisition_loop,
+                args=(_cam, acquisition_thread_shutdown_event, acquire_cpus[i % len(acquire_cpus)]),
+            )
+            t.daemon = True
+            t.display_frame = (None, None)
+            threads[_id] = t
+
+        for _cam in cameras.values():
+            _cam.count = 0
+
+        dpg.create_viewport(title="Camera preview", width=gui_x_max, height=gui_y_max)
+
+        # dpg.set_viewport_vsync(False)
+        # dpg.show_metrics()
+        dpg.setup_dearpygui()
+        dpg.show_viewport()
+
+        # 3/7/23 REMOVED EXTRA START_ACQUISITION, PUT GPIO IN WEIRD STATE
+        # [print(_cam.camera.get_trigger_source()) for _cam in cameras.values()]
+
+        # push frame grabbing to separate thread...
+        # https://github.com/AravisProject/aravis/issues/754
+
+        start_time = -np.inf
+        prior_fps = np.nan
+        cur_duration = 0
+        display_counter = {}
+        last_seen_frame = {}
+        next_stream_stats = 0.0
+
+        for _camera in cameras.keys():
+            display_counter[_camera] = 0
+        [t.start() for t in threads.values()]
+        # Cameras and acquisition threads are ready before external timing starts.
+        if hw_trigger and (trigger_dev is not None):
+            trigger_dev.start()
+        
         while dpg.is_dearpygui_running():
+            if stream_stats and time.perf_counter() >= next_stream_stats:
+                for _cam in cameras.values():
+                    if isinstance(_cam, AravisCamera):
+                        _cam.log_stream_statistics()
+                next_stream_stats = time.perf_counter() + 1.0
             dat = {}
             for _id, _cam in cameras.items():
                 # with _cam.display_lock:
@@ -587,7 +748,8 @@ def simple_preview(
 
             cur_duration = (time.perf_counter() - start_time) / 60.0
             for _id, _dat in dat.items():
-                if _dat[0] is not None:
+                if _dat[0] is not None and _dat is not last_seen_frame.get(_id):
+                    last_seen_frame[_id] = _dat
                     disp_min = dpg.get_value(f"texture_{_id}_min")
                     disp_max = dpg.get_value(f"texture_{_id}_max")
                     if (display_time_downsample > 0)  and ((display_counter[_id] % display_time_downsample) == 0):
@@ -596,12 +758,12 @@ def simple_preview(
                             _dat[0],
                             (width // display_downsample, height // display_downsample),
                         )
-                        plt_val = intensity_to_rgba(
+                        plt_val = intensity_to_rgba_lut(
                             disp_img,
                             minval=disp_min,
                             maxval=disp_max,
                             colormap=display_colormap,
-                        ).astype("float32")
+                        )
                         cv2.putText(
                             plt_val,
                             str(cameras[_id].frame_count),
@@ -616,8 +778,8 @@ def simple_preview(
 
                     display_counter[_id] += 1
                     cameras[_id].count += 1
-                    miss_frames = float(cameras[_id].missed_frames)
-                    total_frames = float(cameras[_id].total_frames)
+                    miss_frames = cameras[_id].missed_frames
+                    total_frames = cameras[_id].total_frames
                     cur_fps = cameras[_id].fps
                     # if np.isnan(prior_fps):
                     #     smooth_fps = cur_fps
@@ -628,19 +790,24 @@ def simple_preview(
                         percent_missed = (miss_frames / total_frames) * 100
                     except ZeroDivisionError:
                         percent_missed = 0
-                    dpg.set_value(
-                        miss_status[_id],
-                        f"{miss_frames} missed / {total_frames} total ({percent_missed:.1f}% missed)",
-                    )
+                    miss_text = f"{miss_frames} missed / {total_frames} total ({percent_missed:.1f}% missed)"
+                    if record:
+                        writer = cameras[_id].recorder
+                        recording_drops = cameras[_id].recording_drops
+                        recording_total = getattr(writer, "frames_written", 0) + recording_drops
+                        recording_percent_missed = 100 * recording_drops / recording_total if recording_total else 0
+                        miss_text += (
+                            f"\nWriter: {recording_drops} missed / {recording_total} total "
+                            f"({recording_percent_missed:.1f}% missed)"
+                        )
+                        if not writer.is_alive():
+                            miss_text += " / WRITER STOPPED (see terminal)"
+                    dpg.set_value(miss_status[_id], miss_text)
                     if cur_fps is not None:
                         dpg.set_value(
                             fps_status[_id],
-                            f"{cur_fps:.0f} FPS",
+                            f"{cur_fps:.0f} {fps_unit}",
                         )
-                    if "storage" in use_queues.keys():
-                        for k, v in use_queues["storage"].items():
-                            pass
-                            # logging.debug(v.qsize())
                         
             if (
                 np.isfinite(cur_duration)
@@ -660,24 +827,49 @@ def simple_preview(
             # time.sleep(0.005)
             dpg.render_dearpygui_frame()
     finally:
-        [_cam.stop_acquisition() for _cam in cameras.values()]
-        acquisition_thread_shutdown_event.set()
-        [_t.join() for _t in threads.values()]
-        if hw_trigger and (trigger_dev is not None):
-            trigger_dev.stop()
-        if server and (zsocket is not None):
-            # don't wait for the client, just bail (we want this to exit first)
-            logger.info("Sending STOP to client...")
-            zsocket.send_pyobj("EXIT", flags=zmq.NOBLOCK)
-        if record:
-            # for every camera ID wait until the queue has been written out
-            print("Issuing stop signal...")
+        try:
+            # Stop producers before asking writers to drain their inproc queues.
+            if hw_trigger and (trigger_dev is not None):
+                try:
+                    if trigger_device == "nucleo":
+                        trigger_dev.close()
+                    else:
+                        trigger_dev.stop()
+                except Exception:
+                    logger.exception("Could not stop the trigger controller")
+            for _cam in cameras.values():
+                try:
+                    _cam.stop_acquisition()
+                except Exception:
+                    logger.exception("Could not stop camera %s", _cam.id)
+            acquisition_thread_shutdown_event.set()
+            [_t.join() for _t in threads.values() if _t.ident is not None]
+            if server and (zsocket is not None):
+                try:
+                    zsocket.send_pyobj("EXIT", flags=zmq.NOBLOCK)
+                except zmq.ZMQError:
+                    logger.exception("Could not notify the client of shutdown")
             for _recorder in recorders:
-                _recorder.is_running = 0
-                time.sleep(1)
-        # ensure all files are flushed and closed...
-        [_recorder.close_writer() for _recorder in recorders]
-        dpg.destroy_context()
+                _recorder.stop()
+            if recorders:
+                logger.info("Draining recording queues and syncing files; waiting for writers...")
+            for _recorder in recorders:
+                if _recorder.ident is not None:
+                    _recorder.join()
+                if _recorder.error is not None:
+                    recording_errors.append(_recorder.filename)
+                    logger.error("Recording failed for %s: %s", _recorder.filename, _recorder.error)
+            for _id, _cam in cameras.items():
+                publisher = getattr(_cam, "zmq_publisher", None)
+                if publisher is not None:
+                    publisher.close(linger=0)
+                if record:
+                    logger.info("%s: %d frames written, %d recording queue drops", _id,
+                                _cam.recorder.frames_written, getattr(_cam, "recording_drops", 0))
+        finally:
+            dpg.destroy_context()
+    if recording_errors:
+        raise click.ClickException("Recording failed: " + ", ".join(recording_errors))
 
 
 @cli.command(name="save-intrinsics")
