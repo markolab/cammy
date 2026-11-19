@@ -1,4 +1,4 @@
-from cammy.record.base import BaseRecord
+from cammy.record.base import BaseRecord, RECORD_QUEUE_FRAMES
 import subprocess
 import numpy as np
 import logging
@@ -96,61 +96,85 @@ class RawVideoRecorder(BaseRecord):
 		timestamp_fields=["device_timestamp", "system_timestamp"],
 		write_dtype="uint16",
 		save_queue=None,
+		batch_size=20,
+		cpu_id=None,
+		zmq_address=None,
+		queue_frames=RECORD_QUEUE_FRAMES,
 	):
 
-		super(BaseRecord, self).__init__()
-		self.logger = logging.getLogger(self.__class__.__name__)
-
-		self.save_queue = save_queue
-		self.id = id
+		super().__init__(save_queue, filename, cpu_id=cpu_id, batch_size=batch_size,
+						 zmq_address=zmq_address, queue_frames=queue_frames)
 		basefile = os.path.splitext(filename)[0]
 		filename_timestamps = f"{basefile}.txt"
 		
 		self.filenames = {"video": filename, "timestamps": filename_timestamps}
 		self.timestamp_fields = timestamp_fields
 		self.write_dtype = write_dtype
+		self._iov_max = max(1, os.sysconf("SC_IOV_MAX"))
 
 
-	def write_data(self, data):
-		vdata, tstamps = data
-		if vdata.ndim == 3:
-			for _frame in vdata:
-				self._video_file.write(_frame.astype(self.write_dtype).tobytes())
-		elif vdata.ndim == 2:
-			self._video_file.write(vdata.astype(self.write_dtype).tobytes())
-		else:
-			raise RuntimeError("Frames must be 2d or 3d")
+	def write_data(self, vdata, tstamps):
+		self.write_batch([vdata] if vdata is not None else [], tstamps)
+
+
+	def write_batch(self, frames, tstamps):
+		# Memoryview slices advance through a short write without copying pixels.
+		buffers = [memoryview(frame).cast("B") for frame in frames]
+		buffers = [buffer for buffer in buffers if buffer.nbytes]
+		index = 0
+		while index < len(buffers):
+			try:
+				written = os.writev(
+					self._video_file.fileno(), buffers[index:index + self._iov_max]
+				)
+			except InterruptedError:
+				continue
+			if written <= 0:
+				raise OSError("writev made no progress writing the video batch")
+			while written > 0:
+				if written >= len(buffers[index]):
+					written -= len(buffers[index])
+					index += 1
+				else:
+					buffers[index] = buffers[index][written:]
+					written = 0
 		
+		# similarly, build a big string from the batch and write out...
 		if tstamps is not None:
-			for _field in self.timestamp_fields:
-				self._tstamp_file.write(f"{tstamps[_field]}\t")
-			self._tstamp_file.write("\n")
-
-		# leads to ill effects after lots of frames pile up
-		
+			write_string = ""
+			for _tstamps in tstamps: # should be a list
+				for _field in self.timestamp_fields:
+					write_string += f"{_tstamps[_field]}\t"
+				write_string += "\n"
+			self._tstamp_file.write(write_string)	
 
 
 	def open_writer(self):
-		video_file = open(self.filenames["video"], "wb")
-		tstamp_file = open(self.filenames["timestamps"], "w")
+		self._video_file = open(self.filenames["video"], "wb", buffering=0)
+		self._tstamp_file = open(self.filenames["timestamps"], "w")
 		for _field in self.timestamp_fields:
-			tstamp_file.write(f"{_field}\t")
-		tstamp_file.write("\n")
-		self._video_file = video_file
-		self._tstamp_file = tstamp_file
+			self._tstamp_file.write(f"{_field}\t")
+		self._tstamp_file.write("\n")
 		
 
 	def close_writer(self):
 		self.logger.info(f"Closing writer {self.name}")
-		try:
-			self._video_file.flush()
-			os.fsync(self._video_file)
-			self._video_file.close()
-		except AttributeError:
-			pass
-		try:
-			self._tstamp_file.flush()
-			os.fsync(self._tstamp_file)
-			self._tstamp_file.close()
-		except AttributeError:
-			pass
+		error = None
+		for name in ("_video_file", "_tstamp_file"):
+			file = getattr(self, name, None)
+			if file is None or file.closed:
+				continue
+			try:
+				file.flush()
+				os.fsync(file.fileno())
+			except OSError as exc:
+				if error is None:
+					error = exc
+			finally:
+				try:
+					file.close()
+				except OSError as exc:
+					if error is None:
+						error = exc
+		if error is not None:
+			raise error

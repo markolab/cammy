@@ -7,6 +7,7 @@ setup(
     description="Simple python package to record from machine vision cameras (Basler and Lucid in particular)",
     version="0.001a",
     packages=find_packages(),
+    data_files=[("share/cammy", ["launchers/settings.sh", "assets/OpenSans-VariableFont_wdth,wght.ttf"])],
     platforms=["mac", "unix"],
     install_requires=[
         "black",
