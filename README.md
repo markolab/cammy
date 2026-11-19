@@ -1,6 +1,62 @@
 # cammy
 Simple python package to record from machine vision cameras (Basler and Lucid in particular)
 
+## Desktop launchers for the Nucleo rig
+
+From the updated checkout on the acquisition PC, activate the environment you
+normally use for Cammy and install the shortcuts with this command.
+
+```sh
+python3 launchers/install.py
+```
+
+This puts six shortcuts on your Linux desktop, one **Preview** and one **Record**
+for each of **Surface**, **Fluorescence**, and **Alternate**. If GNOME prompts,
+right-click the shortcut and choose **Allow Launching**. The shortcuts use this
+checkout and the Cammy executable found at installation. Rerun the installer
+after moving the checkout or switching environments.
+
+Edit `cammy-settings.sh` beside the desktop shortcuts and save it before the
+next run. All six shortcuts read that file at startup. The installer copies it
+from [launchers/settings.sh](launchers/settings.sh) on first install. Rerun the
+installer to add new settings to an older desktop copy as commented examples.
+Uncomment an example to override its default. The settings include gain in dB
+(empty uses the camera TOML), exposure widths in µs, and total FPS per camera.
+
+With the default alternating settings, one pair takes 21.5 ms (46.51 pairs/s,
+93.02 frames/s per camera). Times below are relative to the surface trigger rising edge.
+
+| Bank | Camera exposure | Light enabled | Brightness after amplifier |
+| --- | --- | --- | --- |
+| Surface | 0–1 ms | −0.1 to 1 ms | 5 V |
+| Fluorescence | 1.5–11.5 ms | 1.4–6.5 ms | 2 V |
+
+`SURFACE_TO_FLUORESCENCE_GAP_US` sets the preferred gap from surface exposure end
+to fluorescence exposure start (500 µs). The remaining low time follows fluorescence
+(10 ms by default). Both gaps include `LIGHT_SETTLE_US` (100 µs by default). If the
+preferred gap leaves too little settling time before the next surface frame, the
+launcher reports the shorter gap it uses to maintain FPS.
+
+`SURFACE_VOLTAGE` and `FLUORESCENCE_VOLTAGE` set independent brightness levels
+at the output of the 3.3× amplifier (0.7–10 V). Each bank's
+`*_ILLUMINATION_PERCENT` controls how far into its exposure the light stays on.
+At 50%, fluorescence switches off 5 ms into the 10 ms exposure. At 0% the bank
+stays off. In single-light modes the selected bank gets the full frame rate
+and 100% fill keeps it on across frames.
+
+The defaults use the rig's `/data/qdpi/basler_new_8bit.toml` and save recordings
+under `/data/qdpi/session_*`. Preview shows live images. Record opens the usual
+experiment dialog and uses seven writer cores, batches of 20, a queue setting
+of 512, and disabled image updates. Direct runs from the checkout use
+`launchers/settings.sh` by default.
+
+```sh
+bash launchers/capture.sh fluorescence preview
+bash launchers/capture.sh alternate record
+```
+
+## Acquisition and recording
+
 On Linux, `--record --writer-cores 2` reserves two physical cores for writers,
 one for the GUI, and gives the remaining cores to acquisition. SMT siblings stay
 in the same pool. On a ten-core machine this gives seven acquisition cores.
@@ -37,7 +93,7 @@ the program exits; this can take time while disk writes finish. Recording
 errors are reported rather than treating a failed writer as a successful save.
 
 For the NUCLEO-G474RE light/camera controller, flash
-[`trigger-nucleo.ino`](cammy/trigger/trigger-nucleo.ino) using the
+[`trigger-nucleo.ino`](cammy/trigger-nucleo/trigger-nucleo.ino) using the
 STM32duino **Nucleo G474RE** board. Copy it into its own sketch folder for
 Arduino builds, as described in the [setup instructions](cammy/trigger/README.md).
 For standalone testing, open a serial monitor at 115200 baud with Newline

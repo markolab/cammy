@@ -136,6 +136,7 @@ txt_pos = (25, 25)
     help="Hardware trigger pulse low width (secs)"
 )
 @click.option("--record-counters", type=int, default=0, help="Record counter data")
+@click.option("--gain-db", type=click.FloatRange(min=0), help="Override the camera TOML with a manual GenICam gain in dB.")
 @click.option("--duration", type=float, default=0, help="Run for N minutes")
 @click.option(
     "--camera-options",
@@ -191,6 +192,7 @@ def simple_preview(
     buffer_size: int,
     n_fake_cameras: int,
     camera_options: Optional[str],
+    gain_db: Optional[float],
     record: bool,
     writer_cores: Optional[int],
     jumbo_frames: bool,
@@ -226,6 +228,8 @@ def simple_preview(
     
     cli_params = locals()
 
+    if gain_db is not None and (not np.isfinite(gain_db) or interface == "fake_custom"):
+        raise click.UsageError("--gain-db requires a finite gain and an Aravis camera")
     if writer_cores is not None and not record:
         raise click.UsageError("--writer-cores requires --record")
     if share_gui_core and display_time_downsample != 0:
@@ -326,6 +330,13 @@ def simple_preview(
         raise click.ClickException(
             "No cameras could be initialized; see the camera initialization errors above."
         )
+    if gain_db is not None:
+        for camera_id, camera in cameras.items():
+            try:
+                camera.set_feature("GainAuto", "Off")
+                camera.set_feature("Gain", str(gain_db))
+            except Exception as exc:
+                raise click.ClickException(f"{camera_id}: could not set gain to {gain_db} dB: {exc}") from exc
     try:
         gui_cpus, acquire_cpus, write_cpus = get_cpu_affinity(record, writer_cores=writer_cores)
     except ValueError as exc:

@@ -1,6 +1,6 @@
 // clang++ -std=c++17 -Wall -Wextra -Werror -DARDUINO_NUCLEO_G474RE \
 //   -Itests/firmware tests/firmware/test_nucleo.cpp -o /tmp/test-nucleo
-#include "../../cammy/trigger/trigger-nucleo.ino"
+#include "../../cammy/trigger-nucleo/trigger-nucleo.ino"
 #include <iostream>
 
 void send(const std::string &line, const std::string &expected) {

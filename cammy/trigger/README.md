@@ -112,7 +112,7 @@ clang++ -std=c++17 -Wall -Wextra -Werror -DARDUINO_NUCLEO_G474RE \
   -Itests/firmware tests/firmware/test_nucleo.cpp -o /tmp/test-nucleo
 /tmp/test-nucleo
 mkdir -p /tmp/trigger-nucleo
-cp cammy/trigger/trigger-nucleo.ino /tmp/trigger-nucleo/trigger-nucleo.ino
+cp cammy/trigger-nucleo/trigger-nucleo.ino /tmp/trigger-nucleo/trigger-nucleo.ino
 arduino-cli compile --fqbn STMicroelectronics:stm32:Nucleo_64:pnum=NUCLEO_G474RE \
   --warnings all /tmp/trigger-nucleo
 ```
