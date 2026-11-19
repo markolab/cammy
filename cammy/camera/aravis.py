@@ -81,7 +81,7 @@ class AravisCamera(CammyCamera):
         print(self.camera.is_uv_device())
         # NOT USING EXT_IDS just yet
         if jumbo_frames and self.camera.is_gv_device():
-            self.camera.gv_set_packet_size(8000)
+            self.camera.gv_set_packet_size(8192)
 
         self._frame_id_modulus = None
         if self.camera.is_uv_device():
@@ -130,6 +130,25 @@ class AravisCamera(CammyCamera):
         [x, y, width, height] = self.camera.get_region()
         self._width = width
         self._height = height  # stage stream
+
+
+    def log_stream_statistics(self):
+        """Sample from the GUI thread, independently of frame acquisition."""
+        free, queued = self.stream.get_n_buffers()
+        # GvStream.get_statistics() shadows the base method with packet counters.
+        completed, failures, underruns = Aravis.Stream.get_statistics(self.stream)
+        packet_stats = ""
+        if isinstance(self.stream, Aravis.GvStream):
+            resent, missing = Aravis.GvStream.get_statistics(self.stream)
+            packet_stats = f" resent_packets={resent} missing_packets={missing}"
+        writer = getattr(self, "recorder", None)
+        self.logger.info(
+            "%s stream: free_buffers=%d queued_buffers=%d completed=%d failures=%d "
+            "underruns=%d acquired=%d missed=%d written=%d recording_drops=%d%s",
+            self.id, free, queued, completed, failures, underruns,
+            self.frame_count, self.missed_frames, getattr(writer, "frames_written", 0),
+            getattr(self, "recording_drops", 0), packet_stats,
+        )
 
 
     # https://github.com/SintefManufacturing/python-aravis/blob/master/aravis.py#L162

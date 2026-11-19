@@ -1,6 +1,16 @@
 # cammy
 Simple python package to record from machine vision cameras (Basler and Lucid in particular)
 
+Add `--stream-stats` to `cammy run` to log one line per Aravis camera per second,
+even with preview images disabled. Logs include free input buffers, queued
+completed buffers, reception failures, buffer underruns, acquired/missed frames,
+written frames, recording queue drops, and GigE resent/missing packets. Buffer
+queue sizes are instantaneous; the other counters are cumulative for the run.
+Rising queued buffers and falling free buffers indicate acquisition consumers
+falling behind. Increasing underruns mean no free receive buffer was available;
+increasing missing packets with healthy buffer queues points to reception loss.
+Sampling runs in the GUI loop, without Python stream callbacks.
+
 On Linux, use `--receiver-realtime-priority 10` to try `SCHED_RR` realtime
 scheduling for native GigE receiver threads. The default is 0 (disabled).
 Priority is applied once at startup without Python stream callbacks. Each

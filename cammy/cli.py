@@ -79,6 +79,11 @@ txt_pos = (25, 25)
          "Requires realtime scheduling permission."
 )
 @click.option(
+    "--stream-stats",
+    is_flag=True,
+    help="Log Aravis buffer, frame, packet, and recording counters once per second."
+)
+@click.option(
     "--save-engine",
     type=click.Choice(["ffmpeg", "raw"]),
     default="raw",
@@ -177,6 +182,7 @@ def simple_preview(
     record: bool,
     jumbo_frames: bool,
     receiver_realtime_priority: int,
+    stream_stats: bool,
     save_engine: str,
     display_downsample: int,
     display_colormap: Optional[str],
@@ -230,7 +236,7 @@ def simple_preview(
     import socket
     import datetime
     import zmq
-    from cammy.camera.aravis import acquisition_loop, set_receiver_realtime_priority
+    from cammy.camera.aravis import AravisCamera, acquisition_loop, set_receiver_realtime_priority
 
     basedir = os.path.dirname(os.path.abspath(__file__))
     hostname = socket.gethostname()
@@ -679,6 +685,7 @@ def simple_preview(
         cur_duration = 0
         display_counter = {}
         last_seen_frame = {}
+        next_stream_stats = 0.0
 
         for _camera in cameras.keys():
             display_counter[_camera] = 0
@@ -688,6 +695,11 @@ def simple_preview(
             trigger_dev.start()
         
         while dpg.is_dearpygui_running():
+            if stream_stats and time.perf_counter() >= next_stream_stats:
+                for _cam in cameras.values():
+                    if isinstance(_cam, AravisCamera):
+                        _cam.log_stream_statistics()
+                next_stream_stats = time.perf_counter() + 1.0
             dat = {}
             for _id, _cam in cameras.items():
                 # with _cam.display_lock:
