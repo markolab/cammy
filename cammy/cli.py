@@ -736,9 +736,12 @@ def simple_preview(
                     miss_text = f"{miss_frames} missed / {total_frames} total ({percent_missed:.1f}% missed)"
                     if record:
                         writer = cameras[_id].recorder
+                        recording_drops = cameras[_id].recording_drops
+                        recording_total = getattr(writer, "frames_written", 0) + recording_drops
+                        recording_percent_missed = 100 * recording_drops / recording_total if recording_total else 0
                         miss_text += (
-                            f"\n{getattr(writer, 'frames_written', 0)} written / "
-                            f"{cameras[_id].recording_drops} recording queue drops"
+                            f"\nWriter: {recording_drops} missed / {recording_total} total "
+                            f"({recording_percent_missed:.1f}% missed)"
                         )
                         if not writer.is_alive():
                             miss_text += " / WRITER STOPPED (see terminal)"
