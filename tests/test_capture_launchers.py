@@ -73,7 +73,7 @@ class CaptureLauncherTests(unittest.TestCase):
         settings = desktop / "cammy-settings.sh"
         self.assertEqual(settings.read_bytes(), self.settings.read_bytes())
         with settings.open("a") as f:
-            f.write("GAIN_DB=2.5\nSURFACE_TO_FLUORESCENCE_GAP_US=1250\nLIGHT_SETTLE_US=200\n"
+            f.write("GAIN_DB=2.5\nROI_WIDTH=1024\nROI_HEIGHT=768\nSURFACE_TO_FLUORESCENCE_GAP_US=1250\nLIGHT_SETTLE_US=200\n"
                     "SURFACE_VOLTAGE=3.5\nFLUORESCENCE_VOLTAGE=1.25\n"
                     "SURFACE_ILLUMINATION_PERCENT=0\nFLUORESCENCE_ILLUMINATION_PERCENT=62.5\n")
         self.install(desktop)
@@ -96,6 +96,7 @@ class CaptureLauncherTests(unittest.TestCase):
                     self.assertEqual(p["share_gui_core"], action == "record")
                     self.assertEqual(p["writer_cores"], 7 if action == "record" else None)
                     self.assertEqual(p["gain_db"], 2.5)
+                    self.assertEqual((p["roi_width"], p["roi_height"]), (1024, 768))
                     dev = NucleoTriggerDevice(
                         mode=mode, pulse_widths=p["hw_trigger_pulse_width"],
                         pulse_widths_low=p["hw_trigger_pulse_low"], light_settle_us=p["light_settle_us"],

@@ -1,5 +1,7 @@
 # Shared by the capture and tuning launchers. Exposure widths are in microseconds.
 GAIN_DB=""                      # Empty uses the gain from the camera TOML.
+ROI_WIDTH=0                     # Centered crop within the configured view. 0 keeps that axis.
+ROI_HEIGHT=0
 FLUORESCENCE_EXPOSURE_US=10000
 SURFACE_EXPOSURE_US=1000
 FPS=93.0233                     # Total frames/s per camera. Alternate pairs run at FPS/2.

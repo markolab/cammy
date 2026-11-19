@@ -242,6 +242,13 @@ class AravisCamera(CammyCamera):
 
         height, width = buffer.get_image_height(), buffer.get_image_width()
         data = buffer.get_data()
+        row_bytes = width * (bits_per_pixel // 8)
+        if len(data) > height * row_bytes and hasattr(buffer, "get_image_padding"):
+            x_padding, _ = buffer.get_image_padding()
+            if x_padding:
+                # Cropped rows may be padded on the wire. The raw file contains pixels only.
+                return np.ndarray((height, width), dtype=dtype, buffer=data,
+                                  strides=(row_bytes + x_padding, bits_per_pixel // 8)).copy()
         frame = np.frombuffer(data, dtype=dtype, count=height * width).reshape(height, width)
         # PyGObject returns an owned bytes snapshot; NumPy keeps it alive after
         # the Aravis buffer is recycled. Copy only if the binding returns mutable data.
@@ -279,9 +286,9 @@ class AravisCamera(CammyCamera):
 
         if ntype in ("Enumeration", "String", "StringReg"):
             grab_func = self.device.get_string_feature_value
-        elif ntype == "Integer":
+        elif ntype in ("Integer", "IntReg", "IntConverter", "IntSwissKnife"):
             grab_func = self.device.get_integer_feature_value
-        elif ntype == "Float":
+        elif ntype in ("Float", "FloatReg", "SwissKnife"):
             grab_func = self.device.get_float_feature_value
         elif ntype == "Boolean":
             grab_func = self.device.get_boolean_feature_value
@@ -326,7 +333,9 @@ class AravisCamera(CammyCamera):
 
         self.logger.info(f"{self.id} {name} set to {newval}")
 
-    def get_all_features(self, node_str="Root", return_dct={}):
+    def get_all_features(self, node_str="Root", return_dct=None):
+        if return_dct is None:
+            return_dct = {}
         node = self._genicam.get_node(node_str)
         if node.get_node_name() == "Category":
             features = node.get_features()

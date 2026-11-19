@@ -17,6 +17,7 @@ class CameraBufferTests(unittest.TestCase):
         buffer.get_image_pixel_format.return_value = pixel_format
         buffer.get_image_height.return_value = height
         buffer.get_image_width.return_value = width
+        buffer.get_image_padding.return_value = (0, 0)
         return buffer
 
     def test_supported_formats_use_the_bytes_snapshot_without_a_second_copy(self):
@@ -57,6 +58,13 @@ class CameraBufferTests(unittest.TestCase):
     def test_short_payload_is_rejected_before_reading_outside_the_image(self):
         with self.assertRaises(ValueError):
             self.camera._array_from_buffer_address(self.make_buffer(b"short"))
+
+    def test_cropped_rows_exclude_transport_padding(self):
+        buffer = self.make_buffer(b"abc.def.", height=2, width=3)
+        buffer.get_image_padding.return_value = (1, 0)
+        frame = self.camera._array_from_buffer_address(buffer)
+        self.assertEqual(frame.tobytes(), b"abcdef")
+        self.assertTrue(frame.flags.c_contiguous)
 
     def test_unsupported_format_is_rejected_before_reading_pixels(self):
         buffer = self.make_buffer(bytes(12), pixel_format=0)

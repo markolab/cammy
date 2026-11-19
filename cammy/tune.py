@@ -10,12 +10,13 @@ import tempfile
 
 import click
 
+from cammy.roi import centered_region, timing_advice
 from cammy.trigger.nucleo import NucleoTriggerDevice
 from cammy.util import shared_asset
 
 
 BANKS = ("surface", "fluorescence")
-SETTINGS = ("DATA_DIR", "CAMERA_OPTIONS", "FPS", "GAIN_DB", "LIGHT_SETTLE_US",
+SETTINGS = ("DATA_DIR", "CAMERA_OPTIONS", "FPS", "GAIN_DB", "LIGHT_SETTLE_US", "ROI_WIDTH", "ROI_HEIGHT",
             "SURFACE_EXPOSURE_US", "FLUORESCENCE_EXPOSURE_US", "SURFACE_VOLTAGE",
             "FLUORESCENCE_VOLTAGE", "SURFACE_ILLUMINATION_PERCENT", "FLUORESCENCE_ILLUMINATION_PERCENT")
 
@@ -82,16 +83,23 @@ def save_settings(path, original, changes):
 
 class TuneSession:
     PANEL_WIDTH = 920
+    PANEL_HEIGHT = 300
 
     def __init__(self, path, mode, port):
         self.path = path.resolve()
         self.original = self.path.read_bytes()
         self.values = read_settings(self.path)
+        for key in ("ROI_WIDTH", "ROI_HEIGHT"):
+            if not self.values[key].isascii() or not self.values[key].isdigit():
+                raise ValueError(f"{key} must be a nonnegative whole number of pixels.")
         self.mode = mode
         self.trigger = self.controller(mode, self.values, port)
         self.saved = self.values.copy()
         self.original_gains = {}
         self.gains_changed = False
+        self.original_regions = {}
+        self.restart_requested = None
+        self.drafts = {}
 
     @staticmethod
     def controller(mode, values, port):
@@ -176,7 +184,7 @@ class TuneSession:
         self.values = values
         self.mode = mode
 
-    def build_panel(self, dpg, cameras):
+    def build_panel(self, dpg, cameras, metadata=None):
         # A hint shows the startup reading while an empty input preserves per-camera gain.
         gains = {}
         for key, camera in cameras.items():
@@ -187,6 +195,34 @@ class TuneSession:
                 gains[key] = "Unavailable"
         distinct = set(gains.values())
         gain_hint = "Mixed" if len(distinct) > 1 else next(iter(distinct), "Unavailable")
+
+        def suggest():
+            try:
+                advice = timing_advice(
+                    metadata, dpg.get_value("surface_us"), dpg.get_value("fluorescence_us"),
+                    dpg.get_value("fluorescence_underfill"), dpg.get_value("tune_fps"),
+                    int(self.values["LIGHT_SETTLE_US"]), dpg.get_value("margin_ms"))
+            except ValueError as exc:
+                advice = str(exc)
+            dpg.set_value("timing_advice", advice)
+            click.echo(advice)
+
+        def crop():
+            width, height = (dpg.get_value(tag) for tag in ("roi_width", "roi_height"))
+            try:
+                for key, camera in cameras.items():
+                    base = self.original_regions.get(key) or tuple(camera.camera.get_region())
+                    centered_region(camera.camera, base, width, height)
+            except Exception as exc:
+                dpg.set_value("tune_status", f"Could not crop {key}. {exc}")
+                return
+            if (width, height) == (int(self.values["ROI_WIDTH"]), int(self.values["ROI_HEIGHT"])):
+                return
+            # The fresh preview needs new buffers and textures. Preserve un-applied field edits.
+            tags = ["margin_ms", "tune_gain", "tune_fps"]
+            tags.extend(bank + field for bank in BANKS for field in ("_us", "_volts", "_underfill"))
+            self.drafts = {tag: dpg.get_value(tag) for tag in tags}
+            self.restart_requested = width, height
 
         def apply_bank(sender, app_data, bank):
             try:
@@ -209,7 +245,7 @@ class TuneSession:
                 status = str(exc)
             dpg.set_value("tune_status", status)
 
-        with dpg.window(label="Tune", pos=(0, 0), height=160, width=self.PANEL_WIDTH, no_collapse=True):
+        with dpg.window(label="Tune", pos=(0, 0), height=self.PANEL_HEIGHT, width=self.PANEL_WIDTH, no_collapse=True):
             with dpg.group(horizontal=True):
                 dpg.add_input_text(label="Gain (dB, all cameras)", tag="tune_gain", width=90,
                                    hint=gain_hint, default_value=self.values["GAIN_DB"])
@@ -230,7 +266,23 @@ class TuneSession:
                                          step=.1, format="%.3f", default_value=float(self.values[bank.upper() + "_VOLTAGE"]))
                     dpg.add_input_double(label=f"Underfill (% dark)##{bank}", tag=bank + "_underfill", width=105,
                                          step=1, format="%.2f", default_value=round(100 - lit_percent, 2))
+            with dpg.group(horizontal=True):
+                for axis in ("width", "height"):
+                    dpg.add_input_int(label=f"ROI {axis} (px)", tag="roi_" + axis, width=115,
+                                      default_value=int(self.values["ROI_" + axis.upper()]))
+                dpg.add_button(label="Apply centered crop", callback=crop)
+                sizes = sorted({f"{c._width} × {c._height}" for c in cameras.values()})
+                dpg.add_text("Current: " + ", ".join(sizes) + " px. 0 keeps original axis.")
             dpg.add_text(f"Previewing {self.mode}. Target {self.values['FPS']} FPS.", tag="tune_status")
+            with dpg.group(horizontal=True):
+                dpg.add_input_double(label="Margin (ms)", tag="margin_ms", width=100, default_value=1.5,
+                                     min_value=1, max_value=2, min_clamped=True, max_clamped=True, step=.1, format="%.1f")
+                dpg.add_button(label="Suggest alternating timing", callback=suggest)
+            dpg.add_text("", tag="timing_advice", wrap=self.PANEL_WIDTH - 30)
+            for tag, value in self.drafts.items():
+                dpg.set_value(tag, value)
+            if metadata is not None:
+                suggest()
 
 
 @click.command(name="tune")
@@ -240,7 +292,7 @@ class TuneSession:
 @click.option("--trigger-port", default="/dev/ttyACM0", show_default=True)
 @click.pass_context
 def tune(ctx, settings, mode, trigger_port):
-    """Preview surface or fluorescence and tune FPS, gain, exposure, voltage and underfill."""
+    """Tune single-bank previews, crop cameras, and estimate alternating timing."""
     path = settings or desktop_settings()
     if not path.is_file():
         raise click.ClickException(f"Cannot find {path}. Run launchers/install.py or supply --settings PATH.")
@@ -252,6 +304,16 @@ def tune(ctx, settings, mode, trigger_port):
     except (ValueError, OSError, OverflowError) as exc:
         raise click.ClickException(str(exc)) from exc
     preview = ctx.parent.command.get_command(ctx.parent, "run")
-    ctx.invoke(preview, tuning=session, interface="aravis", hw_trigger=True, trigger_device="nucleo",
-               light_mode=mode, trigger_port=trigger_port, buffer_size=512, display_downsample=6,
-               camera_options=str(camera_options.resolve()))
+    while True:
+        session.restart_requested = None
+        session.original_regions.clear()
+        session.original_gains.clear()
+        session.gains_changed = False
+        ctx.invoke(preview, tuning=session, interface="aravis", hw_trigger=True, trigger_device="nucleo",
+                   light_mode=session.mode, trigger_port=trigger_port, buffer_size=512, display_downsample=6,
+                   roi_width=int(session.values["ROI_WIDTH"]), roi_height=int(session.values["ROI_HEIGHT"]),
+                   camera_options=str(camera_options.resolve()))
+        if session.restart_requested is None:
+            break
+        width, height = session.restart_requested
+        session.values.update(ROI_WIDTH=str(width), ROI_HEIGHT=str(height))

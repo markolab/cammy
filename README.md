@@ -89,6 +89,31 @@ In alternation, each bank receives half that rate. Closing the preview stops
 the lights and restores camera gain. For the final timing and illumination
 duty cycle, check **Alternate Preview**.
 
+**Apply centered crop** sets the width and height in camera pixels on every
+camera. Enter `0` on either axis to keep its configured extent. Tune briefly
+reopens the preview so each stream and image buffer uses the new dimensions.
+**Save applied settings** writes `ROI_WIDTH` and `ROI_HEIGHT` for all preview and
+recording launchers. Both tune and capture restore the camera's original region
+on exit. Direct runs accept `--roi-width` and `--roi-height`.
+
+**Suggest alternating timing** uses the applied crop and the exposure, underfill,
+and target FPS currently in the fields. You can try a draft fluorescence exposure
+without applying it. The result shows the surface exposure, gap to fluorescence,
+fluorescence exposure and lit time, and wait before the next surface trigger.
+Tune also prints the estimate in the terminal. To try that schedule in
+**Alternate Preview**, use the displayed exposure widths, the displayed gap for
+`SURFACE_TO_FLUORESCENCE_GAP_US` and an FPS at or below the displayed ceiling.
+
+Tune assumes overlapping acquisition. It spaces successive **exposure ends** by
+at least the slowest sensor readout at the applied ROI plus a 1.5 ms margin
+(adjustable from 1 to 2 ms). The full fluorescence exposure counts toward
+surface-frame readout, including its dark portion. When that exposure covers
+the readout and margin, the gap after surface can be as short as the light
+settling time. Any spare time at the target FPS goes after fluorescence.
+Tune honors explicit camera overlap limits and identifies any camera missing
+a sensor readout value. [Basler sensor readout time](https://docs.baslerweb.com/sensor-readout-time)
+and [overlapping acquisition](https://docs.baslerweb.com/overlapping-image-acquisition)
+
 ## Acquisition and recording
 
 On Linux, `--record --writer-cores 2` reserves two physical cores for writers,

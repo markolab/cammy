@@ -36,6 +36,7 @@ from cammy.util import (
 from cammy.record.base import RECORD_QUEUE_FRAMES
 from cammy.record.video import FfmpegVideoRecorder, RawVideoRecorder
 from cammy.camera.spoof import SpoofCamera
+from cammy.roi import centered_region, set_region
 from cammy.tune import tune
 
 
@@ -142,6 +143,8 @@ txt_pos = (25, 25)
 )
 @click.option("--record-counters", type=int, default=0, help="Record counter data")
 @click.option("--gain-db", type=click.FloatRange(min=0), help="Override the camera TOML with a manual GenICam gain in dB.")
+@click.option("--roi-width", type=click.IntRange(min=0), default=0, help="Centered crop width in pixels. 0 keeps the configured width.")
+@click.option("--roi-height", type=click.IntRange(min=0), default=0, help="Centered crop height in pixels. 0 keeps the configured height.")
 @click.option("--duration", type=float, default=0, help="Run for N minutes")
 @click.option(
     "--camera-options",
@@ -198,6 +201,8 @@ def simple_preview(
     n_fake_cameras: int,
     camera_options: Optional[str],
     gain_db: Optional[float],
+    roi_width: int,
+    roi_height: int,
     record: bool,
     writer_cores: Optional[int],
     jumbo_frames: bool,
@@ -345,6 +350,21 @@ def simple_preview(
                 camera.set_feature("Gain", str(gain_db))
             except Exception as exc:
                 raise click.ClickException(f"{camera_id}: could not set gain to {gain_db} dB: {exc}") from exc
+    if roi_width or roi_height:
+        # Restore even if stream allocation or a later camera fails during startup.
+        for key, cam in cameras.items():
+            try:
+                native = cam.camera
+                original = tuple(native.get_region())
+                region = centered_region(native, original, roi_width, roi_height)
+                if region != original:
+                    click.get_current_context().call_on_close(
+                        lambda c=native, r=original: set_region(c, r))
+                    set_region(native, region)
+                if tuning is not None:
+                    tuning.original_regions[key] = original
+            except Exception as exc:
+                raise click.ClickException(f"Could not crop {key}: {exc}") from exc
     try:
         gui_cpus, acquire_cpus, write_cpus = get_cpu_affinity(record, writer_cores=writer_cores)
     except ValueError as exc:
@@ -356,6 +376,10 @@ def simple_preview(
     try:
         # Native Aravis receive threads inherit this mask on Ubuntu/Linux.
         if gui_cpus is not None:
+            if tuning is not None:
+                # A reopened preview must see the full original set of allowed CPUs.
+                allowed = os.sched_getaffinity(0)
+                click.get_current_context().call_on_close(lambda: os.sched_setaffinity(0, allowed))
             receiver_cpus = set(acquire_cpus)
             if share_gui_core:
                 receiver_cpus.update(gui_cpus)
@@ -593,7 +617,7 @@ def simple_preview(
     if tuning is not None:
         dpg.configure_app(manual_callback_management=True)
         gain_cameras = {key: cameras[key] for key in cameras_metadata}
-        tuning.build_panel(dpg, gain_cameras)
+        tuning.build_panel(dpg, gain_cameras, cameras_metadata)
 
     # https://github.com/hoffstadt/DearPyGui/issues/1380
     with dpg.font_registry():
@@ -605,15 +629,15 @@ def simple_preview(
         for _id, _cam in cameras.items():
             blank_data = np.zeros(
                 (
-                    _cam._height // display_downsample,
-                    _cam._width // display_downsample,
+                    max(1, _cam._height // display_downsample),
+                    max(1, _cam._width // display_downsample),
                     4,
                 ),
                 dtype="float32",
             )
             dpg.add_raw_texture(
-                _cam._width // display_downsample,
-                _cam._height // display_downsample,
+                max(1, _cam._width // display_downsample),
+                max(1, _cam._height // display_downsample),
                 blank_data,
                 tag=f"texture_{_id}",
                 format=dpg.mvFormat_Float_rgba,
@@ -655,7 +679,7 @@ def simple_preview(
             dpg.set_global_font_scale(0.5)
 
     gui_x_offset = 0
-    gui_y_offset = 160 if tuning is not None else 0
+    gui_y_offset = tuning.PANEL_HEIGHT if tuning is not None else 0
     gui_x_max = tuning.PANEL_WIDTH if tuning is not None else 0
     gui_y_max = 0
     row_pos = 0
@@ -746,6 +770,8 @@ def simple_preview(
         while dpg.is_dearpygui_running():
             if tuning is not None:
                 dpg.run_callbacks(dpg.get_callback_queue())
+                if tuning.restart_requested:
+                    break
                 show_saturation = time.monotonic() >= next_saturation
                 if show_saturation:
                     next_saturation = time.monotonic() + .25
@@ -781,7 +807,7 @@ def simple_preview(
                         height, width = _dat[0].shape
                         disp_img = cv2.resize(
                             _dat[0],
-                            (width // display_downsample, height // display_downsample),
+                            (max(1, width // display_downsample), max(1, height // display_downsample)),
                         )
                         plt_val = intensity_to_rgba_lut(
                             disp_img,

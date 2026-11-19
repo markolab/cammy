@@ -105,7 +105,35 @@ class TuneTests(unittest.TestCase):
         self.assertEqual(session.mode, "surface")
         self.assertEqual(session.values, session.saved)
 
-    def test_tune_preview_switch_apply_and_save(self):
+    def test_rejected_crop_restores_every_touched_camera_before_stream_setup(self):
+        cameras = {}
+        for key in ("A", "B"):
+            cam = Mock()
+            native = cam.camera
+            native.get_region.return_value = (0, 0, 128, 128)
+            native.get_height_bounds.return_value = (1, 128)
+            native.get_height_increment.return_value = native.get_y_offset_increment.return_value = 1
+            def set_roi(*region, n=native, name=key):
+                n.get_region.return_value = region
+                if name == "B" and region[3] == 64:
+                    raise RuntimeError("camera rejected ROI")
+            native.set_region.side_effect = set_roi
+            cameras[key] = cam
+        with ExitStack() as stack:
+            dpg = Mock()
+            stack.enter_context(patch.dict("sys.modules", {"dearpygui": Mock(dearpygui=dpg), "dearpygui.dearpygui": dpg}))
+            stack.enter_context(patch("cammy.cli.initialize_cameras", return_value=cameras))
+            stack.enter_context(patch("cammy.cli.get_all_camera_ids", return_value={k: "aravis" for k in cameras}))
+            stack.enter_context(patch("cammy.cli.time.sleep"))
+            stack.enter_context(patch("cammy.cli.mpl_to_cv2_colormap"))
+            result = CliRunner().invoke(cli, ["run", "--roi-height", "64"])
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("Could not crop B", result.output)
+        for cam in cameras.values():
+            self.assertEqual(cam.camera.get_region(), (0, 0, 128, 128))
+            cam.initialize_acquisition_stream.assert_not_called()
+
+    def test_tune_preview_switch_crop_suggest_and_save(self):
         # Run the real Click command, preview loop and bulk camera/serial control, without a rig.
         dpg = MagicMock()
         buttons = {}
@@ -113,30 +141,54 @@ class TuneTests(unittest.TestCase):
             buttons[label] = (callback, attrs.get("user_data"))
         dpg.add_button.side_effect = add_button
         original = self.settings.read_bytes()
+        fields = {"tune_gain": "2.5", "tune_fps": 80.5, "surface_us": 1000, "surface_underfill": 0,
+                  "surface_volts": 3, "fluorescence_us": 8000, "fluorescence_volts": 3.75,
+                  "fluorescence_underfill": 25.25, "margin_ms": 1.5,
+                  "roi_width": 6, "roi_height": 0}
+        dpg.get_value.side_effect = fields.__getitem__
+        dpg.set_value.side_effect = fields.__setitem__
         def interact(*_):
-            apply, bank = buttons["Apply fluorescence"]
-            apply(None, None, bank)
             self.assertEqual(self.settings.read_bytes(), original)
-            buttons["Save applied settings"][0]()
+            if dpg.run_callbacks.call_count == 1:
+                self.assertIn("Slowest sensor readout 2.00 ms", fields["timing_advice"])
+                apply, bank = buttons["Apply fluorescence"]
+                apply(None, None, bank)
+                fields["fluorescence_us"] = 8500  # Draft survives crop and is used only for advice.
+            elif dpg.run_callbacks.call_count == 2:
+                buttons["Apply centered crop"][0]()
+            else:
+                buttons["Suggest alternating timing"][0]()
+                self.assertIn("gap 100 µs → fluorescence 8500", fields["timing_advice"])
+                self.assertIn("Slowest sensor readout 1.00 ms", fields["timing_advice"])
+                buttons["Save applied settings"][0]()
         dpg.run_callbacks.side_effect = interact
-        dpg.get_value.side_effect = {"tune_gain": "2.5", "tune_fps": 80.5, "fluorescence_us": 8000,
-                                     "fluorescence_volts": 3.75, "fluorescence_underfill": 25.25}.__getitem__
-        dpg.is_dearpygui_running.side_effect = [True, False]
+        dpg.is_dearpygui_running.side_effect = [True, True, True, False]
         frame = np.zeros((12, 12), dtype=np.uint8)
         frame[:3] = 255
         cameras = {}
         for key, initial_gain in [("A", 1), ("B", 3)]:
             cam = Mock(id=key, _width=12, _height=12, frame_count=1, total_frames=1, missed_frames=0,
                        fps=None, display_frame=(frame, {}))
-            cam.get_all_features.return_value = dict(PixelFormat="Mono8", ExposureMode="TriggerWidth",
+            cam.get_all_features.return_value = dict(PixelFormat="Mono8", SensorReadoutTime=2000, ExposureMode="TriggerWidth",
                 TriggerSelector="FrameStart", TriggerMode="On", TriggerActivation="RisingEdge", TriggerSource="Line1")
+            cam.camera.get_region.return_value = (0, 0, 12, 12)
+            cam.camera.set_region.side_effect = lambda *r, c=cam: setattr(c.camera.get_region, "return_value", r)
+            cam.camera.get_width_bounds.return_value = (1, 12)
+            cam.camera.get_width_increment.return_value = cam.camera.get_x_offset_increment.return_value = 1
+            def init_stream(c=cam):
+                _, _, c._width, c._height = c.camera.get_region()
+                c._payload = c._width * c._height
+                c.get_all_features.return_value["SensorReadoutTime"] = 2000 if c._width == 12 else 1000
+                c.display_frame = (frame[:, :c._width], {})
+            cam.initialize_acquisition_stream.side_effect = init_stream
             cam.camera.get_gain_bounds.return_value = (0, 24)
             cam.get_feature.side_effect = {"GainAuto": "Off", "Gain": initial_gain}.__getitem__
             cameras[key] = cam
         serial = Mock()
         port = serial.return_value
         port.readline.side_effect = [b"CAMMY_NUCLEO,1\n", b"OK CONFIG\n", b"OK START\n", b"OK STOP\n",
-                                     b"OK CONFIG\n", b"OK START\n", b"OK STOP\n"]
+                                     b"OK CONFIG\n", b"OK START\n", b"OK STOP\n",
+                                     b"CAMMY_NUCLEO,1\n", b"OK CONFIG\n", b"OK START\n", b"OK STOP\n"]
         with ExitStack() as stack:
             stack.enter_context(patch.dict("sys.modules", {"dearpygui": Mock(dearpygui=dpg), "dearpygui.dearpygui": dpg}))
             for name, value in [("cammy.cli.get_all_camera_ids", {k: "aravis" for k in cameras}),
@@ -149,18 +201,23 @@ class TuneTests(unittest.TestCase):
             result = CliRunner().invoke(cli, ["tune", "--settings", str(self.settings), "--trigger-port", "/dev/test"],
                                         catch_exceptions=False)
         self.assertEqual(result.exit_code, 0, result.output)
-        serial.assert_called_once()
+        self.assertEqual(serial.call_count, 2)
         commands = [c.args[0].decode().strip() for c in port.write.call_args_list]
-        self.assertEqual([c.split(",")[0] for c in commands], ["HELLO", "CONFIG", "START", "STOP", "CONFIG", "START", "STOP"])
+        self.assertEqual([c.split(",")[0] for c in commands],
+                         ["HELLO", "CONFIG", "START", "STOP", "CONFIG", "START", "STOP", "HELLO", "CONFIG", "START", "STOP"])
         self.assertEqual(commands[4], "CONFIG,1,1,100,3000,3750,10000,7475,1,8000,4422")
-        port.close.assert_called_once()
+        self.assertEqual(commands[8], commands[4])
+        self.assertEqual(port.close.call_count, 2)
         for key, gain in [("A", 1), ("B", 3)]:
             self.assertEqual(cameras[key].set_feature.call_args_list,
-                             [call("GainAuto", "Off"), call("Gain", "2.5"), call("GainAuto", "Off"), call("Gain", str(gain))])
+                             [call("GainAuto", "Off"), call("Gain", "2.5"), call("GainAuto", "Off"), call("Gain", str(gain))] * 2)
+            self.assertEqual(cameras[key].camera.set_region.call_args_list, [call(3, 0, 6, 12), call(0, 0, 12, 12)])
+            self.assertEqual(cameras[key]._payload, 72)
             dpg.set_value.assert_any_call(f"saturation_{key}", "Saturated pixels: 25.000%")
         self.assertIn('GAIN_DB=2.5  # Use the camera baseline', self.settings.read_text())
         saved = read_settings(self.settings)
         self.assertEqual(saved["FLUORESCENCE_EXPOSURE_US"], "8000")
         self.assertEqual(float(saved["FLUORESCENCE_ILLUMINATION_PERCENT"]), 74.75)
         self.assertEqual(saved["FPS"], "80.5")
-        dpg.destroy_context.assert_called_once()
+        self.assertEqual(saved["ROI_WIDTH"], "6")
+        self.assertEqual(dpg.destroy_context.call_count, 2)
