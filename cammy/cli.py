@@ -72,6 +72,13 @@ txt_pos = (25, 25)
 @click.option("--record", is_flag=True, help="Save frames to disk")
 @click.option("--jumbo-frames", default=True, type=bool, help="Turn on jumbo frames (GigE only)")
 @click.option(
+    "--receiver-realtime-priority",
+    type=click.IntRange(min=0, max=99),
+    default=0,
+    help="Linux GigE receiver SCHED_RR priority (1-99; 0 disables). Try 10. "
+         "Requires realtime scheduling permission."
+)
+@click.option(
     "--save-engine",
     type=click.Choice(["ffmpeg", "raw"]),
     default="raw",
@@ -169,6 +176,7 @@ def simple_preview(
     camera_options: Optional[str],
     record: bool,
     jumbo_frames: bool,
+    receiver_realtime_priority: int,
     save_engine: str,
     display_downsample: int,
     display_colormap: Optional[str],
@@ -222,7 +230,7 @@ def simple_preview(
     import socket
     import datetime
     import zmq
-    from cammy.camera.aravis import acquisition_loop
+    from cammy.camera.aravis import acquisition_loop, set_receiver_realtime_priority
 
     basedir = os.path.dirname(os.path.abspath(__file__))
     hostname = socket.gethostname()
@@ -310,6 +318,7 @@ def simple_preview(
     finally:
         if gui_cpus is not None:
             os.sched_setaffinity(0, gui_cpus)
+    set_receiver_realtime_priority(receiver_realtime_priority)
     for i, (k, v) in enumerate(cameras.items()):
         feature_dct = v.get_all_features()
         feature_dct = dict(sorted(feature_dct.items()))

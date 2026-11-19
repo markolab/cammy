@@ -4,12 +4,47 @@ import ctypes
 import numpy as np
 import logging
 import threading
+import sys
 import zmq
 from cammy.camera.base import CammyCamera
+from pathlib import Path
 from typing import Optional
 
 gi.require_version("Aravis", "0.8")
 from gi.repository import Aravis
+
+
+def set_receiver_realtime_priority(priority):
+    """Set priority once for this process's native GigE receiver threads."""
+    if priority == 0:
+        return
+    logger = logging.getLogger(__name__)
+    if sys.platform != "linux":
+        logger.warning("Receiver realtime priority requires Linux; keeping existing scheduling")
+        return
+
+    tids = []
+    try:
+        for task in Path("/proc/self/task").iterdir():
+            try:
+                if (task / "comm").read_text().strip() == "arv_gv_stream":
+                    tids.append(int(task.name))
+            except FileNotFoundError:
+                continue  # A thread may exit while we enumerate it.
+    except OSError as exc:
+        logger.warning("Could not find Aravis receiver threads: %s", exc)
+        return
+    if not tids:
+        logger.warning("No arv_gv_stream receiver threads found; realtime priority was not applied")
+
+    for tid in sorted(tids):
+        try:
+            os.sched_setscheduler(tid, os.SCHED_RR, os.sched_param(priority))
+        except OSError as exc:
+            logger.warning("Could not set Aravis receiver TID %d to SCHED_RR priority %d: %s; "
+                           "keeping existing scheduling", tid, priority, exc)
+        else:
+            logger.info("Aravis receiver TID %d: SCHED_RR priority %d", tid, priority)
 
 
 # TODO:

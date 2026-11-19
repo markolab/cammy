@@ -1,6 +1,13 @@
 # cammy
 Simple python package to record from machine vision cameras (Basler and Lucid in particular)
 
+On Linux, use `--receiver-realtime-priority 10` to try `SCHED_RR` realtime
+scheduling for native GigE receiver threads. The default is 0 (disabled).
+Priority is applied once at startup without Python stream callbacks. Each
+receiver TID and result is logged; permission failures keep existing scheduling.
+This requires an appropriate realtime priority limit (`ulimit -r`) or
+`CAP_SYS_NICE`. Omit the option or set it to 0 on the next run to disable it.
+
 Use `--record-queue-frames N` (default 64) to tune recording stall buffering.
 The limit applies per camera on both the sending and receiving sides. Queue
 memory is roughly `2 * N * frame_bytes` per camera, in addition to writer
