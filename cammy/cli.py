@@ -656,7 +656,7 @@ def simple_preview(
 
     gui_x_offset = 0
     gui_y_offset = 160 if tuning is not None else 0
-    gui_x_max = 780 if tuning is not None else 0
+    gui_x_max = tuning.PANEL_WIDTH if tuning is not None else 0
     gui_y_max = 0
     row_pos = 0
     for _id, _cam in cameras.items():

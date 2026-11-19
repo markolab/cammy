@@ -81,6 +81,8 @@ def save_settings(path, original, changes):
 
 
 class TuneSession:
+    PANEL_WIDTH = 920
+
     def __init__(self, path, mode, port):
         self.path = path.resolve()
         self.original = self.path.read_bytes()
@@ -131,7 +133,7 @@ class TuneSession:
             if auto != "Off":
                 camera.set_feature("GainAuto", auto)
 
-    def apply(self, cameras, mode, gain, exposure, voltage, *, fps=None):
+    def apply(self, cameras, mode, gain, exposure, voltage, *, fps=None, underfill=None):
         # Canonical numeric strings are also safe to write as shell assignments.
         requested_gain = float(gain) if gain.strip() else None
         changes = {"GAIN_DB": str(requested_gain) if requested_gain is not None else "",
@@ -139,6 +141,13 @@ class TuneSession:
                    f"{mode.upper()}_VOLTAGE": str(float(voltage))}
         if fps is not None and float(fps) != float(self.values["FPS"]):
             changes["FPS"] = str(float(fps))
+        if underfill is not None:
+            if not 0 <= underfill <= 100:
+                raise ValueError("Underfill must be between 0 and 100% of the exposure.")
+            key = f"{mode.upper()}_ILLUMINATION_PERCENT"
+            lit_percent = round(100 - underfill, 2)
+            if lit_percent != float(self.values[key]):
+                changes[key] = str(lit_percent)
         values = {**self.values, **changes}
         candidate = self.controller(mode, values, self.trigger.com)
         previous_gain = float(self.values["GAIN_DB"]) if self.values["GAIN_DB"] else None
@@ -168,10 +177,22 @@ class TuneSession:
         self.mode = mode
 
     def build_panel(self, dpg, cameras):
+        # A hint shows the startup reading while an empty input preserves per-camera gain.
+        gains = {}
+        for key, camera in cameras.items():
+            try:
+                value = float(camera.get_feature("Gain"))
+                gains[key] = f"{value:g} dB" if math.isfinite(value) else "Unavailable"
+            except Exception:
+                gains[key] = "Unavailable"
+        distinct = set(gains.values())
+        gain_hint = "Mixed" if len(distinct) > 1 else next(iter(distinct), "Unavailable")
+
         def apply_bank(sender, app_data, bank):
             try:
                 self.apply(cameras, bank, dpg.get_value("tune_gain"), dpg.get_value(bank + "_us"),
-                           dpg.get_value(bank + "_volts"), fps=dpg.get_value("tune_fps"))
+                           dpg.get_value(bank + "_volts"), fps=dpg.get_value("tune_fps"),
+                           underfill=dpg.get_value(bank + "_underfill"))
                 status = f"Previewing {bank}. Target {self.values['FPS']} FPS."
             except ValueError as exc:
                 status = f"Settings not applied. {exc}"
@@ -188,20 +209,27 @@ class TuneSession:
                 status = str(exc)
             dpg.set_value("tune_status", status)
 
-        with dpg.window(label="Tune", pos=(0, 0), height=160, width=780, no_collapse=True):
+        with dpg.window(label="Tune", pos=(0, 0), height=160, width=self.PANEL_WIDTH, no_collapse=True):
             with dpg.group(horizontal=True):
                 dpg.add_input_text(label="Gain (dB, all cameras)", tag="tune_gain", width=90,
-                                   hint="Camera TOML", default_value=self.values["GAIN_DB"])
+                                   hint=gain_hint, default_value=self.values["GAIN_DB"])
+                with dpg.tooltip("tune_gain"):
+                    dpg.add_text("Startup gains (leave blank to keep each camera's settings)")
+                    for key, reading in gains.items():
+                        dpg.add_text(f"{key}   {reading}")
                 dpg.add_input_double(label="Target FPS per camera", tag="tune_fps", width=120,
                                      step=1.0, format="%.4f", default_value=float(self.values["FPS"]))
                 dpg.add_button(label="Save applied settings", callback=save)
             for bank in BANKS:
+                lit_percent = float(self.values[bank.upper() + "_ILLUMINATION_PERCENT"])
                 with dpg.group(horizontal=True):
                     dpg.add_button(label=f"Apply {bank}", width=145, callback=apply_bank, user_data=bank)
                     dpg.add_input_int(label=f"Exposure (µs)##{bank}", tag=bank + "_us", width=140,
                                       default_value=int(self.values[bank.upper() + "_EXPOSURE_US"]))
                     dpg.add_input_double(label=f"Voltage (V)##{bank}", tag=bank + "_volts", width=120,
                                          step=.1, format="%.3f", default_value=float(self.values[bank.upper() + "_VOLTAGE"]))
+                    dpg.add_input_double(label=f"Underfill (% dark)##{bank}", tag=bank + "_underfill", width=105,
+                                         step=1, format="%.2f", default_value=round(100 - lit_percent, 2))
             dpg.add_text(f"Previewing {self.mode}. Target {self.values['FPS']} FPS.", tag="tune_status")
 
 
@@ -212,7 +240,7 @@ class TuneSession:
 @click.option("--trigger-port", default="/dev/ttyACM0", show_default=True)
 @click.pass_context
 def tune(ctx, settings, mode, trigger_port):
-    """Preview surface or fluorescence and tune FPS, gain, exposure and light voltage."""
+    """Preview surface or fluorescence and tune FPS, gain, exposure, voltage and underfill."""
     path = settings or desktop_settings()
     if not path.is_file():
         raise click.ClickException(f"Cannot find {path}. Run launchers/install.py or supply --settings PATH.")

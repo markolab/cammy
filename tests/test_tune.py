@@ -22,6 +22,7 @@ class TuneTests(unittest.TestCase):
                                  'GAIN_DB=""  # Use the camera baseline\nFPS=100\n'
                                  'SURFACE_EXPOSURE_US=1000\nFLUORESCENCE_EXPOSURE_US=9000\n'
                                  'SURFACE_VOLTAGE=3\nFLUORESCENCE_VOLTAGE=2\n'
+                                 'SURFACE_ILLUMINATION_PERCENT=100\nFLUORESCENCE_ILLUMINATION_PERCENT=50\n'
                                  'LIGHT_SETTLE_US=100\n')
         (root / "camera rig.toml").touch()
 
@@ -37,9 +38,48 @@ class TuneTests(unittest.TestCase):
             for fps in [0, -1, float("nan"), float("inf"), 1e-320, 120]:
                 with self.subTest(fps=fps), self.assertRaises(ValueError):
                     session.apply({"cam": camera}, "fluorescence", "", 9000, 2, fps=fps)
+            for underfill in [-1, 101, float("nan")]:
+                with self.subTest(underfill=underfill), self.assertRaisesRegex(ValueError, "Underfill"):
+                    session.apply({"cam": camera}, "surface", "", 1000, 3, underfill=underfill)
             stop.assert_not_called()
         self.assertEqual(session.mode, "surface")
         self.assertEqual(session.saved, session.values)
+
+    def test_gain_hint_preserves_blank_override_and_handles_camera_readback(self):
+        session = TuneSession(self.settings, "surface", "/dev/test")
+        dpg = MagicMock()
+        camera = Mock()
+        cameras = {"A": camera, "B": camera}
+        for readings, override, hint in [
+            ([0, 0], "", "0 dB"), ([2.5, 2.5], "", "2.5 dB"),
+            ([1, 3], "", "Mixed"), ([2, 2], "4", "2 dB"),
+            ([None, RuntimeError("no Gain feature")], "", "Unavailable"),
+        ]:
+            with self.subTest(readings=readings, override=override):
+                session.values["GAIN_DB"] = override
+                camera.get_feature.side_effect = readings
+                session.build_panel(dpg, cameras)
+                field = dpg.add_input_text.call_args.kwargs
+                self.assertEqual((field["default_value"], field["hint"]), (override, hint))
+                camera.set_feature.assert_not_called()
+
+    def test_underfill_endpoints_only_change_the_selected_bank(self):
+        session = TuneSession(self.settings, "surface", "/dev/test")
+        camera = Mock()
+        port = session.trigger.dev = Mock()
+        for bank, dark, exposure, expected_fill in [
+            ("surface", 100, 1000, ["0", "5000"]),
+            ("fluorescence", 0, 9000, ["0", "10000"]),
+        ]:
+            with self.subTest(bank=bank):
+                port.readline.side_effect = [b"OK STOP\n", b"OK CONFIG\n", b"OK START\n"]
+                session.apply({"cam": camera}, bank, "", exposure, 3, underfill=dark)
+                command = session.trigger.config_command.split(",")
+                self.assertEqual(command[6:8], expected_fill)
+                self.assertEqual(int(command[9]), exposure)
+        camera.stop_acquisition.assert_not_called()
+        camera.set_feature.assert_not_called()
+        self.assertEqual(session.values["GAIN_DB"], "")
 
     def test_save_preserves_shell_expressions_and_detects_external_edits(self):
         raw = b'# header\nGAIN_DB="1" # gain\nGAIN_DB=2; KEEP=yes\nexport SURFACE_VOLTAGE=4  # V\n'
@@ -80,7 +120,7 @@ class TuneTests(unittest.TestCase):
             buttons["Save applied settings"][0]()
         dpg.run_callbacks.side_effect = interact
         dpg.get_value.side_effect = {"tune_gain": "2.5", "tune_fps": 80.5, "fluorescence_us": 8000,
-                                     "fluorescence_volts": 3.75}.__getitem__
+                                     "fluorescence_volts": 3.75, "fluorescence_underfill": 25.25}.__getitem__
         dpg.is_dearpygui_running.side_effect = [True, False]
         frame = np.zeros((12, 12), dtype=np.uint8)
         frame[:3] = 255
@@ -112,7 +152,7 @@ class TuneTests(unittest.TestCase):
         serial.assert_called_once()
         commands = [c.args[0].decode().strip() for c in port.write.call_args_list]
         self.assertEqual([c.split(",")[0] for c in commands], ["HELLO", "CONFIG", "START", "STOP", "CONFIG", "START", "STOP"])
-        self.assertEqual(commands[4], "CONFIG,1,1,100,3000,3750,10000,5000,1,8000,4422")
+        self.assertEqual(commands[4], "CONFIG,1,1,100,3000,3750,10000,7475,1,8000,4422")
         port.close.assert_called_once()
         for key, gain in [("A", 1), ("B", 3)]:
             self.assertEqual(cameras[key].set_feature.call_args_list,
@@ -121,5 +161,6 @@ class TuneTests(unittest.TestCase):
         self.assertIn('GAIN_DB=2.5  # Use the camera baseline', self.settings.read_text())
         saved = read_settings(self.settings)
         self.assertEqual(saved["FLUORESCENCE_EXPOSURE_US"], "8000")
+        self.assertEqual(float(saved["FLUORESCENCE_ILLUMINATION_PERCENT"]), 74.75)
         self.assertEqual(saved["FPS"], "80.5")
         dpg.destroy_context.assert_called_once()

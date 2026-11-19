@@ -68,10 +68,16 @@ It reads the same desktop `cammy-settings.sh` as the launchers. Use
 `--settings "/path/to/cammy-settings.sh"` for a custom location and
 `--trigger-port` for a different serial port.
 
-Target FPS and gain are shared across cameras. Set them alongside the selected
-bank's exposure (µs) and voltage (V), then click **Apply surface** or
-**Apply fluorescence** to preview that bank. A blank gain
-uses each camera's original settings. Apply checks the exposure against the
+Target FPS and gain are shared across cameras. With no gain override, the gain
+field shows the startup camera reading, or **Mixed** if readings differ. Hover
+over it for each camera's reading. Leave the field blank to keep each camera's
+original gain settings, or enter a number to set all cameras to that gain.
+
+Each bank has its own exposure (µs), voltage (V), and **Underfill (% dark)**.
+For example, 25% underfill illuminates the first 75% of the exposure and saves
+`*_ILLUMINATION_PERCENT=75`. The camera integrates for the full exposure.
+Click **Apply surface** or **Apply fluorescence** to preview that bank.
+Apply checks the exposure against the
 configured FPS and settle time, pauses the Nucleo, and restarts triggering over
 the same connection. Changing gain also briefly disarms and rearms the cameras.
 Each camera uses a fixed full-range display and shows the percentage of
