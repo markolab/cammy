@@ -79,6 +79,11 @@ txt_pos = (25, 25)
 )
 @click.option("--jumbo-frames", default=True, type=bool, help="Turn on jumbo frames (GigE only)")
 @click.option(
+    "--share-gui-core",
+    is_flag=True,
+    help="Let Linux Aravis receivers also use the GUI core. Requires --display-time-downsample 0.",
+)
+@click.option(
     "--receiver-realtime-priority",
     type=click.IntRange(min=0, max=99),
     default=0,
@@ -189,6 +194,7 @@ def simple_preview(
     record: bool,
     writer_cores: Optional[int],
     jumbo_frames: bool,
+    share_gui_core: bool,
     receiver_realtime_priority: int,
     stream_stats: bool,
     save_engine: str,
@@ -222,6 +228,8 @@ def simple_preview(
 
     if writer_cores is not None and not record:
         raise click.UsageError("--writer-cores requires --record")
+    if share_gui_core and display_time_downsample != 0:
+        raise click.UsageError("--share-gui-core requires --display-time-downsample 0")
     if trigger_device == "nucleo" and not hw_trigger:
         raise click.UsageError("--trigger-device nucleo requires --hw-trigger")
     if trigger_device == "nucleo" and light_mode is None:
@@ -329,8 +337,15 @@ def simple_preview(
     try:
         # Native Aravis receive threads inherit this mask on Ubuntu/Linux.
         if gui_cpus is not None:
-            os.sched_setaffinity(0, set(acquire_cpus))
-        [_camera.initialize_acquisition_stream() for _camera in cameras.values()]
+            receiver_cpus = set(acquire_cpus)
+            if share_gui_core:
+                receiver_cpus.update(gui_cpus)
+            os.sched_setaffinity(0, receiver_cpus)
+            logger.info("Aravis receiver CPUs: %s", sorted(receiver_cpus))
+        elif share_gui_core:
+            logger.info("--share-gui-core only applies on Linux")
+        for camera in cameras.values():
+            camera.initialize_acquisition_stream()
     finally:
         if gui_cpus is not None:
             os.sched_setaffinity(0, gui_cpus)

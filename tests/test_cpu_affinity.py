@@ -1,6 +1,6 @@
 import io
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, call, patch
 
 from click.testing import CliRunner
 
@@ -126,6 +126,34 @@ class WriterCoresCliTests(unittest.TestCase):
         result = CliRunner().invoke(cli, ["run", "--writer-cores", "2"])
         self.assertEqual(result.exit_code, 2)
         self.assertIn("--writer-cores requires --record", result.output)
+
+
+class ReceiverAffinityCliTests(unittest.TestCase):
+    def test_sharing_requires_preview_images_off(self):
+        result = CliRunner().invoke(cli, ["run", "--share-gui-core"])
+        self.assertEqual(result.exit_code, 2)
+        self.assertIn("--share-gui-core requires --display-time-downsample 0", result.output)
+
+    def test_only_stream_creation_uses_the_shared_mask(self):
+        gui, acquisition, writers = {0, 4}, [1, 5], [2, 6]
+        for flags, expected in [([], {1, 5}), (["--share-gui-core"], {0, 1, 4, 5})]:
+            with self.subTest(flags=flags):
+                trace = Mock()
+                # Stop before opening the GUI, and exercise affinity restoration on failure.
+                trace.camera.initialize_acquisition_stream.side_effect = RuntimeError("stream failure")
+                with patch.dict("sys.modules", {"dearpygui": Mock(), "dearpygui.dearpygui": Mock()}), \
+                        patch("cammy.cli.mpl_to_cv2_colormap"), patch("cammy.cli.time.sleep"), \
+                        patch("cammy.cli.get_all_camera_ids", return_value={"camera": "aravis"}), \
+                        patch("cammy.cli.initialize_cameras", return_value={"camera": trace.camera}), \
+                        patch("cammy.cli.get_cpu_affinity", return_value=(gui, acquisition, writers)), \
+                        patch("cammy.cli.os.sched_setaffinity", trace.affinity, create=True):
+                    result = CliRunner().invoke(cli, ["run", "--record", "--display-time-downsample", "0", *flags])
+                self.assertEqual(str(result.exception), "stream failure")
+                self.assertEqual(trace.mock_calls, [
+                    call.affinity(0, expected), call.camera.initialize_acquisition_stream(), call.affinity(0, gui),
+                ])
+                self.assertEqual(acquisition, [1, 5])
+                self.assertEqual(writers, [2, 6])
 
 
 if __name__ == "__main__":
