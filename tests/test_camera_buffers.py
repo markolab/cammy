@@ -1,8 +1,6 @@
 import gc
-import logging
 import unittest
-from unittest.mock import Mock, patch
-import weakref
+from unittest.mock import Mock
 
 import numpy as np
 
@@ -48,80 +46,6 @@ class CameraBufferTests(unittest.TestCase):
                 frame = self.camera._array_from_buffer_address(self.make_buffer(data))
                 source[:] = b"\xff" * 12
                 self.assertEqual(frame.tobytes(), bytes(range(12)))
-
-    def test_pool_storage_is_copied_without_calling_the_bytes_accessor(self):
-        for pixel_format, dtype in [
-            (Aravis.PIXEL_FORMAT_MONO_8, np.uint8),
-            (Aravis.PIXEL_FORMAT_MONO_12, np.uint16),
-            (Aravis.PIXEL_FORMAT_MONO_16, np.uint16),
-            (Aravis.PIXEL_FORMAT_COORD3D_C_16, np.uint16),
-        ]:
-            with self.subTest(pixel_format=pixel_format):
-                expected = np.arange(12, dtype=dtype).reshape(3, 4)
-                pixels = np.frombuffer(expected.tobytes(), dtype=np.uint8).copy()
-                buffer = self.make_buffer(b"", pixel_format)
-                self.camera._buffer_data = {buffer: pixels}
-                frame = self.camera._array_from_buffer_address(buffer)
-                buffer.get_data.assert_not_called()
-                np.testing.assert_array_equal(frame, expected)
-                self.assertTrue(frame.flags.c_contiguous)
-                self.assertFalse(np.shares_memory(frame, pixels))
-                pixels[:] = 255
-                np.testing.assert_array_equal(frame, expected)
-
-    def test_preallocated_native_buffer_reuse_preserves_previous_pixels(self):
-        fake = Aravis.FakeCamera.new("pool-copy")
-        self.camera._payload = fake.get_payload()
-        self.camera._buffer_data = {}
-        buffer = self.camera._allocate_buffer()
-        fake.fill_buffer(buffer)
-        expected = buffer.get_data()
-
-        with patch.object(buffer, "get_data", side_effect=AssertionError("Unexpected bytes copy")):
-            frame = self.camera._array_from_buffer_address(buffer)
-        self.assertEqual(frame.tobytes(), expected)
-        fake.fill_buffer(buffer)
-        self.assertNotEqual(buffer.get_data(), expected)
-        self.assertEqual(frame.tobytes(), expected)
-
-    def test_pixel_storage_lives_until_native_buffer_destruction(self):
-        fake = Aravis.FakeCamera.new("pool-owner")
-        self.camera._payload = fake.get_payload()
-        self.camera._buffer_data = {}
-        buffer = self.camera._allocate_buffer()
-        owner = weakref.ref(self.camera._buffer_data[buffer])
-        del self.camera
-        gc.collect()
-
-        self.assertIsNotNone(owner())
-        fake.fill_buffer(buffer)  # Native code can still safely write after camera disposal.
-        self.assertEqual(buffer.get_status(), Aravis.BufferStatus.SUCCESS)
-        self.assertEqual(owner().tobytes(), buffer.get_data())
-        del buffer
-        gc.collect()
-        self.assertIsNone(owner())
-
-    def test_native_stream_round_trip_retains_the_pool_mapping(self):
-        device = Aravis.FakeDevice.new("pool-stream")
-        self.camera.camera = Aravis.Camera.new_with_device(device)
-        self.camera.buffer_size = 3
-        self.camera.logger = logging.getLogger(__name__)
-        self.camera.initialize_acquisition_stream()
-        buffer = None
-        try:
-            self.camera.start_acquisition()
-            buffer = self.camera.stream.timeout_pop_buffer(1000000)
-            self.assertIsNotNone(buffer)
-            self.assertEqual(buffer.get_status(), Aravis.BufferStatus.SUCCESS)
-            self.assertIn(buffer, self.camera._buffer_data)
-            expected = buffer.get_data()
-            with patch.object(buffer, "get_data", side_effect=AssertionError("Unexpected bytes copy")):
-                frame = self.camera._array_from_buffer_address(buffer)
-            self.assertEqual(frame.tobytes(), expected)
-        finally:
-            if buffer is not None:
-                self.camera.stream.push_buffer(buffer)
-            self.camera.stop_acquisition()
 
     def test_trailing_chunk_bytes_are_excluded(self):
         pixels = np.arange(12, dtype=np.uint16)

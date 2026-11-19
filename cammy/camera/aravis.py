@@ -124,24 +124,11 @@ class AravisCamera(CammyCamera):
                     "check NIC/switch jumbo-frame and MTU settings",
                     self.id, requested_packet_size, packet_size,
                 )
-        self._buffer_data = {}
         for i in range(self.buffer_size):
-            self.stream.push_buffer(self._allocate_buffer())
+            self.stream.push_buffer(Aravis.Buffer.new_allocate(self._payload))
         [x, y, width, height] = self.camera.get_region()
         self._width = width
         self._height = height  # stage stream
-
-
-    def _allocate_buffer(self):
-        pixels = np.empty(self._payload, dtype=np.uint8)
-        address = int(pixels.ctypes.data)
-        # The destroy callback owns the allocation for the native buffer's lifetime.
-        # Aravis requires non-NULL user_data to invoke it, so use the same address.
-        buffer = Aravis.Buffer.new_full(
-            self._payload, address, address, lambda *_, pixels=pixels: None
-        )
-        self._buffer_data[buffer] = pixels
-        return buffer
 
 
     def log_stream_statistics(self):
@@ -254,12 +241,10 @@ class AravisCamera(CammyCamera):
             raise RuntimeError(f"No unpacking strategy for {bits_per_pixel} bits with {pixel_format} format")
 
         height, width = buffer.get_image_height(), buffer.get_image_width()
-        data = getattr(self, "_buffer_data", {}).get(buffer)
-        if data is None:
-            data = buffer.get_data()
+        data = buffer.get_data()
         frame = np.frombuffer(data, dtype=dtype, count=height * width).reshape(height, width)
-        # Copy reusable receive storage before requeueing; NumPy releases the GIL.
-        # External buffers can still supply an independent PyGObject bytes snapshot.
+        # PyGObject returns an owned bytes snapshot; NumPy keeps it alive after
+        # the Aravis buffer is recycled. Copy only if the binding returns mutable data.
         return frame if isinstance(data, bytes) else frame.copy(order="C")
 
     def get_counter_parameters(self, counter_num):
