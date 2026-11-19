@@ -48,16 +48,14 @@ class AravisCamera(CammyCamera):
         if jumbo_frames and self.camera.is_gv_device():
             self.camera.gv_set_packet_size(8000)
 
+        self._frame_id_modulus = None
         if self.camera.is_uv_device():
             self.camera.uv_set_usb_mode(Aravis.UvUsbMode.ASYNC)
         elif self.camera.is_gv_device():
             ext_ids = self.get_feature("GevGVSPExtendedIDMode")
             if ext_ids.lower() == "off":
-                self._frame_id_dtype = 16
-            else:
-                self._frame_id_bit_depth = 64
-        else:
-            self._frame_id_bit_depth = 32
+                # Legacy GigE IDs run from 1 through 65535, skipping zero.
+                self._frame_id_modulus = 65535
 
         self.logger = logging.getLogger(self.__class__.__name__)
         self._tick_frequency = 1e9  # TODO: replace with actual tick frequency from gv interface
@@ -65,7 +63,7 @@ class AravisCamera(CammyCamera):
         self.frame_count = 0
         # self._pixel_format = pixel_format
         self._last_framegrab = [np.nan] * fps_stride
-        # self._last_frame_id = np.nan
+        self._last_frame_id = None
         self._spoof_cameras = [] # we use these to push extra images
         self.zmq_publisher = None
         self.id = id
@@ -140,10 +138,25 @@ class AravisCamera(CammyCamera):
                     # now proceed as if we only collected the first...
                     frame = frame[0]
                 
+                frame_id = timestamps["frame_id"]
+                advance = 1
+                if self._last_frame_id is not None:
+                    advance = frame_id - self._last_frame_id
+                    if self._frame_id_modulus is not None:
+                        advance %= self._frame_id_modulus
+                        if advance > self._frame_id_modulus // 2:
+                            advance = 0  # Backward/reset ID, rather than a forward gap.
+                    if advance <= 0:
+                        advance = 1
+                        self._last_framegrab = [np.nan] * len(self._last_framegrab)
+                self._last_frame_id = frame_id
+                self.missed_frames += advance - 1
+                self.total_frames += advance
+
                 grab_time = timestamp
                 self.frame_count += 1
                 # In alternate mode, compare timestamps from the same light bank.
-                fps_index = timestamps["frame_id"] % len(self._last_framegrab)
+                fps_index = (self.total_frames - 1) % len(self._last_framegrab)
                 last_grab = self._last_framegrab[fps_index]
                 if grab_time > last_grab:
                     new_fps_val = self._tick_frequency / (grab_time - last_grab)
@@ -153,10 +166,6 @@ class AravisCamera(CammyCamera):
                         self.fps = .01 * new_fps_val + .99 * self.fps
                 self._last_framegrab[fps_index] = grab_time
                 
-                diff = (timestamps["frame_id"] - self.total_frames) - 1
-                if ~np.isnan(diff):
-                    self.missed_frames += diff
-                self.total_frames = timestamps["frame_id"]
             else:
                 raise RuntimeError(f"Did not understand status: {status}")
             #self.stream.push_buffer(buffer)

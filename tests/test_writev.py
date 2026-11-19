@@ -29,7 +29,8 @@ class WritevTests(unittest.TestCase):
         self.directory.cleanup()
 
     def assert_output(self, expected, timestamps="frame_id\t\n0\t\n1\t\n2\t\n"):
-        self.recorder._tstamp_file.flush()
+        if not self.recorder._tstamp_file.closed:
+            self.recorder._tstamp_file.flush()
         self.assertEqual(self.video_path.read_bytes(), expected)
         self.assertEqual(self.video_path.with_suffix(".txt").read_text(), timestamps)
 
@@ -157,6 +158,10 @@ class WritevTests(unittest.TestCase):
         self.assertEqual(calls, 2)
         self.assertEqual(self.recorder.frames_written, 0)
         self.assertEqual(self.recorder.frame_batch, [self.frames[0]])
+        self.assertIsInstance(self.recorder.error, KeyboardInterrupt)
+        self.assertTrue(self.recorder._video_file.closed)
+        self.assertTrue(self.recorder._tstamp_file.closed)
+        socket.close.assert_called_once_with(linger=0)
         self.assert_output(b"ab", "frame_id\t\n")
 
     def test_run_counts_only_completed_batches_before_disk_error(self):
@@ -185,6 +190,10 @@ class WritevTests(unittest.TestCase):
         self.assertEqual(calls, 2)
         self.assertEqual(self.recorder.frames_written, 1)
         self.assertEqual(self.recorder.frame_batch, [self.frames[1]])
+        self.assertIsInstance(self.recorder.error, OSError)
+        self.assertTrue(self.recorder._video_file.closed)
+        self.assertTrue(self.recorder._tstamp_file.closed)
+        socket.close.assert_called_once_with(linger=0)
         self.assert_output(self.frames[0], "frame_id\t\n0\t\n")
 
     def test_inproc_writer_receives_frames_from_another_thread(self):
@@ -207,7 +216,7 @@ class WritevTests(unittest.TestCase):
 
         def write_and_stop(frames, timestamps):
             write_batch(frames, timestamps)
-            self.recorder.is_running = 0
+            self.recorder.stop()
 
         def set_receive_timeout():
             self.recorder.zmq_socket.setsockopt(zmq.RCVTIMEO, 2000)

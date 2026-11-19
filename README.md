@@ -1,6 +1,17 @@
 # cammy
 Simple python package to record from machine vision cameras (Basler and Lucid in particular)
 
+Use `--record-queue-frames N` (default 64) to tune recording stall buffering.
+The limit applies per camera on both the sending and receiving sides. Queue
+memory is roughly `2 * N * frame_bytes` per camera, in addition to writer
+batches and filesystem cache. For five 2048x2048 Mono8 cameras, `N=256`
+allows roughly 10 GiB of queued pixels. Zero is rejected to keep queues bounded.
+
+On normal shutdown, capture stops first, then recording queues drain and the
+final partial batch is written. Writers sync and close their own files before
+the program exits; this can take time while disk writes finish. Recording
+errors are reported rather than treating a failed writer as a successful save.
+
 For the NUCLEO-G474RE light/camera controller, flash
 [`trigger-nucleo.ino`](cammy/trigger/trigger-nucleo.ino) using the
 STM32duino **Nucleo G474RE** board. Copy it into its own sketch folder for

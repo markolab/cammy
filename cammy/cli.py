@@ -143,6 +143,13 @@ txt_pos = (25, 25)
     help="Display every nth frame (set to 0 for no display)"
 )
 @click.option(
+    "--record-queue-frames",
+    type=click.IntRange(min=1),
+    default=RECORD_QUEUE_FRAMES,
+    help="Recording queue frames per camera on each side of the connection. "
+         "Queue RAM is roughly 2 x this value x frame bytes, plus writer batches."
+)
+@click.option(
     "--frame-writer-batch-size",
     type=int,
     default=20,
@@ -184,6 +191,7 @@ def simple_preview(
     alternate_mode: int,
     prefix: Optional[str],
     display_time_downsample: int,
+    record_queue_frames: int,
     frame_writer_batch_size: int,
     verbose: bool,
 ):
@@ -476,7 +484,7 @@ def simple_preview(
                 # inproc publishers and recorders must share the same context.
                 cameras[_id].zmq_context = zmq.Context.instance()
                 cameras[_id].zmq_publisher = cameras[_id].zmq_context.socket(zmq.PUSH)
-                cameras[_id].zmq_publisher.setsockopt(zmq.SNDHWM, RECORD_QUEUE_FRAMES)
+                cameras[_id].zmq_publisher.setsockopt(zmq.SNDHWM, record_queue_frames)
                 cameras[_id].zmq_publisher.setsockopt(zmq.LINGER, 0)     # Don't block on close
                 cameras[_id].zmq_publisher.bind(zmq_addresses[_id])
             finally:
@@ -501,15 +509,15 @@ def simple_preview(
                     batch_size=frame_writer_batch_size,
                     cpu_id=write_cpus[i % len(write_cpus)],
                     zmq_address=zmq_addresses[_id],
+                    queue_frames=record_queue_frames,
                 )
             else:
                 raise RuntimeError(
                     f"Did not understanding VideoRecorder option {save_engine}"
                 )
 
-            _recorder.daemon = True
+            _recorder.daemon = False
             _cam.recorder = _recorder
-            _recorder.start()
             recorders.append(_recorder)
     else:
         show_fields = {}
@@ -619,10 +627,17 @@ def simple_preview(
 
     threads = {}
     acquisition_thread_shutdown_event = threading.Event()
+    recording_errors = []
     try:
         # Configure the Nucleo while stopped, before arming any camera.
         if hw_trigger and trigger_device == "nucleo":
             trigger_dev.open()
+        for _recorder in recorders:
+            _recorder.start()
+        for _recorder in recorders:
+            _recorder.ready.wait()
+            if _recorder.error is not None:
+                raise click.ClickException(f"Could not open recording {_recorder.filename}: {_recorder.error}")
         [_cam.start_acquisition() for _cam in cameras.values()]
 
         for i, (_id, _cam) in enumerate(cameras.items()):
@@ -706,8 +721,8 @@ def simple_preview(
 
                     display_counter[_id] += 1
                     cameras[_id].count += 1
-                    miss_frames = float(cameras[_id].missed_frames)
-                    total_frames = float(cameras[_id].total_frames)
+                    miss_frames = cameras[_id].missed_frames
+                    total_frames = cameras[_id].total_frames
                     cur_fps = cameras[_id].fps
                     # if np.isnan(prior_fps):
                     #     smooth_fps = cur_fps
@@ -752,33 +767,49 @@ def simple_preview(
             # time.sleep(0.005)
             dpg.render_dearpygui_frame()
     finally:
-        # Stop external exposures before shutting down the camera streams.
-        if hw_trigger and (trigger_dev is not None):
-            try:
-                if trigger_device == "nucleo":
-                    trigger_dev.close()
-                else:
-                    trigger_dev.stop()
-            except Exception:
-                logger.exception("Could not stop the trigger controller")
-        [_cam.stop_acquisition() for _cam in cameras.values()]
-        acquisition_thread_shutdown_event.set()
-        [_t.join() for _t in threads.values() if _t.ident is not None]
-        if server and (zsocket is not None):
-            # don't wait for the client, just bail (we want this to exit first)
-            logger.info("Sending STOP to client...")
-            zsocket.send_pyobj("EXIT", flags=zmq.NOBLOCK)
-        if record:
-            for _id, _cam in cameras.items():
-                logger.info("%s: %d recording queue drops", _id, getattr(_cam, "recording_drops", 0))
-            # for every camera ID wait until the queue has been written out
-            print("Issuing stop signal...")
+        try:
+            # Stop producers before asking writers to drain their inproc queues.
+            if hw_trigger and (trigger_dev is not None):
+                try:
+                    if trigger_device == "nucleo":
+                        trigger_dev.close()
+                    else:
+                        trigger_dev.stop()
+                except Exception:
+                    logger.exception("Could not stop the trigger controller")
+            for _cam in cameras.values():
+                try:
+                    _cam.stop_acquisition()
+                except Exception:
+                    logger.exception("Could not stop camera %s", _cam.id)
+            acquisition_thread_shutdown_event.set()
+            [_t.join() for _t in threads.values() if _t.ident is not None]
+            if server and (zsocket is not None):
+                try:
+                    zsocket.send_pyobj("EXIT", flags=zmq.NOBLOCK)
+                except zmq.ZMQError:
+                    logger.exception("Could not notify the client of shutdown")
             for _recorder in recorders:
-                _recorder.is_running = 0
-                time.sleep(1)
-        # ensure all files are flushed and closed...
-        [_recorder.close_writer() for _recorder in recorders]
-        dpg.destroy_context()
+                _recorder.stop()
+            if recorders:
+                logger.info("Draining recording queues and syncing files; waiting for writers...")
+            for _recorder in recorders:
+                if _recorder.ident is not None:
+                    _recorder.join()
+                if _recorder.error is not None:
+                    recording_errors.append(_recorder.filename)
+                    logger.error("Recording failed for %s: %s", _recorder.filename, _recorder.error)
+            for _id, _cam in cameras.items():
+                publisher = getattr(_cam, "zmq_publisher", None)
+                if publisher is not None:
+                    publisher.close(linger=0)
+                if record:
+                    logger.info("%s: %d frames written, %d recording queue drops", _id,
+                                _cam.recorder.frames_written, getattr(_cam, "recording_drops", 0))
+        finally:
+            dpg.destroy_context()
+    if recording_errors:
+        raise click.ClickException("Recording failed: " + ", ".join(recording_errors))
 
 
 @cli.command(name="save-intrinsics")

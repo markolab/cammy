@@ -1,4 +1,4 @@
-from cammy.record.base import BaseRecord
+from cammy.record.base import BaseRecord, RECORD_QUEUE_FRAMES
 import subprocess
 import numpy as np
 import logging
@@ -99,24 +99,17 @@ class RawVideoRecorder(BaseRecord):
 		batch_size=20,
 		cpu_id=None,
 		zmq_address=None,
+		queue_frames=RECORD_QUEUE_FRAMES,
 	):
 
-		super(BaseRecord, self).__init__()
-		self.logger = logging.getLogger(self.__class__.__name__)
-
-		self.save_queue = save_queue
-		self.id = id
+		super().__init__(save_queue, filename, cpu_id=cpu_id, batch_size=batch_size,
+						 zmq_address=zmq_address, queue_frames=queue_frames)
 		basefile = os.path.splitext(filename)[0]
 		filename_timestamps = f"{basefile}.txt"
 		
 		self.filenames = {"video": filename, "timestamps": filename_timestamps}
 		self.timestamp_fields = timestamp_fields
 		self.write_dtype = write_dtype
-		self.frame_batch = []
-		self.timestamp_batch = []
-		self.batch_size = batch_size
-		self.cpu_id = cpu_id
-		self.zmq_address = zmq_address
 		self._iov_max = max(1, os.sysconf("SC_IOV_MAX"))
 
 
@@ -157,26 +150,31 @@ class RawVideoRecorder(BaseRecord):
 
 
 	def open_writer(self):
-		video_file = open(self.filenames["video"], "wb", buffering=0)
-		tstamp_file = open(self.filenames["timestamps"], "w")
+		self._video_file = open(self.filenames["video"], "wb", buffering=0)
+		self._tstamp_file = open(self.filenames["timestamps"], "w")
 		for _field in self.timestamp_fields:
-			tstamp_file.write(f"{_field}\t")
-		tstamp_file.write("\n")
-		self._video_file = video_file
-		self._tstamp_file = tstamp_file
+			self._tstamp_file.write(f"{_field}\t")
+		self._tstamp_file.write("\n")
 		
 
 	def close_writer(self):
 		self.logger.info(f"Closing writer {self.name}")
-		try:
-			self._video_file.flush()
-			os.fsync(self._video_file)
-			self._video_file.close()
-		except AttributeError:
-			pass
-		try:
-			self._tstamp_file.flush()
-			os.fsync(self._tstamp_file)
-			self._tstamp_file.close()
-		except AttributeError:
-			pass
+		error = None
+		for name in ("_video_file", "_tstamp_file"):
+			file = getattr(self, name, None)
+			if file is None or file.closed:
+				continue
+			try:
+				file.flush()
+				os.fsync(file.fileno())
+			except OSError as exc:
+				if error is None:
+					error = exc
+			finally:
+				try:
+					file.close()
+				except OSError as exc:
+					if error is None:
+						error = exc
+		if error is not None:
+			raise error
