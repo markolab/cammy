@@ -1,6 +1,13 @@
 # cammy
 Simple python package to record from machine vision cameras (Basler and Lucid in particular)
 
+On Linux, `--record --writer-cores 2` reserves two physical cores for writers,
+one for the GUI, and gives the remaining cores to acquisition. SMT siblings stay
+in the same pool. On a ten-core machine this gives seven acquisition cores.
+The default still splits worker cores roughly equally between acquisition and
+recording. Compare acquisition misses and recording drops using `--stream-stats`
+at the same trigger settings; omit `--writer-cores` to restore the default split.
+
 Add `--stream-stats` to `cammy run` to log one line per Aravis camera per second,
 even with preview images disabled. Logs include free input buffers, queued
 completed buffers, reception failures, buffer underruns, acquired/missed frames,

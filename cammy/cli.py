@@ -70,6 +70,13 @@ txt_pos = (25, 25)
 @click.option("--buffer-size", "-b", type=int, default=5, help="Buffer size")
 @click.option("--n-fake-cameras", type=int, default=1)
 @click.option("--record", is_flag=True, help="Save frames to disk")
+@click.option(
+    "--writer-cores",
+    type=click.IntRange(min=1),
+    default=None,
+    help="Linux physical cores reserved for writers; remaining worker cores go to acquisition. "
+         "Requires --record. Default: half the worker cores."
+)
 @click.option("--jumbo-frames", default=True, type=bool, help="Turn on jumbo frames (GigE only)")
 @click.option(
     "--receiver-realtime-priority",
@@ -180,6 +187,7 @@ def simple_preview(
     n_fake_cameras: int,
     camera_options: Optional[str],
     record: bool,
+    writer_cores: Optional[int],
     jumbo_frames: bool,
     receiver_realtime_priority: int,
     stream_stats: bool,
@@ -212,6 +220,8 @@ def simple_preview(
     
     cli_params = locals()
 
+    if writer_cores is not None and not record:
+        raise click.UsageError("--writer-cores requires --record")
     if trigger_device == "nucleo" and not hw_trigger:
         raise click.UsageError("--trigger-device nucleo requires --hw-trigger")
     if trigger_device == "nucleo" and light_mode is None:
@@ -309,7 +319,7 @@ def simple_preview(
             "No cameras could be initialized; see the camera initialization errors above."
         )
     try:
-        gui_cpus, acquire_cpus, write_cpus = get_cpu_affinity(record)
+        gui_cpus, acquire_cpus, write_cpus = get_cpu_affinity(record, writer_cores=writer_cores)
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
     logger.info(

@@ -25,11 +25,13 @@ def get_physical_core_map():
     return physical_cores
 
 
-def get_cpu_affinity(record=False):
+def get_cpu_affinity(record=False, writer_cores=None):
     """Give GUI one physical core and split the rest into disjoint worker pools."""
     import platform
 
     if platform.system().lower() != "linux":
+        if writer_cores is not None:
+            logger.warning("--writer-cores only applies on Linux")
         return None, [None], [None]
 
     cores = list(get_physical_core_map().values())
@@ -43,8 +45,14 @@ def get_cpu_affinity(record=False):
     gui_cpus = set(cores[0])
     workers = cores[1:]
     if record:
-        split = (len(workers) + 1) // 2
-        acquisition, recording = workers[:split], workers[split:]
+        if writer_cores is None:
+            writer_cores = len(workers) // 2
+        if not 1 <= writer_cores < len(workers):
+            raise ValueError(
+                f"--writer-cores must be between 1 and {len(workers) - 1} "
+                f"with {len(cores)} available physical cores"
+            )
+        acquisition, recording = workers[:-writer_cores], workers[-writer_cores:]
     else:
         acquisition, recording = workers, []
 

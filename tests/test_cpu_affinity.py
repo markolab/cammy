@@ -2,6 +2,9 @@ import io
 import unittest
 from unittest.mock import patch
 
+from click.testing import CliRunner
+
+from cammy.cli import cli
 from cammy.util import get_cpu_affinity, get_physical_core_map
 
 
@@ -20,10 +23,10 @@ class CpuAffinityTests(unittest.TestCase):
 
         self.assertEqual(dict(cores), {"0,4": [0, 4], "1,5": [1], "2,6": [2, 6]})
 
-    def allocate(self, cores, record=True):
+    def allocate(self, cores, record=True, writer_cores=None):
         with patch("platform.system", return_value="Linux"), \
                 patch("cammy.util.get_physical_core_map", return_value=cores):
-            return get_cpu_affinity(record)
+            return get_cpu_affinity(record, writer_cores=writer_cores)
 
     def assert_separate_physical_cores(self, cores, pools):
         for siblings in cores.values():
@@ -48,6 +51,28 @@ class CpuAffinityTests(unittest.TestCase):
 
         self.assertEqual((gui, acquire, write), ({2}, [5, 8], [11]))
         self.assert_separate_physical_cores(cores, [gui, acquire, write])
+
+    def test_two_writer_cores_leave_seven_acquisition_cores_with_smt(self):
+        cores = {core: [core, core + 10] for core in range(10)}
+        gui, acquire, write = self.allocate(cores, writer_cores=2)
+
+        self.assertEqual(gui, {0, 10})
+        self.assertEqual(acquire, [1, 2, 3, 4, 5, 6, 7, 11, 12, 13, 14, 15, 16, 17])
+        self.assertEqual(write, [8, 9, 18, 19])
+        self.assert_separate_physical_cores(cores, [gui, acquire, write])
+
+    def test_custom_writer_count_without_smt_or_consecutive_cpu_ids(self):
+        cores = {"a": [2], "b": [5], "c": [8], "d": [11], "e": [14]}
+        gui, acquire, write = self.allocate(cores, writer_cores=1)
+
+        self.assertEqual((gui, acquire, write), ({2}, [5, 8, 11], [14]))
+        self.assert_separate_physical_cores(cores, [gui, acquire, write])
+
+    def test_writer_count_cannot_empty_either_worker_pool(self):
+        cores = {core: [core] for core in range(4)}
+        for count in [0, -1, 3, 4]:
+            with self.subTest(count=count), self.assertRaisesRegex(ValueError, "between 1 and 2"):
+                self.allocate(cores, writer_cores=count)
 
     def test_all_hardware_threads_stay_in_their_pool_with_four_way_smt(self):
         cores = {core: [core, core + 3, core + 6, core + 9] for core in range(3)}
@@ -74,6 +99,33 @@ class CpuAffinityTests(unittest.TestCase):
                 patch("cammy.util.get_physical_core_map") as topology:
             self.assertEqual(get_cpu_affinity(record=True), (None, [None], [None]))
         topology.assert_not_called()
+
+    def test_non_linux_logs_that_custom_writer_count_is_ignored(self):
+        with patch("platform.system", return_value="Darwin"), \
+                patch("cammy.util.get_physical_core_map") as topology, \
+                self.assertLogs("cammy.util", level="WARNING") as logs:
+            self.assertEqual(get_cpu_affinity(record=True, writer_cores=2), (None, [None], [None]))
+        self.assertIn("--writer-cores only applies on Linux", logs.output[0])
+        topology.assert_not_called()
+
+
+class WriterCoresCliTests(unittest.TestCase):
+    def test_default_and_custom_writer_counts(self):
+        for args, expected in [([], None), (["--record", "--writer-cores", "2"], 2)]:
+            with self.subTest(args=args), cli.commands["run"].make_context("run", args) as context:
+                self.assertEqual(context.params["writer_cores"], expected)
+
+    def test_nonpositive_and_noninteger_counts_are_rejected(self):
+        for value in ["0", "-1", "1.5"]:
+            with self.subTest(value=value):
+                result = CliRunner().invoke(cli, ["run", "--record", "--writer-cores", value])
+                self.assertEqual(result.exit_code, 2)
+                self.assertIn("--writer-cores", result.output)
+
+    def test_writer_cores_requires_recording(self):
+        result = CliRunner().invoke(cli, ["run", "--writer-cores", "2"])
+        self.assertEqual(result.exit_code, 2)
+        self.assertIn("--writer-cores requires --record", result.output)
 
 
 if __name__ == "__main__":
