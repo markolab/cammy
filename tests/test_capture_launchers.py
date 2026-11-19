@@ -60,14 +60,16 @@ class CaptureLauncherTests(unittest.TestCase):
         self.cammy.write_text('#!/bin/sh\nprintf "%s\\n" "$CONDA_PREFIX" "$GI_TYPELIB_PATH" "$LD_LIBRARY_PATH"\n')
         self.install(desktop, CONDA_PREFIX=prefix, CONDA_EXE=str(conda),
                      GI_TYPELIB_PATH=typelibs, LD_LIBRARY_PATH=libraries)
-        result = self.run_shortcut(desktop / "cammy-surface-preview.desktop")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.splitlines(), [prefix, typelibs, libraries])
+        for name in ("cammy-surface-preview.desktop", "cammy-tune.desktop"):
+            with self.subTest(name=name):
+                result = self.run_shortcut(desktop / name)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.splitlines(), [prefix, typelibs, libraries])
 
     def test_six_shortcuts_use_expected_trigger_sequence_and_recording_options(self):
         desktop = self.root / "test desktop"
         self.install(desktop)
-        self.assertEqual(len(list(desktop.glob("*.desktop"))), 6)
+        self.assertEqual(len(list(desktop.glob("*.desktop"))), 7)
         settings = desktop / "cammy-settings.sh"
         self.assertEqual(settings.read_bytes(), self.settings.read_bytes())
         with settings.open("a") as f:
@@ -102,6 +104,19 @@ class CaptureLauncherTests(unittest.TestCase):
                         fluorescence_illumination_percent=p["fluorescence_illumination_percent"],
                     )
                     self.assertEqual(dev.config_command, f"CONFIG,1,{dev.MODES[mode]},200,3500,1250,0,6250,{steps}")
+
+    def test_tune_shortcut_uses_installed_settings_and_direct_launch_uses_cli_default(self):
+        desktop = self.root / "custom desktop"
+        self.install(desktop)
+        shortcut = desktop / "cammy-tune.desktop"
+        self.assertTrue(os.access(shortcut, os.X_OK))
+        result = self.run_shortcut(shortcut)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines()[1:], ["tune", "--settings", str(desktop.resolve() / "cammy-settings.sh")])
+        direct = subprocess.run(["bash", self.scripts / "capture.sh", "tune"], text=True, capture_output=True,
+                                env={"PATH": f"{self.root}:{os.defpath}"}, cwd=self.root)
+        self.assertEqual(direct.returncode, 0, direct.stderr)
+        self.assertEqual(direct.stdout.splitlines()[1:], ["tune"])
 
     def test_old_desktop_settings_use_the_current_rig_defaults(self):
         desktop = self.root / "Desktop"

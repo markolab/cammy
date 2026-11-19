@@ -1,4 +1,4 @@
-# Shared by all six Cammy launchers. Exposure widths are in microseconds.
+# Shared by the capture and tuning launchers. Exposure widths are in microseconds.
 GAIN_DB=""                      # Empty uses the gain from the camera TOML.
 FLUORESCENCE_EXPOSURE_US=10000
 SURFACE_EXPOSURE_US=1000

@@ -1,4 +1,4 @@
-"""Install six Linux desktop shortcuts using the active Cammy environment."""
+"""Install the capture and tuning shortcuts using the active Cammy environment."""
 
 import os
 from pathlib import Path
@@ -67,14 +67,16 @@ if paths:
     launcher.extend(["env", *paths])
 launcher.extend(["bash", "./capture.sh"])
 command = " ".join(exec_arg(arg) for arg in launcher)
-for mode in ("surface", "fluorescence", "alternate"):
-    for action in ("preview", "record"):
-        shortcut = desktop / f"cammy-{mode}-{action}.desktop"
-        shortcut.write_text(
-            f"[Desktop Entry]\nType=Application\nName=Cammy {mode.title()} {action.title()}\n"
-            f"Path={script_dir}\nExec={command} {mode} {action} {exec_arg(cammy)} {exec_arg(settings)}\n"
-            "Terminal=true\nIcon=camera-video\n",
-            encoding="utf-8",
-        )
-        shortcut.chmod(0o755)
-        print(shortcut)
+shortcuts = [(mode, action) for mode in ("surface", "fluorescence", "alternate") for action in ("preview", "record")]
+shortcuts.append(("tune",))
+for args in shortcuts:
+    action = " ".join(args)
+    shortcut = desktop / f"cammy-{'-'.join(args)}.desktop"
+    shortcut.write_text(
+        f"[Desktop Entry]\nType=Application\nName=Cammy {action.title()}\n"
+        f"Path={script_dir}\nExec={command} {action} {exec_arg(cammy)} {exec_arg(settings)}\n"
+        "Terminal=true\nIcon=camera-video\n",
+        encoding="utf-8",
+    )
+    shortcut.chmod(0o755)
+    print(shortcut)

@@ -139,6 +139,11 @@ class NucleoTriggerDevice:
                 pass  # Preserve the startup error if emergency STOP also fails.
             raise
 
+    def reconfigure(self, candidate):
+        """Apply a validated configuration on the existing, stopped controller."""
+        self._command(candidate.config_command, "OK CONFIG")
+        self.config_command = candidate.config_command
+
     def stop(self):
         if self.dev is not None:
             self._command("STOP", "OK STOP")

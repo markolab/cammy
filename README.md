@@ -7,11 +7,11 @@ From the updated checkout on the acquisition PC, use the terminal where Cammy
 works. Verify that its CLI can load Aravis, then install the shortcuts.
 
 ```sh
-cammy run --help && python3 launchers/install.py
+cammy tune --help && python3 launchers/install.py
 ```
 
-This puts six shortcuts on your Linux desktop, one **Preview** and one **Record**
-for each of **Surface**, **Fluorescence**, and **Alternate**. If GNOME prompts,
+This puts **Cammy Tune** on your Linux desktop alongside the **Preview** and
+**Record** shortcuts for **Surface**, **Fluorescence**, and **Alternate**. If GNOME prompts,
 right-click the shortcut and choose **Allow Launching**. The shortcuts use this
 checkout and the Cammy executable found at installation. When a Conda
 environment is active during installation, each shortcut uses `conda run`
@@ -21,7 +21,7 @@ Rerun the installer after moving the checkout or changing the environment or
 library paths.
 
 Edit `cammy-settings.sh` beside the desktop shortcuts and save it before the
-next run. All six shortcuts read that file at startup. The installer copies it
+next run. All seven shortcuts read that file at startup. The installer copies it
 from [launchers/settings.sh](launchers/settings.sh) on first install. Rerun the
 installer to add new settings to an older desktop copy as commented examples.
 Uncomment an example to override its default. The settings include gain in dB
@@ -32,8 +32,8 @@ With the default alternating settings, one pair takes 21.5 ms (46.51 pairs/s,
 
 | Bank | Camera exposure | Light enabled | Brightness after amplifier |
 | --- | --- | --- | --- |
-| Surface | 0–1 ms | −0.1 to 1 ms | 5 V |
-| Fluorescence | 1.5–11.5 ms | 1.4–6.5 ms | 2 V |
+| Surface | 0–1 ms | −0.1 to 1 ms | 4 V |
+| Fluorescence | 1.5–11.5 ms | 1.4–6.5 ms | 10 V |
 
 `SURFACE_TO_FLUORESCENCE_GAP_US` sets the preferred gap from surface exposure end
 to fluorescence exposure start (500 µs). The remaining low time follows fluorescence
@@ -51,13 +51,37 @@ and 100% fill keeps it on across frames.
 The defaults use the rig's `/data/qdpi/basler_new_8bit.toml` and save recordings
 under `/data/qdpi/session_*`. Preview shows live images. Record opens the usual
 experiment dialog and uses seven writer cores, batches of 20, a queue setting
-of 512, and disabled image updates. Direct runs from the checkout use
+of 512, and disabled image updates. Direct preview and recording runs from the checkout use
 `launchers/settings.sh` by default.
 
 ```sh
 bash launchers/capture.sh fluorescence preview
 bash launchers/capture.sh alternate record
 ```
+
+## Live tuning
+
+Open **Cammy Tune**, run `bash launchers/capture.sh tune`, or run `cammy tune`
+in the acquisition environment to start with surface illumination. Run
+`cammy tune --mode fluorescence` to start with fluorescence.
+It reads the same desktop `cammy-settings.sh` as the launchers. Use
+`--settings "/path/to/cammy-settings.sh"` for a custom location and
+`--trigger-port` for a different serial port.
+
+Target FPS and gain are shared across cameras. Set them alongside the selected
+bank's exposure (µs) and voltage (V), then click **Apply surface** or
+**Apply fluorescence** to preview that bank. A blank gain
+uses each camera's original settings. Apply checks the exposure against the
+configured FPS and settle time, pauses the Nucleo, and restarts triggering over
+the same connection. Changing gain also briefly disarms and rearms the cameras.
+Each camera uses a fixed full-range display and shows the percentage of
+saturated pixels in a full-resolution frame, refreshed four times a second.
+
+**Save applied settings** writes the values you tried to the shared settings
+file. The saved FPS is the total frame rate per camera for all launchers.
+In alternation, each bank receives half that rate. Closing the preview stops
+the lights and restores camera gain. For the final timing and illumination
+duty cycle, check **Alternate Preview**.
 
 ## Acquisition and recording
 

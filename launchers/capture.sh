@@ -6,12 +6,22 @@ check_us() {
     [[ $2 =~ ^(0|[1-9][0-9]{0,9})$ ]] && (( $2 >= $3 && $2 <= 2147483647 )) ||
         die "$1 must be a whole number of microseconds between $3 and 2147483647 (got '$2')."
 }
-mode=${1:-}
-action=${2:-}
-cammy=${3:-cammy}
 if [[ $# -ge 3 && -t 0 ]]; then
     trap 'if (( $? != 0 )); then read -rp "Press Enter to close. " || true; fi' EXIT
 fi
+if [[ ${1:-} == tune ]]; then
+    cammy=${2:-cammy}
+    if [[ -n ${3:-} ]]; then
+        "$cammy" tune --settings "$3"
+    else
+        "$cammy" tune
+    fi
+    exit
+fi
+
+mode=${1:-}
+action=${2:-}
+cammy=${3:-cammy}
 source "$(dirname "$0")/settings.sh"
 if [[ -n ${4:-} ]]; then source "$4"; fi
 case "$mode" in

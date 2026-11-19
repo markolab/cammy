@@ -24,22 +24,27 @@ from typing import Optional, Iterable
 from cammy.util import (
     get_all_camera_ids,
     intensity_to_rgba,
-    intensity_to_rgba_lut, 
+    intensity_to_rgba_lut,
     initialize_cameras,
     get_output_format,
     get_pixel_format_bit_depth,
     mpl_to_cv2_colormap,
     get_cpu_affinity,
     check_counters_equal,
+    shared_asset,
 )
 from cammy.record.base import RECORD_QUEUE_FRAMES
 from cammy.record.video import FfmpegVideoRecorder, RawVideoRecorder
 from cammy.camera.spoof import SpoofCamera
+from cammy.tune import tune
 
 
 @click.group()
 def cli():
     pass
+
+
+cli.add_command(tune)
 
 
 slider_defaults_min = {
@@ -224,9 +229,11 @@ def simple_preview(
     record_queue_frames: int,
     frame_writer_batch_size: int,
     verbose: bool,
+    tuning=None,
 ):
     
-    cli_params = locals()
+    cli_params = locals().copy()
+    del cli_params["tuning"]
 
     if gain_db is not None and (not np.isfinite(gain_db) or interface == "fake_custom"):
         raise click.UsageError("--gain-db requires a finite gain and an Aravis camera")
@@ -261,6 +268,7 @@ def simple_preview(
     from cammy.camera.aravis import AravisCamera, acquisition_loop, set_receiver_realtime_priority
 
     basedir = os.path.dirname(os.path.abspath(__file__))
+    font_path = str(shared_asset("assets/OpenSans-VariableFont_wdth,wght.ttf"))
     hostname = socket.gethostname()
 
     if server:
@@ -390,7 +398,7 @@ def simple_preview(
     write_dtype = {}
 
     if hw_trigger:
-        if len(hw_trigger_pulse_width) == 0:
+        if len(hw_trigger_pulse_width) == 0 and tuning is None:
             if trigger_device == "nucleo" and hw_trigger_rate > 0:
                 use_rate = hw_trigger_rate
             else:
@@ -426,7 +434,7 @@ def simple_preview(
             if not hw_trigger_pulse_low:
                 hw_trigger_pulse_low = [.002]
             try:
-                trigger_dev = NucleoTriggerDevice(
+                trigger_dev = tuning.trigger if tuning is not None else NucleoTriggerDevice(
                     com=trigger_port,
                     mode=light_mode,
                     pulse_widths=hw_trigger_pulse_width,
@@ -483,9 +491,6 @@ def simple_preview(
         # https://github.com/hoffstadt/DearPyGui/issues/1380
         with dpg.font_registry():
             # Download font here: https://fonts.google.com/specimen/Open+Sans
-            font_path = os.path.join(
-                basedir, "../assets", "OpenSans-VariableFont_wdth,wght.ttf"
-            )
             default_font_large = dpg.add_font(font_path, 24 * 2, tag="ttf-font-large")
             default_font_small = dpg.add_font(font_path, 20 * 2, tag="ttf-font-small")
 
@@ -585,13 +590,14 @@ def simple_preview(
 
     # start a new context for acquisition
     dpg.create_context()
+    if tuning is not None:
+        dpg.configure_app(manual_callback_management=True)
+        gain_cameras = {key: cameras[key] for key in cameras_metadata}
+        tuning.build_panel(dpg, gain_cameras)
 
     # https://github.com/hoffstadt/DearPyGui/issues/1380
     with dpg.font_registry():
         # Download font here: https://fonts.google.com/specimen/Open+Sans
-        font_path = os.path.join(
-            basedir, "../assets", "OpenSans-VariableFont_wdth,wght.ttf"
-        )
         default_font_large = dpg.add_font(font_path, 20 * 2, tag="ttf-font-large")
         default_font_small = dpg.add_font(font_path, 16 * 2, tag="ttf-font-small")
 
@@ -606,8 +612,8 @@ def simple_preview(
                 dtype="float32",
             )
             dpg.add_raw_texture(
-                _cam._width / display_downsample,
-                _cam._height / display_downsample,
+                _cam._width // display_downsample,
+                _cam._height // display_downsample,
                 blank_data,
                 tag=f"texture_{_id}",
                 format=dpg.mvFormat_Float_rgba,
@@ -617,7 +623,7 @@ def simple_preview(
     fps_status = {}
     for _id, _cam in cameras.items():
         use_config = {}
-        for k, v in camera_dct["display"].items():
+        for k, v in camera_dct.get("display", {}).items():
             if k in _id:
                 use_config = v
 
@@ -628,17 +634,20 @@ def simple_preview(
             no_scrollbar=True,
         ):
             dpg.add_image(f"texture_{_id}")
-            with dpg.group(horizontal=True):
-                dpg.add_slider_float(
-                    tag=f"texture_{_id}_min",
-                    width=(_cam._width // display_downsample) / 3,
-                    **{**slider_defaults_min, **use_config["slider_defaults_min"]},
-                )
-                dpg.add_slider_float(
-                    tag=f"texture_{_id}_max",
-                    width=(_cam._width // display_downsample) / 3,
-                    **{**slider_defaults_max, **use_config["slider_defaults_max"]},
-                )
+            if tuning is not None:
+                dpg.add_text("Saturated pixels: —", tag=f"saturation_{_id}")
+            else:
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(
+                        tag=f"texture_{_id}_min",
+                        width=(_cam._width // display_downsample) // 3,
+                        **{**slider_defaults_min, **use_config.get("slider_defaults_min", {})},
+                    )
+                    dpg.add_slider_float(
+                        tag=f"texture_{_id}_max",
+                        width=(_cam._width // display_downsample) // 3,
+                        **{**slider_defaults_max, **use_config.get("slider_defaults_max", {})},
+                    )
             miss_status[_id] = dpg.add_text("0 missed frames / 0 total")
             fps_status[_id] = dpg.add_text(f"0 {fps_unit}")
             # add sliders/text boxes for exposure time and fps
@@ -646,8 +655,8 @@ def simple_preview(
             dpg.set_global_font_scale(0.5)
 
     gui_x_offset = 0
-    gui_y_offset = 0
-    gui_x_max = 0
+    gui_y_offset = 160 if tuning is not None else 0
+    gui_x_max = 780 if tuning is not None else 0
     gui_y_max = 0
     row_pos = 0
     for _id, _cam in cameras.items():
@@ -683,6 +692,8 @@ def simple_preview(
         # Configure the Nucleo while stopped, before arming any camera.
         if hw_trigger and trigger_device == "nucleo":
             trigger_dev.open()
+        if tuning is not None and tuning.values["GAIN_DB"]:
+            tuning.set_gain(gain_cameras, tuning.values["GAIN_DB"])
         for _recorder in recorders:
             _recorder.start()
         for _recorder in recorders:
@@ -703,7 +714,8 @@ def simple_preview(
         for _cam in cameras.values():
             _cam.count = 0
 
-        dpg.create_viewport(title="Camera preview", width=gui_x_max, height=gui_y_max)
+        dpg.create_viewport(title="Cammy tune" if tuning is not None else "Camera preview",
+                            width=gui_x_max, height=gui_y_max)
 
         # dpg.set_viewport_vsync(False)
         # dpg.show_metrics()
@@ -722,6 +734,7 @@ def simple_preview(
         display_counter = {}
         last_seen_frame = {}
         next_stream_stats = 0.0
+        next_saturation = 0.0
 
         for _camera in cameras.keys():
             display_counter[_camera] = 0
@@ -729,8 +742,13 @@ def simple_preview(
         # Cameras and acquisition threads are ready before external timing starts.
         if hw_trigger and (trigger_dev is not None):
             trigger_dev.start()
-        
+
         while dpg.is_dearpygui_running():
+            if tuning is not None:
+                dpg.run_callbacks(dpg.get_callback_queue())
+                show_saturation = time.monotonic() >= next_saturation
+                if show_saturation:
+                    next_saturation = time.monotonic() + .25
             if stream_stats and time.perf_counter() >= next_stream_stats:
                 for _cam in cameras.values():
                     if isinstance(_cam, AravisCamera):
@@ -748,10 +766,17 @@ def simple_preview(
 
             cur_duration = (time.perf_counter() - start_time) / 60.0
             for _id, _dat in dat.items():
+                if tuning is not None and show_saturation and _dat[0] is not None:
+                    max_pixel = (1 << bit_depth[_id]) - 1
+                    percent = 100 * np.count_nonzero(_dat[0] >= max_pixel) / _dat[0].size
+                    dpg.set_value(f"saturation_{_id}", f"Saturated pixels: {percent:.3f}%")
                 if _dat[0] is not None and _dat is not last_seen_frame.get(_id):
                     last_seen_frame[_id] = _dat
-                    disp_min = dpg.get_value(f"texture_{_id}_min")
-                    disp_max = dpg.get_value(f"texture_{_id}_max")
+                    if tuning is not None:
+                        disp_min, disp_max = 0, (1 << bit_depth[_id]) - 1
+                    else:
+                        disp_min = dpg.get_value(f"texture_{_id}_min")
+                        disp_max = dpg.get_value(f"texture_{_id}_max")
                     if (display_time_downsample > 0)  and ((display_counter[_id] % display_time_downsample) == 0):
                         height, width = _dat[0].shape
                         disp_img = cv2.resize(
@@ -844,6 +869,12 @@ def simple_preview(
                     logger.exception("Could not stop camera %s", _cam.id)
             acquisition_thread_shutdown_event.set()
             [_t.join() for _t in threads.values() if _t.ident is not None]
+            if tuning is not None and tuning.gains_changed:
+                for key, camera in gain_cameras.items():
+                    try:
+                        tuning.set_gain({key: camera}, "")
+                    except Exception:
+                        logger.exception("Could not restore the original gain on %s", key)
             if server and (zsocket is not None):
                 try:
                     zsocket.send_pyobj("EXIT", flags=zmq.NOBLOCK)

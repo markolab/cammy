@@ -5,12 +5,26 @@ import logging
 import os
 import sys
 from functools import lru_cache
+from importlib.metadata import distribution
+from pathlib import Path
 
 gi.require_version("Aravis", "0.8")
 from gi.repository import Aravis
 
 
 logger = logging.getLogger(__name__)
+
+
+def shared_asset(relative):
+    """Locate a launcher or GUI asset in a checkout or the installed wheel."""
+    path = Path(__file__).resolve().parents[1] / relative
+    if path.is_file():
+        return path
+    package = distribution("cammy")
+    for item in package.files or ():
+        if item.parts[-3:] == ("share", "cammy", path.name):
+            return Path(package.locate_file(item))
+    raise FileNotFoundError(f"Cammy asset missing: {relative}")
 
 
 def get_physical_core_map():
