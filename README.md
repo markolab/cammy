@@ -3,18 +3,22 @@ Simple python package to record from machine vision cameras (Basler and Lucid in
 
 ## Desktop launchers for the Nucleo rig
 
-From the updated checkout on the acquisition PC, activate the environment you
-normally use for Cammy and install the shortcuts with this command.
+From the updated checkout on the acquisition PC, use the terminal where Cammy
+works. Verify that its CLI can load Aravis, then install the shortcuts.
 
 ```sh
-python3 launchers/install.py
+cammy run --help && python3 launchers/install.py
 ```
 
 This puts six shortcuts on your Linux desktop, one **Preview** and one **Record**
 for each of **Surface**, **Fluorescence**, and **Alternate**. If GNOME prompts,
 right-click the shortcut and choose **Allow Launching**. The shortcuts use this
-checkout and the Cammy executable found at installation. Rerun the installer
-after moving the checkout or switching environments.
+checkout and the Cammy executable found at installation. When a Conda
+environment is active during installation, each shortcut uses `conda run`
+with that environment's full path. The installer also carries over exported
+`GI_TYPELIB_PATH` and `LD_LIBRARY_PATH` values for custom Aravis installations.
+Rerun the installer after moving the checkout or changing the environment or
+library paths.
 
 Edit `cammy-settings.sh` beside the desktop shortcuts and save it before the
 next run. All six shortcuts read that file at startup. The installer copies it

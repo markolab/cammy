@@ -10,6 +10,12 @@ import sys
 cammy = shutil.which("cammy")
 if cammy is None:
     sys.exit("Activate the environment that runs cammy, then rerun this installer.")
+cammy = os.path.abspath(cammy)
+conda_prefix = os.environ.get("CONDA_PREFIX")
+if conda_prefix:
+    conda = shutil.which(os.environ.get("CONDA_EXE") or "conda")
+    if not conda:
+        sys.exit(f"Could not find conda for {conda_prefix}. Activate the working Cammy environment and retry.")
 if len(sys.argv) > 2:
     sys.exit("Usage: python3 install.py [desktop-directory]")
 if len(sys.argv) == 2:
@@ -42,21 +48,31 @@ except FileExistsError:
 print(f"Shared settings: {settings}")
 
 
-def exec_arg(path):
+def exec_arg(arg):
     # Desktop entries parse backslash escapes before parsing quotes in Exec.
-    value = os.path.abspath(path).replace("%", "%%")
+    value = os.fspath(arg).replace("%", "%%")
     for char in ('\\', '"', '`', '$'):
         value = value.replace(char, '\\' + char)
     return '"' + value.replace("\\", "\\\\") + '"'
 
 
 script_dir = str(scripts).replace("\\", "\\\\")
+launcher = []
+if conda_prefix:
+    launcher.extend([os.path.abspath(conda), "run", "--no-capture-output", "--prefix", conda_prefix])
+    print(f"Desktop Conda environment: {conda_prefix}")
+# Aravis may also depend on search paths exported by the rig's interactive shell.
+paths = [f"{key}={os.environ[key]}" for key in ("GI_TYPELIB_PATH", "LD_LIBRARY_PATH") if os.environ.get(key)]
+if paths:
+    launcher.extend(["env", *paths])
+launcher.extend(["bash", "./capture.sh"])
+command = " ".join(exec_arg(arg) for arg in launcher)
 for mode in ("surface", "fluorescence", "alternate"):
     for action in ("preview", "record"):
         shortcut = desktop / f"cammy-{mode}-{action}.desktop"
         shortcut.write_text(
             f"[Desktop Entry]\nType=Application\nName=Cammy {mode.title()} {action.title()}\n"
-            f"Path={script_dir}\nExec=bash ./capture.sh {mode} {action} {exec_arg(cammy)} {exec_arg(settings)}\n"
+            f"Path={script_dir}\nExec={command} {mode} {action} {exec_arg(cammy)} {exec_arg(settings)}\n"
             "Terminal=true\nIcon=camera-video\n",
             encoding="utf-8",
         )

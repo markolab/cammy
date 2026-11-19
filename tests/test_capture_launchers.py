@@ -35,15 +35,34 @@ class CaptureLauncherTests(unittest.TestCase):
             cwd=self.root, text=True, capture_output=True,
         )
 
-    def install(self, desktop):
+    def install(self, desktop, **environment):
+        env = {"PATH": f"{self.root}:{os.defpath}", "HOME": str(self.root), **environment}
         subprocess.run(
             [sys.executable, self.scripts / "install.py", desktop], check=True,
-            env={**os.environ, "PATH": f"{self.root}:{os.environ['PATH']}"}, capture_output=True,
+            env=env, capture_output=True,
         )
 
     def run_shortcut(self, shortcut):
         fields = dict(line.split("=", 1) for line in shortcut.read_text().splitlines() if "=" in line)
-        return subprocess.run(shlex.split(fields["Exec"]), cwd=fields["Path"], text=True, capture_output=True)
+        return subprocess.run(shlex.split(fields["Exec"]), cwd=fields["Path"], text=True, capture_output=True,
+                              env={"PATH": os.defpath, "HOME": str(self.root)})
+
+    def test_desktop_launch_recreates_the_installing_shells_aravis_environment(self):
+        desktop = self.root / "Desktop"
+        prefix = str(self.root / "conda envs" / "aravis")
+        conda = self.root / "conda executable"
+        conda.write_text('#!/bin/sh\n'
+                         '[ "$1 $2 $3" = "run --no-capture-output --prefix" ] || exit 1\n'
+                         'export CONDA_PREFIX="$4"\nshift 4\nexec "$@"\n')
+        conda.chmod(0o755)
+        typelibs = "/opt/camera SDK/girepository-1.0:/usr/local/lib/girepository-1.0"
+        libraries = "/opt/camera SDK/lib"
+        self.cammy.write_text('#!/bin/sh\nprintf "%s\\n" "$CONDA_PREFIX" "$GI_TYPELIB_PATH" "$LD_LIBRARY_PATH"\n')
+        self.install(desktop, CONDA_PREFIX=prefix, CONDA_EXE=str(conda),
+                     GI_TYPELIB_PATH=typelibs, LD_LIBRARY_PATH=libraries)
+        result = self.run_shortcut(desktop / "cammy-surface-preview.desktop")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines(), [prefix, typelibs, libraries])
 
     def test_six_shortcuts_use_expected_trigger_sequence_and_recording_options(self):
         desktop = self.root / "test desktop"
@@ -88,20 +107,19 @@ class CaptureLauncherTests(unittest.TestCase):
         desktop = self.root / "Desktop"
         desktop.mkdir()
         settings = desktop / "cammy-settings.sh"
-        settings.write_text("FPS=93.0233\n")
+        original = f'DATA_DIR="{self.root / "camera data"}"\n'
+        settings.write_text(original)
         self.install(desktop)
         upgraded = settings.read_text()
-        self.assertTrue(upgraded.startswith("FPS=93.0233\n"))
-        self.assertIn("# SURFACE_VOLTAGE=5.0", upgraded)
+        self.assertTrue(upgraded.startswith(original))
+        self.assertIn("# SURFACE_VOLTAGE=", upgraded)
         self.install(desktop)
         self.assertEqual(settings.read_text(), upgraded)
         result = self.run_shortcut(desktop / "cammy-alternate-preview.desktop")
         self.assertEqual(result.returncode, 0, result.stderr)
-        p = simple_preview.make_context("run", result.stdout.splitlines()[2:]).params
-        self.assertEqual(p["hw_trigger_pulse_low"], (.0005, .010))
-        self.assertEqual(p["light_settle_us"], 100)
-        self.assertEqual((p["surface_voltage"], p["fluorescence_voltage"]), (5, 2))
-        self.assertEqual((p["surface_illumination_percent"], p["fluorescence_illumination_percent"]), (100, 50))
+        direct = self.launch("alternate", "preview")
+        self.assertEqual(direct.returncode, 0, direct.stderr)
+        self.assertEqual(result.stdout, direct.stdout)
 
     def test_tight_alternation_reserves_time_for_both_lights_to_settle(self):
         with self.settings.open("a") as settings:
