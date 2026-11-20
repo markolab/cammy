@@ -6,6 +6,7 @@ import threading
 import sys
 import zmq
 from cammy.camera.base import CammyCamera
+from cammy.roi import set_region
 from pathlib import Path
 from typing import Optional
 
@@ -109,7 +110,6 @@ class AravisCamera(CammyCamera):
         
 
     def initialize_acquisition_stream(self):
-        self._payload = self.camera.get_payload()  # size of payload
         requested_packet_size = (
             self.camera.gv_get_packet_size() if self.camera.is_gv_device() else None
         )
@@ -124,11 +124,31 @@ class AravisCamera(CammyCamera):
                     "check NIC/switch jumbo-frame and MTU settings",
                     self.id, requested_packet_size, packet_size,
                 )
-        for i in range(self.buffer_size):
+        self._allocate_stream_buffers()
+
+    def _allocate_stream_buffers(self):
+        self._payload = self.camera.get_payload()
+        for _ in range(self.buffer_size):
             self.stream.push_buffer(Aravis.Buffer.new_allocate(self._payload))
-        [x, y, width, height] = self.camera.get_region()
-        self._width = width
-        self._height = height  # stage stream
+        _, _, self._width, self._height = self.camera.get_region()
+
+    def change_region(self, region):
+        """Called with acquisition stopped and no reader holding a buffer."""
+        self.stream.stop_thread(True)  # Discard queued frames and free the old pool first.
+        try:
+            set_region(self.camera, region)
+            self._allocate_stream_buffers()
+        finally:
+            self.stream.start_thread()
+        self.display_frame = (None, None)
+        self._last_frame_id = None
+        self._last_framegrab = [np.nan] * len(self._last_framegrab)
+        self.fps = np.nan
+        for child in self._spoof_cameras:
+            child._width, child._height = self._width, self._height
+            child.display_frame = (None, None)
+            while not child.recv_queue.empty():
+                child.recv_queue.get_nowait()
 
 
     def log_stream_statistics(self):

@@ -90,8 +90,10 @@ the lights and restores camera gain. For the final timing and illumination
 duty cycle, check **Alternate Preview**.
 
 **Apply centered crop** sets the width and height in camera pixels on every
-camera. Enter `0` on either axis to keep its configured extent. Tune briefly
-reopens the preview so each stream and image buffer uses the new dimensions.
+camera. Enter `0` on either axis to restore its configured extent. Tune briefly
+pauses triggering and resizes the receive buffers on the affected streams.
+The preview stays open and shows the crop at its original position with black
+padding. Saturation and recordings use the cropped pixels only.
 **Save applied settings** writes `ROI_WIDTH` and `ROI_HEIGHT` for all preview and
 recording launchers. Both tune and capture restore the camera's original region
 on exit. Direct runs accept `--roi-width` and `--roi-height`.

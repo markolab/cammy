@@ -28,6 +28,8 @@ def centered_region(camera, original, width, height):
 
 
 def set_region(camera, region):
+    if tuple(camera.get_region()) == region:
+        return
     camera.set_region(*region)
     actual = tuple(camera.get_region())
     if actual != region:

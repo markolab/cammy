@@ -8,6 +8,7 @@ import time
 import cv2
 import threading
 import gc
+from contextlib import contextmanager
 import platform
 # gc.disable()
 
@@ -350,16 +351,17 @@ def simple_preview(
                 camera.set_feature("Gain", str(gain_db))
             except Exception as exc:
                 raise click.ClickException(f"{camera_id}: could not set gain to {gain_db} dB: {exc}") from exc
-    if roi_width or roi_height:
+    if tuning is not None or roi_width or roi_height:
         # Restore even if stream allocation or a later camera fails during startup.
         for key, cam in cameras.items():
             try:
                 native = cam.camera
                 original = tuple(native.get_region())
                 region = centered_region(native, original, roi_width, roi_height)
-                if region != original:
+                if tuning is not None or region != original:
                     click.get_current_context().call_on_close(
                         lambda c=native, r=original: set_region(c, r))
+                if region != original:
                     set_region(native, region)
                 if tuning is not None:
                     tuning.original_regions[key] = original
@@ -373,25 +375,31 @@ def simple_preview(
         "CPU affinity: GUI=%s, acquisition=%s, recording=%s",
         gui_cpus, acquire_cpus, write_cpus,
     )
-    try:
-        # Native Aravis receive threads inherit this mask on Ubuntu/Linux.
-        if gui_cpus is not None:
-            if tuning is not None:
-                # A reopened preview must see the full original set of allowed CPUs.
-                allowed = os.sched_getaffinity(0)
-                click.get_current_context().call_on_close(lambda: os.sched_setaffinity(0, allowed))
-            receiver_cpus = set(acquire_cpus)
-            if share_gui_core:
-                receiver_cpus.update(gui_cpus)
-            os.sched_setaffinity(0, receiver_cpus)
-            logger.info("Aravis receiver CPUs: %s", sorted(receiver_cpus))
-        elif share_gui_core:
-            logger.info("--share-gui-core only applies on Linux")
+    if gui_cpus is not None:
+        if tuning is not None:
+            allowed = os.sched_getaffinity(0)
+            click.get_current_context().call_on_close(lambda: os.sched_setaffinity(0, allowed))
+        receiver_cpus = set(acquire_cpus)
+        if share_gui_core:
+            receiver_cpus.update(gui_cpus)
+        logger.info("Aravis receiver CPUs: %s", sorted(receiver_cpus))
+    elif share_gui_core:
+        logger.info("--share-gui-core only applies on Linux")
+
+    @contextmanager
+    def receiver_affinity():
+        # Native Aravis receive threads inherit this mask on startup and after a crop.
+        try:
+            if gui_cpus is not None:
+                os.sched_setaffinity(0, receiver_cpus)
+            yield
+        finally:
+            if gui_cpus is not None:
+                os.sched_setaffinity(0, gui_cpus)
+
+    with receiver_affinity():
         for camera in cameras.values():
             camera.initialize_acquisition_stream()
-    finally:
-        if gui_cpus is not None:
-            os.sched_setaffinity(0, gui_cpus)
     set_receiver_realtime_priority(receiver_realtime_priority)
     for i, (k, v) in enumerate(cameras.items()):
         feature_dct = v.get_all_features()
@@ -612,12 +620,84 @@ def simple_preview(
         zsocket.send_pyobj(save_path)
         logger.info("Done")
 
+    threads = {}
+    acquisition_thread_shutdown_event = threading.Event()
+
+    def start_readers():
+        acquisition_thread_shutdown_event.clear()
+        for i, (key, camera) in enumerate(cameras.items()):
+            thread = threading.Thread(target=acquisition_loop, daemon=True,
+                                      args=(camera, acquisition_thread_shutdown_event, acquire_cpus[i % len(acquire_cpus)]))
+            threads[key] = thread
+            thread.start()
+
+    def stop_readers():
+        acquisition_thread_shutdown_event.set()
+        for thread in threads.values():
+            if thread.ident is not None:
+                thread.join()
+
+    def apply_regions(regions):
+        """Reconfigure the affected streams while neither trigger nor readers are running."""
+        nonlocal next_saturation
+        previous = {}
+        rejected = None
+        try:
+            trigger_dev.stop()
+            stop_readers()
+            for key in regions:
+                cameras[key].stop_acquisition()
+            with receiver_affinity():
+                try:
+                    for key, region in regions.items():
+                        camera = cameras[key]
+                        previous[key] = tuple(camera.camera.get_region())
+                        camera.change_region(region)
+                except Exception as exc:
+                    rejected = f"Could not crop {key}. {exc}"
+                    for key, region in previous.items():
+                        cameras[key].change_region(region)
+            for key in regions:
+                camera = cameras[key]
+                for name in ("SensorReadoutTime", "ReadoutTimeAbs", "ExposureOverlapTimeMax"):
+                    if name in cameras_metadata[key]:
+                        cameras_metadata[key][name] = camera.get_feature(name)
+                update_tune_canvas(key)
+                camera.start_acquisition()
+            next_saturation = 0
+            start_readers()
+            trigger_dev.start()
+        except Exception as exc:
+            raise click.ClickException(f"Could not resume ROI preview. Closing preview: {exc}") from exc
+        if rejected:
+            raise ValueError(rejected)
+
+    # A tune texture always spans the original configured region, including when starting cropped.
+    display_sizes = {key: (c._width, c._height) for key, c in cameras.items()}
+    display_offsets = {}
+    tune_canvases = {}
+
+    def update_tune_canvas(key):
+        cam = cameras[key]
+        x, y, _, _ = cam.camera.get_region()
+        base_x, base_y, w, h = tuning.original_regions[key]
+        for image in [cam, *cam._spoof_cameras]:
+            display_sizes[image.id] = (w, h)
+            display_offsets[image.id] = ((x - base_x) // display_downsample, (y - base_y) // display_downsample)
+            if image.id in tune_canvases:
+                canvas = tune_canvases[image.id]
+                canvas[:, :, :3] = 0
+                dpg.set_value(f"texture_{image.id}", canvas)
+                dpg.set_value(f"saturation_{image.id}", "Saturated pixels: —")
+
     # start a new context for acquisition
     dpg.create_context()
     if tuning is not None:
         dpg.configure_app(manual_callback_management=True)
         gain_cameras = {key: cameras[key] for key in cameras_metadata}
-        tuning.build_panel(dpg, gain_cameras, cameras_metadata)
+        for key in gain_cameras:
+            update_tune_canvas(key)
+        tuning.build_panel(dpg, gain_cameras, cameras_metadata, apply_regions)
 
     # https://github.com/hoffstadt/DearPyGui/issues/1380
     with dpg.font_registry():
@@ -626,18 +706,21 @@ def simple_preview(
         default_font_small = dpg.add_font(font_path, 16 * 2, tag="ttf-font-small")
 
     with dpg.texture_registry(show=False):
-        for _id, _cam in cameras.items():
+        for _id, (width, height) in display_sizes.items():
             blank_data = np.zeros(
                 (
-                    max(1, _cam._height // display_downsample),
-                    max(1, _cam._width // display_downsample),
+                    max(1, height // display_downsample),
+                    max(1, width // display_downsample),
                     4,
                 ),
                 dtype="float32",
             )
+            if tuning is not None:
+                blank_data[:, :, 3] = 1
+                tune_canvases[_id] = blank_data
             dpg.add_raw_texture(
-                max(1, _cam._width // display_downsample),
-                max(1, _cam._height // display_downsample),
+                blank_data.shape[1],
+                blank_data.shape[0],
                 blank_data,
                 tag=f"texture_{_id}",
                 format=dpg.mvFormat_Float_rgba,
@@ -687,8 +770,8 @@ def simple_preview(
         cur_key = f"Camera {_id}"
         dpg.set_item_pos(cur_key, (gui_x_offset, gui_y_offset))
 
-        width = _cam._width // display_downsample + 25
-        height = _cam._height // display_downsample + 100
+        width = display_sizes[_id][0] // display_downsample + 25
+        height = display_sizes[_id][1] // display_downsample + 100
 
         gui_x_max = int(np.maximum(gui_x_offset + width, gui_x_max))
         gui_y_max = int(np.maximum(gui_y_offset + height, gui_y_max))
@@ -709,8 +792,6 @@ def simple_preview(
         else:
             raise RuntimeError(f"Did not understand signal {start_signal}")
 
-    threads = {}
-    acquisition_thread_shutdown_event = threading.Event()
     recording_errors = []
     try:
         # Configure the Nucleo while stopped, before arming any camera.
@@ -725,15 +806,6 @@ def simple_preview(
             if _recorder.error is not None:
                 raise click.ClickException(f"Could not open recording {_recorder.filename}: {_recorder.error}")
         [_cam.start_acquisition() for _cam in cameras.values()]
-
-        for i, (_id, _cam) in enumerate(cameras.items()):
-            t = threading.Thread(
-                target=acquisition_loop,
-                args=(_cam, acquisition_thread_shutdown_event, acquire_cpus[i % len(acquire_cpus)]),
-            )
-            t.daemon = True
-            t.display_frame = (None, None)
-            threads[_id] = t
 
         for _cam in cameras.values():
             _cam.count = 0
@@ -762,7 +834,7 @@ def simple_preview(
 
         for _camera in cameras.keys():
             display_counter[_camera] = 0
-        [t.start() for t in threads.values()]
+        start_readers()
         # Cameras and acquisition threads are ready before external timing starts.
         if hw_trigger and (trigger_dev is not None):
             trigger_dev.start()
@@ -770,8 +842,6 @@ def simple_preview(
         while dpg.is_dearpygui_running():
             if tuning is not None:
                 dpg.run_callbacks(dpg.get_callback_queue())
-                if tuning.restart_requested:
-                    break
                 show_saturation = time.monotonic() >= next_saturation
                 if show_saturation:
                     next_saturation = time.monotonic() + .25
@@ -823,6 +893,14 @@ def simple_preview(
                             1,
                             (1, 1, 1, 1),
                         )
+                        if tuning is not None:
+                            canvas = tune_canvases[_id]
+                            h, w = plt_val.shape[:2]
+                            x, y = display_offsets[_id]
+                            # A sub-downsample ROI still occupies one display pixel at the edge.
+                            x, y = min(x, canvas.shape[1] - w), min(y, canvas.shape[0] - h)
+                            canvas[y:y + h, x:x + w] = plt_val
+                            plt_val = canvas
                         dpg.set_value(f"texture_{cameras[_id].id}", plt_val)
                     else:
                         pass
@@ -893,8 +971,7 @@ def simple_preview(
                     _cam.stop_acquisition()
                 except Exception:
                     logger.exception("Could not stop camera %s", _cam.id)
-            acquisition_thread_shutdown_event.set()
-            [_t.join() for _t in threads.values() if _t.ident is not None]
+            stop_readers()
             if tuning is not None and tuning.gains_changed:
                 for key, camera in gain_cameras.items():
                     try:

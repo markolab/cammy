@@ -88,6 +88,29 @@ class CameraBufferTests(unittest.TestCase):
         gc.collect()
         self.assertEqual(frame.tobytes(), original)
 
+    def test_existing_stream_receives_cropped_and_full_frames(self):
+        cam = self.camera
+        cam.camera = Aravis.Camera.new_with_device(Aravis.FakeDevice.new("live-roi"))
+        cam.buffer_size = 4
+        cam._last_framegrab = [np.nan]
+        cam._spoof_cameras = []
+        cam.initialize_acquisition_stream()
+        stream = cam.stream
+        original = tuple(cam.camera.get_region())
+        for region in [(48, 28, 128, 64), original]:
+            cam.change_region(region)
+            cam.start_acquisition()
+            try:
+                buffer = stream.timeout_pop_buffer(1_000_000)
+                self.assertEqual(buffer.get_status(), Aravis.BufferStatus.SUCCESS)
+                frame = cam._array_from_buffer_address(buffer)
+                self.assertEqual(frame.shape, (region[3], region[2]))
+                self.assertEqual(frame.nbytes, cam._payload)
+                stream.push_buffer(buffer)
+            finally:
+                cam.stop_acquisition()
+            self.assertIs(cam.stream, stream)
+
 
 if __name__ == "__main__":
     unittest.main()

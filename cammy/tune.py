@@ -98,8 +98,6 @@ class TuneSession:
         self.original_gains = {}
         self.gains_changed = False
         self.original_regions = {}
-        self.restart_requested = None
-        self.drafts = {}
 
     @staticmethod
     def controller(mode, values, port):
@@ -184,7 +182,7 @@ class TuneSession:
         self.values = values
         self.mode = mode
 
-    def build_panel(self, dpg, cameras, metadata=None):
+    def build_panel(self, dpg, cameras, metadata=None, apply_regions=None):
         # A hint shows the startup reading while an empty input preserves per-camera gain.
         gains = {}
         for key, camera in cameras.items():
@@ -209,20 +207,29 @@ class TuneSession:
 
         def crop():
             width, height = (dpg.get_value(tag) for tag in ("roi_width", "roi_height"))
+            changes = {}
             try:
                 for key, camera in cameras.items():
-                    base = self.original_regions.get(key) or tuple(camera.camera.get_region())
-                    centered_region(camera.camera, base, width, height)
+                    region = centered_region(camera.camera, self.original_regions[key], width, height)
+                    if region != tuple(camera.camera.get_region()):
+                        changes[key] = region
             except Exception as exc:
                 dpg.set_value("tune_status", f"Could not crop {key}. {exc}")
                 return
-            if (width, height) == (int(self.values["ROI_WIDTH"]), int(self.values["ROI_HEIGHT"])):
-                return
-            # The fresh preview needs new buffers and textures. Preserve un-applied field edits.
-            tags = ["margin_ms", "tune_gain", "tune_fps"]
-            tags.extend(bank + field for bank in BANKS for field in ("_us", "_volts", "_underfill"))
-            self.drafts = {tag: dpg.get_value(tag) for tag in tags}
-            self.restart_requested = width, height
+            if changes:
+                try:
+                    apply_regions(changes)
+                except ValueError as exc:
+                    dpg.set_value("tune_status", str(exc))
+                    return
+            self.values.update(ROI_WIDTH=str(width), ROI_HEIGHT=str(height))
+            dpg.set_value("roi_size", current_size())
+            dpg.set_value("tune_status", f"Previewing {self.mode}. Target {self.values['FPS']} FPS.")
+            suggest()
+
+        def current_size():
+            sizes = sorted({f"{c._width} × {c._height}" for c in cameras.values()})
+            return "Current: " + ", ".join(sizes) + " px. 0 keeps original axis."
 
         def apply_bank(sender, app_data, bank):
             try:
@@ -271,16 +278,13 @@ class TuneSession:
                     dpg.add_input_int(label=f"ROI {axis} (px)", tag="roi_" + axis, width=115,
                                       default_value=int(self.values["ROI_" + axis.upper()]))
                 dpg.add_button(label="Apply centered crop", callback=crop)
-                sizes = sorted({f"{c._width} × {c._height}" for c in cameras.values()})
-                dpg.add_text("Current: " + ", ".join(sizes) + " px. 0 keeps original axis.")
+                dpg.add_text(current_size(), tag="roi_size")
             dpg.add_text(f"Previewing {self.mode}. Target {self.values['FPS']} FPS.", tag="tune_status")
             with dpg.group(horizontal=True):
                 dpg.add_input_double(label="Margin (ms)", tag="margin_ms", width=100, default_value=1.5,
                                      min_value=1, max_value=2, min_clamped=True, max_clamped=True, step=.1, format="%.1f")
                 dpg.add_button(label="Suggest alternating timing", callback=suggest)
             dpg.add_text("", tag="timing_advice", wrap=self.PANEL_WIDTH - 30)
-            for tag, value in self.drafts.items():
-                dpg.set_value(tag, value)
             if metadata is not None:
                 suggest()
 
@@ -304,16 +308,7 @@ def tune(ctx, settings, mode, trigger_port):
     except (ValueError, OSError, OverflowError) as exc:
         raise click.ClickException(str(exc)) from exc
     preview = ctx.parent.command.get_command(ctx.parent, "run")
-    while True:
-        session.restart_requested = None
-        session.original_regions.clear()
-        session.original_gains.clear()
-        session.gains_changed = False
-        ctx.invoke(preview, tuning=session, interface="aravis", hw_trigger=True, trigger_device="nucleo",
-                   light_mode=session.mode, trigger_port=trigger_port, buffer_size=512, display_downsample=6,
-                   roi_width=int(session.values["ROI_WIDTH"]), roi_height=int(session.values["ROI_HEIGHT"]),
-                   camera_options=str(camera_options.resolve()))
-        if session.restart_requested is None:
-            break
-        width, height = session.restart_requested
-        session.values.update(ROI_WIDTH=str(width), ROI_HEIGHT=str(height))
+    ctx.invoke(preview, tuning=session, interface="aravis", hw_trigger=True, trigger_device="nucleo",
+               light_mode=session.mode, trigger_port=trigger_port, buffer_size=512, display_downsample=6,
+               roi_width=int(session.values["ROI_WIDTH"]), roi_height=int(session.values["ROI_HEIGHT"]),
+               camera_options=str(camera_options.resolve()))
