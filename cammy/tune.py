@@ -17,7 +17,7 @@ from cammy.util import shared_asset
 
 
 BANKS = ("surface", "fluorescence")
-SETTINGS = ("DATA_DIR", "CAMERA_OPTIONS", "FPS", "PREVIEW_TIME_DOWNSAMPLE", "GAIN_DB", "LIGHT_SETTLE_US", "ROI_WIDTH", "ROI_HEIGHT",
+SETTINGS = ("DATA_DIR", "CAMERA_OPTIONS", "FPS", "PREVIEW_TIME_DOWNSAMPLE", "TUNE_DISPLAY", "GAIN_DB", "LIGHT_SETTLE_US", "ROI_WIDTH", "ROI_HEIGHT",
             "ROI_HORIZONTAL", "ROI_VERTICAL", "SURFACE_TO_FLUORESCENCE_GAP_US",
             "SURFACE_EXPOSURE_US", "FLUORESCENCE_EXPOSURE_US", "SURFACE_VOLTAGE",
             "FLUORESCENCE_VOLTAGE", "SURFACE_ILLUMINATION_PERCENT", "FLUORESCENCE_ILLUMINATION_PERCENT")
@@ -105,6 +105,11 @@ class TuneSession:
         self.gains_changed = False
         self.sensor_regions = {}
         self.pause_readers = nullcontext
+
+    @property
+    def display_on(self):
+        setting = self.values["TUNE_DISPLAY"].lower()
+        return setting == "on" if setting else int(self.values["PREVIEW_TIME_DOWNSAMPLE"]) > 0
 
     def controller(self, mode, values, *, metadata=None, margin_ms=1.5):
         fps = float(values["FPS"])
@@ -214,7 +219,7 @@ class TuneSession:
         self.values = values
         self.mode = mode
 
-    def build_panel(self, dpg, cameras, metadata=None, apply_regions=None, *, top=0):
+    def build_panel(self, dpg, cameras, metadata=None, apply_regions=None, *, top=0, change_display=None):
         # A hint shows the startup reading while an empty input preserves per-camera gain.
         gains = {}
         for key, camera in cameras.items():
@@ -329,7 +334,10 @@ class TuneSession:
                 dpg.add_combo(VERTICAL_POSITIONS, label="Keep vertically", tag="roi_vertical", width=75,
                               default_value=self.values["ROI_VERTICAL"])
                 dpg.add_button(label="Apply crop", callback=crop)
-            dpg.add_text(current_size(), tag="roi_size")
+            with dpg.group(horizontal=True):
+                dpg.add_checkbox(label="Display camera images", tag="tune_display",
+                                 default_value=self.display_on, callback=change_display)
+                dpg.add_text(current_size(), tag="roi_size")
             with dpg.group(horizontal=True):
                 dpg.add_input_int(label="Surface → fluorescence gap (µs, 0 = shortest)", tag="surface_gap_us",
                                   width=115, default_value=int(self.saved["SURFACE_TO_FLUORESCENCE_GAP_US"]))
@@ -348,10 +356,12 @@ class TuneSession:
 @click.option("--settings", type=click.Path(exists=True, dir_okay=False, path_type=Path),
               help="Trusted launcher settings file. Defaults to cammy-settings.sh on the desktop.")
 @click.option("--mode", type=click.Choice([*BANKS, "alternate"]), default="surface", show_default=True)
+@click.option("--display", type=click.Choice(["on", "off"], case_sensitive=False),
+              help="Start Tune with camera images on or off. Overrides TUNE_DISPLAY.")
 @click.option("--stream-stats", is_flag=True, help="Log per-camera stream counters once per second.")
 @click.option("--trigger-port", default="/dev/ttyACM0", show_default=True)
 @click.pass_context
-def tune(ctx, settings, mode, trigger_port, stream_stats):
+def tune(ctx, settings, mode, trigger_port, stream_stats, display):
     """Try trigger settings and measure acquisition drops in all three light modes."""
     path = settings or desktop_settings()
     if not path.is_file():
@@ -359,6 +369,12 @@ def tune(ctx, settings, mode, trigger_port, stream_stats):
     try:
         session = TuneSession(path, mode, trigger_port)
         display_stride = click.IntRange(0, 2**31 - 1).convert(session.values["PREVIEW_TIME_DOWNSAMPLE"], None, None)
+        if display is not None:
+            session.values["TUNE_DISPLAY"] = display
+        if session.values["TUNE_DISPLAY"].lower() not in ("", "on", "off"):
+            raise ValueError("TUNE_DISPLAY must be on or off.")
+        if session.display_on and not display_stride:
+            display_stride = 1
         camera_options = Path(session.values["DATA_DIR"]) / session.values["CAMERA_OPTIONS"]
         if not camera_options.is_file():
             raise ValueError(f"Camera options file does not exist: {camera_options}")

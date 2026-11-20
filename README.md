@@ -75,6 +75,15 @@ It reads the same desktop `cammy-settings.sh` as the launchers. Use
 `--settings "/path/to/cammy-settings.sh"` for a custom location and
 `--trigger-port` for a different serial port.
 
+Use **Display camera images** in the Tune panel to compare acquisition drops
+with the images on and off. Switching logs each camera's missed frames and
+received FPS for the preceding interval and starts a fresh measurement while
+triggering continues. With images off, Tune skips preview image processing,
+saturation counts and camera texture uploads. Turning images back on uses the
+selected stride, or 1 for a paused stride.
+Use `cammy tune --display off` to start with images hidden. **Save applied settings**
+stores the switch as `TUNE_DISPLAY=on` or `off` for future Tune sessions.
+
 Target FPS and gain are shared across cameras. With no gain override, the gain
 field shows the startup camera reading, or **Mixed** if readings differ. Hover
 over it for each camera's reading. Leave the field blank to keep each camera's

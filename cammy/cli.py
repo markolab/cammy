@@ -665,8 +665,13 @@ def simple_preview(
 
     threads = {}
     acquisition_thread_shutdown_event = threading.Event()
+    display_baseline = {}
+    display_changed_at = None
 
     def start_readers():
+        nonlocal display_changed_at
+        display_changed_at = None
+        display_baseline.clear()
         acquisition_thread_shutdown_event.clear()
         for i, (key, camera) in enumerate(cameras.items()):
             if tuning is not None and key in cameras_metadata:
@@ -740,14 +745,18 @@ def simple_preview(
 
     # start a new context for acquisition
     dpg.create_context()
+    images_on = tuning is None or tuning.display_on
     adjustable_display = not record and not share_gui_core
     menu_height = 28 if adjustable_display else 0
     if adjustable_display:
         def change_display_stride(sender, value):
             nonlocal display_time_downsample
+            was_paused = display_time_downsample == 0
             display_time_downsample = value
             if tuning is not None:
                 tuning.values["PREVIEW_TIME_DOWNSAMPLE"] = str(value)
+                if not value or was_paused:
+                    change_tune_display(sender, bool(value))
 
         with dpg.viewport_menu_bar():
             with dpg.menu(label="Display"):
@@ -759,9 +768,44 @@ def simple_preview(
         tuning.pause_readers = pause_tune_readers
         gain_cameras = {key: cameras[key] for key in cameras_metadata}
         trial_camera = {image.id: cam for cam in gain_cameras.values() for image in (cam, *cam._spoof_cameras)}
+
+        def trial_elapsed(now):
+            return now - (trigger_dev.started_at if display_changed_at is None else display_changed_at)
+
+        def change_tune_display(sender, enabled):
+            nonlocal images_on, display_changed_at, display_time_downsample
+            if enabled == images_on:
+                return
+            # Take a baseline without stopping acquisition or resetting the camera's frame-ID history.
+            now = time.perf_counter()
+            elapsed = trial_elapsed(now)
+            display_changed_at = now
+            for key, cam in gain_cameras.items():
+                received, missed = cam.frame_count, cam.missed_frames
+                prev_received, prev_missed = display_baseline.get(key, (0, 0))
+                drops = missed - prev_missed
+                total = received - prev_received + drops
+                logger.info("%s %s display %s: %d missed / %d total (%.2f%% missed), %.1f received FPS",
+                            key, tuning.mode, "on" if images_on else "off", drops, total,
+                            100 * drops / total if total else 0, (received - prev_received) / elapsed if elapsed > 0 else 0)
+                display_baseline[key] = (received, missed)
+            images_on = enabled
+            tuning.values["TUNE_DISPLAY"] = "on" if enabled else "off"
+            if enabled and not display_time_downsample:
+                display_time_downsample = 1
+                dpg.set_value("preview_time_downsample", 1)
+            dpg.set_value("tune_display", enabled)
+            for key in cameras:
+                dpg.configure_item(f"tune_images_{key}", show=enabled)
+                # The texture registry uploads raw textures even for hidden image widgets.
+                dpg.move_item(f"texture_{key}", parent=live_textures if enabled else parked_textures)
+            last_seen_frame.clear()
+            next_saturation.clear()
+
         for key in gain_cameras:
             update_tune_canvas(key)
-        tuning.build_panel(dpg, gain_cameras, cameras_metadata, apply_regions, top=menu_height)
+        tuning.build_panel(dpg, gain_cameras, cameras_metadata, apply_regions, top=menu_height,
+                           change_display=change_tune_display)
 
     # https://github.com/hoffstadt/DearPyGui/issues/1380
     with dpg.font_registry():
@@ -769,7 +813,8 @@ def simple_preview(
         default_font_large = dpg.add_font(font_path, 20 * 2, tag="ttf-font-large")
         default_font_small = dpg.add_font(font_path, 16 * 2, tag="ttf-font-small")
 
-    with dpg.texture_registry(show=False):
+    parked_textures = dpg.add_stage() if tuning is not None else None
+    with dpg.texture_registry(show=False) as live_textures:
         for _id, (width, height) in display_sizes.items():
             blank_data = np.zeros(
                 (
@@ -788,6 +833,7 @@ def simple_preview(
                 blank_data,
                 tag=f"texture_{_id}",
                 format=dpg.mvFormat_Float_rgba,
+                parent=live_textures if images_on else parked_textures,
             )
 
     miss_status = {}
@@ -803,11 +849,14 @@ def simple_preview(
             tag=f"Camera {_id}",
             no_collapse=True,
             no_scrollbar=True,
+            autosize=tuning is not None,
         ):
-            dpg.add_image(f"texture_{_id}")
             if tuning is not None:
-                dpg.add_text("Saturated pixels: —", tag=f"saturation_{_id}")
+                with dpg.group(tag=f"tune_images_{_id}", show=images_on):
+                    dpg.add_image(f"texture_{_id}")
+                    dpg.add_text("Saturated pixels: —", tag=f"saturation_{_id}")
             else:
+                dpg.add_image(f"texture_{_id}")
                 with dpg.group(horizontal=True):
                     dpg.add_slider_float(
                         tag=f"texture_{_id}_min",
@@ -921,8 +970,8 @@ def simple_preview(
                     if isinstance(_cam, AravisCamera):
                         _cam.log_stream_statistics()
                 next_stream_stats = time.perf_counter() + 1.0
-            dat = {key: cameras[key].display_frame for key in preview_ids}
-            stride = display_time_downsample
+            dat = {key: cameras[key].display_frame if images_on else (None, None) for key in preview_ids}
+            stride = display_time_downsample if images_on else 0
             if stride != previous_stride:
                 display_counter = dict.fromkeys(cameras, 0)
                 previous_stride = stride
@@ -984,6 +1033,11 @@ def simple_preview(
                 miss_frames = camera.missed_frames
                 total_frames = camera.total_frames
                 cur_fps = camera.fps
+                if tuning is not None:
+                    prev_received, prev_missed = display_baseline.get(camera.id, (0, 0))
+                    received_frames = camera.frame_count - prev_received
+                    miss_frames -= prev_missed
+                    total_frames = received_frames + miss_frames
                 percent_missed = 100 * miss_frames / total_frames if total_frames else 0
                 miss_text = f"{miss_frames} missed / {total_frames} total ({percent_missed:.1f}% missed)"
                 if tuning is not None:
@@ -1001,8 +1055,8 @@ def simple_preview(
                         miss_text += " / WRITER STOPPED (see terminal)"
                 dpg.set_value(miss_status[_id], miss_text)
                 if tuning is not None:
-                    elapsed = time.perf_counter() - trigger_dev.started_at
-                    received = camera.frame_count / elapsed if elapsed > 0 else 0
+                    elapsed = trial_elapsed(time.perf_counter())
+                    received = received_frames / elapsed if elapsed > 0 else 0
                     fps_text = f"{received:.1f} received / {float(tuning.values['FPS']):g} target FPS"
                     if tuning.mode == "alternate" and cur_fps is not None and np.isfinite(cur_fps):
                         fps_text += f"\n{cur_fps:.1f} FPS/channel"

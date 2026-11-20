@@ -191,6 +191,21 @@ class TuneTests(unittest.TestCase):
         dpg.set_value.assert_any_call(dpg.add_text.return_value, "0 missed / 5 total (0.0% missed)")
         cam.start_acquisition.assert_called_once()
 
+    def test_tune_display_startup_setting_and_override(self):
+        for setting, stride, flags, enabled, effective_stride in [
+            ("", 0, [], False, 0), ("off", 4, [], False, 4),
+            ("on", 0, [], True, 1), ("off", 4, ["--display", "ON"], True, 4),
+        ]:
+            with self.subTest(setting=setting, stride=stride, flags=flags):
+                with self.settings.open("a") as f:
+                    f.write(f"TUNE_DISPLAY={setting}\nPREVIEW_TIME_DOWNSAMPLE={stride}\n")
+                with patch.object(cli.commands["run"], "callback") as preview:
+                    result = CliRunner().invoke(cli, ["tune", "--settings", str(self.settings), *flags])
+                self.assertEqual(result.exit_code, 0, result.output)
+                params = preview.call_args.kwargs
+                self.assertEqual(params["tuning"].display_on, enabled)
+                self.assertEqual(params["display_time_downsample"], effective_stride)
+
     def test_tune_preview_switch_crop_suggest_and_save(self):
         # Run the real Click command, preview loop and bulk camera/serial control, without a rig.
         dpg = MagicMock()
@@ -215,6 +230,13 @@ class TuneTests(unittest.TestCase):
             self.assertEqual(self.settings.read_bytes(), original)
             tick = dpg.run_callbacks.call_count
             if tick == 1:
+                display = dpg.add_checkbox.call_args.kwargs
+                self.assertFalse(display["default_value"])
+                for key in cameras:
+                    dpg.group.assert_any_call(tag=f"tune_images_{key}", show=False)
+                for texture in dpg.add_raw_texture.call_args_list:
+                    self.assertEqual(texture.kwargs["parent"], dpg.add_stage.return_value)
+                display["callback"](None, True)
                 stride = next(c.kwargs for c in dpg.add_input_int.call_args_list if c.kwargs["tag"] == "preview_time_downsample")
                 self.assertEqual(stride["default_value"], 3)
                 stride["callback"](None, 1)
@@ -260,11 +282,33 @@ class TuneTests(unittest.TestCase):
                 apply, mode = buttons["Apply alternate"]
                 apply(None, None, mode)
                 self.assertIn("Applied surface-to-fluorescence gap 100 µs", fields["tune_status"])
-                buttons["Save applied settings"][0]()
                 for cam in cameras.values():
                     cam.frame_count, cam.display_frame = 0, (None, None)
+            elif tick == 9:
+                clock.perf_counter.return_value = 200
+                for cam in cameras.values():
+                    cam.frame_count, cam.missed_frames = 120, 2
+                dpg.add_checkbox.call_args.kwargs["callback"](None, False)
+                for key, cam in cameras.items():
+                    dpg.configure_item.assert_any_call(f"tune_images_{key}", show=False)
+                    dpg.move_item.assert_any_call(f"texture_{key}", parent=dpg.add_stage.return_value)
+                    cam.frame_count, cam.missed_frames = 128, 3
+                    cam.display_frame = (object(), {})  # Raises if used as an image while off.
+            elif tick == 10:
+                dpg.set_value.assert_any_call(dpg.add_text.return_value, "Frame IDs: 1 missed / 9 total (11.1% missed)")
+                clock.perf_counter.return_value = 201
+            elif tick == 11:
+                dpg.set_value.assert_any_call(dpg.add_text.return_value, "8.0 received / 80.5 target FPS")
+                dpg.add_checkbox.call_args.kwargs["callback"](None, True)
+                for key, cam in cameras.items():
+                    dpg.move_item.assert_any_call(f"texture_{key}", parent=dpg.texture_registry.return_value.__enter__.return_value)
+                    cam.frame_count, cam.display_frame = 132, (frame[:, :cam._width], {})
+            elif tick == 12:
+                dpg.set_value.assert_any_call(dpg.add_text.return_value, "Frame IDs: 0 missed / 4 total (0.0% missed)")
+                dpg.add_checkbox.call_args.kwargs["callback"](None, False)
+                buttons["Save applied settings"][0]()
         dpg.run_callbacks.side_effect = interact
-        dpg.is_dearpygui_running.side_effect = [True] * 8 + [False]
+        dpg.is_dearpygui_running.side_effect = [True] * 12 + [False]
         frame = np.zeros((36, 36), dtype=np.uint8)
         frame[:9] = 255
         cameras = {}
@@ -305,7 +349,7 @@ class TuneTests(unittest.TestCase):
         with ExitStack() as stack:
             stack.enter_context(patch.dict("sys.modules", {"dearpygui": Mock(dearpygui=dpg), "dearpygui.dearpygui": dpg}))
             clock = stack.enter_context(patch("cammy.cli.time", wraps=time))
-            clock.monotonic.side_effect = [0, .01, .05, .1, .15, .2, .25, .3]
+            clock.monotonic.side_effect = [0, .01, .05, .1, .15, .2, .25, .3, .35, .4, .45, .5]
             clock.sleep.return_value = None
             for name, value in [("cammy.cli.get_all_camera_ids", {k: "aravis" for k in cameras}),
                                 ("cammy.cli.initialize_cameras", cameras),
@@ -315,7 +359,7 @@ class TuneTests(unittest.TestCase):
                 stack.enter_context(patch(name, return_value=value))
             stack.enter_context(patch("cammy.trigger.nucleo.serial.Serial", serial))
             result = CliRunner().invoke(cli, ["tune", "--settings", str(self.settings), "--trigger-port", "/dev/test",
-                                              "--mode", "alternate", "--stream-stats"],
+                                              "--mode", "alternate", "--stream-stats", "--display", "off"],
                                         catch_exceptions=False)
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertTrue(any(c.args[1] == "0.0 received / 80.5 target FPS" for c in dpg.set_value.call_args_list
@@ -343,6 +387,7 @@ class TuneTests(unittest.TestCase):
         self.assertEqual(float(saved["FLUORESCENCE_ILLUMINATION_PERCENT"]), 74.75)
         self.assertEqual(saved["FPS"], "80.5")
         self.assertEqual(saved["PREVIEW_TIME_DOWNSAMPLE"], "1")
+        self.assertEqual(saved["TUNE_DISPLAY"], "off")
         self.assertEqual(saved["SURFACE_TO_FLUORESCENCE_GAP_US"], "100")
         self.assertEqual(saved["ROI_WIDTH"], "12")
         self.assertEqual(saved["ROI_HORIZONTAL"], "right")
