@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import Mock
 
 from cammy.camera.aravis import Aravis
-from cammy.roi import centered_region, set_region, timing_advice
+from cammy.roi import centered_region, crop_region, set_region, timing_advice
 
 
 class RoiTests(unittest.TestCase):
@@ -16,6 +16,13 @@ class RoiTests(unittest.TestCase):
             self.assertEqual(tuple(camera.get_region()), expected)
             self.assertEqual(camera.get_payload(), expected[2] * expected[3])
 
+        for horizontal, x in (("left", 20), ("center", 84), ("right", 148)):
+            for vertical, y in (("top", 40), ("center", 104), ("bottom", 168)):
+                region = crop_region(camera, original, 128, 64, horizontal, vertical)
+                set_region(camera, region)
+                self.assertEqual(tuple(camera.get_region()), (x, y, 128, 64))
+        self.assertEqual(crop_region(camera, original, 0, 0, "right", "bottom"), original)
+
     def test_size_and_center_respect_camera_increments(self):
         camera = Mock()
         camera.get_width_bounds.return_value = (8, 256)
@@ -23,6 +30,7 @@ class RoiTests(unittest.TestCase):
         camera.get_x_offset_increment.return_value = 8
         base = (16, 0, 256, 192)
         self.assertEqual(centered_region(camera, base, 132, 0), (72, 0, 132, 192))
+        self.assertEqual(crop_region(camera, base, 132, 0, "right"), (136, 0, 132, 192))
         for width in (-1, 4, 131, 260):
             with self.assertRaisesRegex(ValueError, 'Width'):
                 centered_region(camera, base, width, 0)

@@ -146,7 +146,7 @@ class TuneTests(unittest.TestCase):
         fields = {"tune_gain": "2.5", "tune_fps": 80.5, "surface_us": 1000, "surface_underfill": 0,
                   "surface_volts": 3, "fluorescence_us": 8000, "fluorescence_volts": 3.75,
                   "fluorescence_underfill": 25.25, "margin_ms": 1.5,
-                  "roi_width": 12, "roi_height": 0}
+                  "roi_width": 12, "roi_height": 0, "roi_horizontal": "right", "roi_vertical": "center"}
         dpg.get_value.side_effect = fields.__getitem__
         dpg.set_value.side_effect = fields.__setitem__
         def interact(*_):
@@ -157,29 +157,28 @@ class TuneTests(unittest.TestCase):
                 apply(None, None, bank)
                 fields["fluorescence_us"] = 8500  # Draft survives crop and is used only for advice.
             elif dpg.run_callbacks.call_count == 2:
-                buttons["Apply centered crop"][0]()
+                buttons["Apply crop"][0]()
             elif dpg.run_callbacks.call_count == 3:
                 image = fields["texture_A"]
                 self.assertEqual(image.shape, (6, 6, 4))
-                self.assertTrue(np.any(image[:, 2:4, :3]))
-                self.assertFalse(np.any(image[:, :2, :3]))
-                self.assertFalse(np.any(image[:, 4:, :3]))
+                self.assertTrue(np.any(image[:, 4:, :3]))
+                self.assertFalse(np.any(image[:, :4, :3]))
                 self.assertEqual(fields["saturation_A"], "Saturated pixels: 25.000%")
                 self.assertIn("gap 100 µs → fluorescence 8500", fields["timing_advice"])
                 self.assertIn("Slowest sensor readout 1.00 ms", fields["timing_advice"])
                 fields["roi_width"] = 0
-                buttons["Apply centered crop"][0]()
+                buttons["Apply crop"][0]()
             elif dpg.run_callbacks.call_count == 4:
                 self.assertIn("Slowest sensor readout 2.00 ms", fields["timing_advice"])
                 self.assertTrue(np.any(fields["texture_A"][:, :2, :3]))
                 fields["roi_width"] = 18
-                buttons["Apply centered crop"][0]()
+                buttons["Apply crop"][0]()
                 self.assertIn("Could not crop B", fields["tune_status"])
                 for cam in cameras.values():
                     self.assertEqual(cam.camera.get_region(), (0, 0, 36, 36))
             else:
                 fields["roi_width"] = 12
-                buttons["Apply centered crop"][0]()
+                buttons["Apply crop"][0]()
                 buttons["Save applied settings"][0]()
         dpg.run_callbacks.side_effect = interact
         dpg.is_dearpygui_running.side_effect = [True] * 5 + [False]
@@ -246,6 +245,7 @@ class TuneTests(unittest.TestCase):
         self.assertEqual(float(saved["FLUORESCENCE_ILLUMINATION_PERCENT"]), 74.75)
         self.assertEqual(saved["FPS"], "80.5")
         self.assertEqual(saved["ROI_WIDTH"], "12")
+        self.assertEqual(saved["ROI_HORIZONTAL"], "right")
         dpg.create_viewport.assert_called_once()
         self.assertEqual(dpg.add_raw_texture.call_count, len(cameras))
         dpg.destroy_context.assert_called_once()

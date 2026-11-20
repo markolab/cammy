@@ -37,7 +37,8 @@ case "$action" in
     *) die "Choose preview or record." ;;
 esac
 if [[ -n $GAIN_DB ]]; then options+=(--gain-db "$GAIN_DB"); fi
-options+=(--roi-width "$ROI_WIDTH" --roi-height "$ROI_HEIGHT")
+options+=(--roi-width "$ROI_WIDTH" --roi-height "$ROI_HEIGHT"
+          --roi-horizontal "$ROI_HORIZONTAL" --roi-vertical "$ROI_VERTICAL")
 
 # Calculate one complete cycle at the Nucleo's microsecond resolution.
 check_us LIGHT_SETTLE_US "$LIGHT_SETTLE_US" 0

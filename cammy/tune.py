@@ -10,13 +10,14 @@ import tempfile
 
 import click
 
-from cammy.roi import centered_region, timing_advice
+from cammy.roi import HORIZONTAL_POSITIONS, VERTICAL_POSITIONS, crop_region, timing_advice
 from cammy.trigger.nucleo import NucleoTriggerDevice
 from cammy.util import shared_asset
 
 
 BANKS = ("surface", "fluorescence")
 SETTINGS = ("DATA_DIR", "CAMERA_OPTIONS", "FPS", "GAIN_DB", "LIGHT_SETTLE_US", "ROI_WIDTH", "ROI_HEIGHT",
+            "ROI_HORIZONTAL", "ROI_VERTICAL",
             "SURFACE_EXPOSURE_US", "FLUORESCENCE_EXPOSURE_US", "SURFACE_VOLTAGE",
             "FLUORESCENCE_VOLTAGE", "SURFACE_ILLUMINATION_PERCENT", "FLUORESCENCE_ILLUMINATION_PERCENT")
 
@@ -57,7 +58,7 @@ def save_settings(path, original, changes):
         if matches:
             last = matches[-1]
             # Preserve shell expressions or other commands on the same line.
-            simple = re.fullmatch(r"""["']?[+\-\d.eE]*["']?([ \t]*(?:#.*)?)""", last[2])
+            simple = re.fullmatch(r"""["']?[A-Za-z+\-\d.]*["']?([ \t]*(?:#.*)?)""", last[2])
             if simple:
                 text = text[:last.start()] + last[1] + assignment + simple[1] + text[last.end():]
                 continue
@@ -83,7 +84,7 @@ def save_settings(path, original, changes):
 
 class TuneSession:
     PANEL_WIDTH = 920
-    PANEL_HEIGHT = 300
+    PANEL_HEIGHT = 324
 
     def __init__(self, path, mode, port):
         self.path = path.resolve()
@@ -92,6 +93,9 @@ class TuneSession:
         for key in ("ROI_WIDTH", "ROI_HEIGHT"):
             if not self.values[key].isascii() or not self.values[key].isdigit():
                 raise ValueError(f"{key} must be a nonnegative whole number of pixels.")
+        for key, choices in (("ROI_HORIZONTAL", HORIZONTAL_POSITIONS), ("ROI_VERTICAL", VERTICAL_POSITIONS)):
+            if self.values[key] not in choices:
+                raise ValueError(f"{key} must be one of {', '.join(choices)}.")
         self.mode = mode
         self.trigger = self.controller(mode, self.values, port)
         self.saved = self.values.copy()
@@ -207,10 +211,12 @@ class TuneSession:
 
         def crop():
             width, height = (dpg.get_value(tag) for tag in ("roi_width", "roi_height"))
+            horizontal = dpg.get_value("roi_horizontal")
+            vertical = dpg.get_value("roi_vertical")
             changes = {}
             try:
                 for key, camera in cameras.items():
-                    region = centered_region(camera.camera, self.original_regions[key], width, height)
+                    region = crop_region(camera.camera, self.original_regions[key], width, height, horizontal, vertical)
                     if region != tuple(camera.camera.get_region()):
                         changes[key] = region
             except Exception as exc:
@@ -222,7 +228,7 @@ class TuneSession:
                 except ValueError as exc:
                     dpg.set_value("tune_status", str(exc))
                     return
-            self.values.update(ROI_WIDTH=str(width), ROI_HEIGHT=str(height))
+            self.values.update(ROI_WIDTH=str(width), ROI_HEIGHT=str(height), ROI_HORIZONTAL=horizontal, ROI_VERTICAL=vertical)
             dpg.set_value("roi_size", current_size())
             dpg.set_value("tune_status", f"Previewing {self.mode}. Target {self.values['FPS']} FPS.")
             suggest()
@@ -277,8 +283,12 @@ class TuneSession:
                 for axis in ("width", "height"):
                     dpg.add_input_int(label=f"ROI {axis} (px)", tag="roi_" + axis, width=115,
                                       default_value=int(self.values["ROI_" + axis.upper()]))
-                dpg.add_button(label="Apply centered crop", callback=crop)
-                dpg.add_text(current_size(), tag="roi_size")
+                dpg.add_combo(HORIZONTAL_POSITIONS, label="Keep horizontally", tag="roi_horizontal", width=75,
+                              default_value=self.values["ROI_HORIZONTAL"])
+                dpg.add_combo(VERTICAL_POSITIONS, label="Keep vertically", tag="roi_vertical", width=75,
+                              default_value=self.values["ROI_VERTICAL"])
+                dpg.add_button(label="Apply crop", callback=crop)
+            dpg.add_text(current_size(), tag="roi_size")
             dpg.add_text(f"Previewing {self.mode}. Target {self.values['FPS']} FPS.", tag="tune_status")
             with dpg.group(horizontal=True):
                 dpg.add_input_double(label="Margin (ms)", tag="margin_ms", width=100, default_value=1.5,
@@ -311,4 +321,5 @@ def tune(ctx, settings, mode, trigger_port):
     ctx.invoke(preview, tuning=session, interface="aravis", hw_trigger=True, trigger_device="nucleo",
                light_mode=session.mode, trigger_port=trigger_port, buffer_size=512, display_downsample=6,
                roi_width=int(session.values["ROI_WIDTH"]), roi_height=int(session.values["ROI_HEIGHT"]),
+               roi_horizontal=session.values["ROI_HORIZONTAL"], roi_vertical=session.values["ROI_VERTICAL"],
                camera_options=str(camera_options.resolve()))

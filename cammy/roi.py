@@ -1,30 +1,44 @@
-"""Centered hardware crops and advisory timing for alternating exposures."""
+"""Hardware crops and advisory timing for alternating exposures."""
 import math
 
 from cammy.trigger.nucleo import NucleoTriggerDevice
 
+HORIZONTAL_POSITIONS = ("left", "center", "right")
+VERTICAL_POSITIONS = ("top", "center", "bottom")
 
-def centered_region(camera, original, width, height):
+
+def crop_region(camera, original, width, height, horizontal="center", vertical="center"):
     """Zero preserves the corresponding axis of the configured camera region."""
     x, y, w, h = original
 
-    def axis(name, size, start, span, bounds, increment, offset_increment):
+    def axis(name, size, start, span, position, choices, bounds, increment, offset_increment):
+        if position not in choices:
+            raise ValueError(f"{name} position must be one of {', '.join(choices)}.")
         if size in (0, span):
             return start, span
         minimum, _ = bounds()
         step = max(1, increment())
         if not minimum <= size <= span or (size - minimum) % step:
             raise ValueError(f"{name} must be {minimum}–{span} px in steps of {step}, or 0.")
+        shift = span - size
+        if position == choices[0]:
+            return start, size
+        if position == "center":
+            shift //= 2
         if not camera.is_region_offset_available():
-            raise ValueError("The camera does not support centered offsets.")
+            raise ValueError(f"The camera does not support positioning the crop at {position}.")
         step = max(1, offset_increment())
-        return start + (span - size) // (2 * step) * step, size
+        return start + shift // step * step, size
 
-    x, w = axis("Width", width, x, w, camera.get_width_bounds, camera.get_width_increment,
+    x, w = axis("Width", width, x, w, horizontal, HORIZONTAL_POSITIONS, camera.get_width_bounds, camera.get_width_increment,
                 camera.get_x_offset_increment)
-    y, h = axis("Height", height, y, h, camera.get_height_bounds, camera.get_height_increment,
+    y, h = axis("Height", height, y, h, vertical, VERTICAL_POSITIONS, camera.get_height_bounds, camera.get_height_increment,
                 camera.get_y_offset_increment)
     return x, y, w, h
+
+
+def centered_region(camera, original, width, height):
+    return crop_region(camera, original, width, height)
 
 
 def set_region(camera, region):

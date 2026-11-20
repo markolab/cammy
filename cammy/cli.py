@@ -37,7 +37,7 @@ from cammy.util import (
 from cammy.record.base import RECORD_QUEUE_FRAMES
 from cammy.record.video import FfmpegVideoRecorder, RawVideoRecorder
 from cammy.camera.spoof import SpoofCamera
-from cammy.roi import centered_region, set_region
+from cammy.roi import HORIZONTAL_POSITIONS, VERTICAL_POSITIONS, crop_region, set_region
 from cammy.tune import tune
 
 
@@ -144,8 +144,12 @@ txt_pos = (25, 25)
 )
 @click.option("--record-counters", type=int, default=0, help="Record counter data")
 @click.option("--gain-db", type=click.FloatRange(min=0), help="Override the camera TOML with a manual GenICam gain in dB.")
-@click.option("--roi-width", type=click.IntRange(min=0), default=0, help="Centered crop width in pixels. 0 keeps the configured width.")
-@click.option("--roi-height", type=click.IntRange(min=0), default=0, help="Centered crop height in pixels. 0 keeps the configured height.")
+@click.option("--roi-width", type=click.IntRange(min=0), default=0, help="Crop width in pixels. 0 keeps the configured width.")
+@click.option("--roi-height", type=click.IntRange(min=0), default=0, help="Crop height in pixels. 0 keeps the configured height.")
+@click.option("--roi-horizontal", type=click.Choice(HORIZONTAL_POSITIONS), default="center", show_default=True,
+              help="Horizontal part of the configured view to keep.")
+@click.option("--roi-vertical", type=click.Choice(VERTICAL_POSITIONS), default="center", show_default=True,
+              help="Vertical part of the configured view to keep.")
 @click.option("--duration", type=float, default=0, help="Run for N minutes")
 @click.option(
     "--camera-options",
@@ -204,6 +208,8 @@ def simple_preview(
     gain_db: Optional[float],
     roi_width: int,
     roi_height: int,
+    roi_horizontal: str,
+    roi_vertical: str,
     record: bool,
     writer_cores: Optional[int],
     jumbo_frames: bool,
@@ -357,7 +363,7 @@ def simple_preview(
             try:
                 native = cam.camera
                 original = tuple(native.get_region())
-                region = centered_region(native, original, roi_width, roi_height)
+                region = crop_region(native, original, roi_width, roi_height, roi_horizontal, roi_vertical)
                 if tuning is not None or region != original:
                     click.get_current_context().call_on_close(
                         lambda c=native, r=original: set_region(c, r))
