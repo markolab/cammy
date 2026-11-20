@@ -51,10 +51,6 @@ class BaseRecord(threading.Thread):
 			if self.cpu_id is not None:
 				os.sched_setaffinity(0, {int(self.cpu_id)})
 				self.logger.info("%s writer TID %d pinned to CPU %d", self.filename, threading.get_native_id(), self.cpu_id)
-			try:
-				os.nice(5)
-			except (OSError, AttributeError):
-				pass
 
 			self.zmq_context = zmq.Context.instance()
 			self.zmq_socket = self.zmq_context.socket(zmq.PULL)
