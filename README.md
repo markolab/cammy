@@ -105,13 +105,20 @@ and `ROI_VERTICAL` for all preview and recording launchers. Both tune and captur
 restore the camera's original region on exit. Direct runs accept the same
 choices, e.g. `--roi-width 1024 --roi-height 768 --roi-horizontal right --roi-vertical top`.
 
-**Suggest alternating timing** uses the applied crop and the exposure, underfill,
-and target FPS currently in the fields. You can try a draft fluorescence exposure
-without applying it. The result shows the surface exposure, gap to fluorescence,
-fluorescence exposure and lit time, and wait before the next surface trigger.
-Tune also prints the estimate in the terminal. To try that schedule in
-**Alternate Preview**, use the displayed exposure widths, the displayed gap for
-`SURFACE_TO_FLUORESCENCE_GAP_US` and an FPS at or below the displayed ceiling.
+**Suggest alternating timing** uses the applied crop and the draft exposures,
+underfill, target FPS, and **Surface → fluorescence gap**. The gap starts at
+the end of the surface exposure and includes the fluorescence light's settling
+time. For example, to leave 200 µs dark after surface with 100 µs of settling,
+enter 300 µs. The field starts at the launcher's `SURFACE_TO_FLUORESCENCE_GAP_US`.
+Enter **0** to estimate the shortest feasible gap for the selected exposures.
+
+Tune displays both the shortest gap and the proposed sequence. It reserves the
+larger of the requested and shortest gaps when estimating the FPS ceiling, and
+accounts for the requested gap in the maximum fluorescence exposure at your
+target FPS. Gap edits are advisory. To use an estimate in **Alternate Preview**
+or **Alternate Record**, copy the proposed gap to `SURFACE_TO_FLUORESCENCE_GAP_US`
+in the desktop settings, use the same exposure widths, and set FPS at or below
+the displayed ceiling.
 
 Tune assumes overlapping acquisition. It spaces successive **exposure ends** by
 at least the slowest sensor readout at the applied ROI plus a 1.5 ms margin

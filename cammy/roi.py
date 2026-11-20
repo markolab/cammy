@@ -50,13 +50,15 @@ def set_region(camera, region):
         raise ValueError(f"Camera requested {region}, read back {actual}.")
 
 
-def timing_advice(metadata, surface, fluorescence, dark_percent, fps, settle, margin_ms):
+def timing_advice(metadata, surface, fluorescence, dark_percent, fps, settle, margin_ms, requested_gap=0):
     """Estimate alternating trigger gaps with overlapping sensor readout at the applied ROI (µs)."""
     if not (surface > 0 and fluorescence > 0 and 0 <= dark_percent <= 100 and
             math.isfinite(fps) and fps > 0 and 1 <= margin_ms <= 2):
         raise ValueError("Use positive exposures and FPS, 0–100% underfill and a 1–2 ms margin.")
     period = 2e6 / fps
     limit = NucleoTriggerDevice.MAX_INTERVAL_US
+    if not 0 <= requested_gap <= limit or int(requested_gap) != requested_gap:
+        raise ValueError("Use a nonnegative whole number of µs for the surface-to-fluorescence gap.")
     if not math.isfinite(period) or period > 2 * limit:
         raise ValueError("FPS is outside the trigger timing range.")
     period = round(period)
@@ -87,20 +89,26 @@ def timing_advice(metadata, surface, fluorescence, dark_percent, fps, settle, ma
 
     # Each exposure must end after the previous frame has finished reading out.
     guard = math.ceil(slowest_us + 1000 * margin_ms)
-    before_fluo = max(gap_floor, guard - fluorescence)
+    shortest_gap = max(gap_floor, guard - fluorescence)
+    before_fluo = max(requested_gap, shortest_gap)
     before_surface = max(gap_floor, guard - surface)
     fastest = surface + before_fluo + fluorescence + before_surface
     tail = before_surface + max(0, period - fastest)
     if max(surface + before_fluo, fluorescence + tail) > limit:
         raise ValueError("The proposed schedule exceeds the Nucleo interval range.")
-    max_fluo = period - surface - gap_floor - before_surface
+    # A longer candidate fluorescence exposure may cover more of the surface readout.
+    first_gap_floor = max(gap_floor, requested_gap)
+    max_fluo = period - surface - first_gap_floor - before_surface
     envelope = (f"At {fps:g} FPS, fluorescence can be up to {max_fluo} µs with this surface exposure."
-                if max_fluo >= min_width and max_fluo + gap_floor >= guard and max_fluo + before_surface <= limit
+                if max_fluo >= min_width and max_fluo + first_gap_floor >= guard and max_fluo + before_surface <= limit
                 else f"{fps:g} FPS is outside this budget with the selected surface exposure.")
+    if period < fastest:
+        envelope = f"Selected pair exceeds the target period by {fastest - period} µs. {envelope}"
     # Round down so copying the displayed ceiling to a launcher still fits.
     precision = 100 if fastest <= 2_000_000 else 1_000_000
     fps_limit = (2_000_000 * precision // fastest) / precision
-    return (f"Slowest sensor readout {slowest_us / 1000:.2f} ms | margin {margin_ms:g} ms\n"
+    return (f"Slowest sensor readout {slowest_us / 1000:.2f} ms | margin {margin_ms:g} ms | "
+            f"Shortest surface-to-fluorescence gap {shortest_gap} µs for these exposures\n"
             f"Surface {surface} µs → gap {before_fluo} µs → fluorescence {fluorescence} µs "
             f"({fluorescence * (1 - dark_percent / 100):.0f} µs lit) → wait {tail} µs ({before_surface} µs min) → repeat\n"
             f"Estimated ceiling {fps_limit:g} FPS total ({fps_limit / 2:g} pairs/s). {envelope}")

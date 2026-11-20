@@ -142,11 +142,11 @@ class TuneTests(unittest.TestCase):
             buttons[label] = (callback, attrs.get("user_data"))
         dpg.add_button.side_effect = add_button
         with self.settings.open("a") as settings:
-            settings.write("ROI_WIDTH=24\n")
+            settings.write("ROI_WIDTH=24\nSURFACE_TO_FLUORESCENCE_GAP_US=1250\n")
         original = self.settings.read_bytes()
         fields = {"tune_gain": "2.5", "tune_fps": 80.5, "surface_us": 1000, "surface_underfill": 0,
                   "surface_volts": 3, "fluorescence_us": 8000, "fluorescence_volts": 3.75,
-                  "fluorescence_underfill": 25.25, "margin_ms": 1.5,
+                  "fluorescence_underfill": 25.25, "margin_ms": 1.5, "surface_gap_us": 1250,
                   "roi_width": 12, "roi_height": 0, "roi_horizontal": "right", "roi_vertical": "center"}
         dpg.get_value.side_effect = fields.__getitem__
         dpg.set_value.side_effect = fields.__setitem__
@@ -158,6 +158,12 @@ class TuneTests(unittest.TestCase):
             tick = dpg.run_callbacks.call_count
             if tick == 1:
                 self.assertIn("Slowest sensor readout 1.50 ms", fields["timing_advice"])
+                self.assertIn("gap 1250 µs → fluorescence", fields["timing_advice"])
+                gap_widget = next(c.kwargs for c in dpg.add_input_int.call_args_list if c.kwargs["tag"] == "surface_gap_us")
+                self.assertEqual(gap_widget["default_value"], 1250)
+                fields["surface_gap_us"] = 0
+                buttons["Suggest alternating timing"][0]()
+                self.assertIn("gap 100 µs → fluorescence", fields["timing_advice"])
                 apply, bank = buttons["Apply fluorescence"]
                 apply(None, None, bank)
                 fields["fluorescence_us"] = 8500  # Draft survives crop and is used only for advice.
@@ -259,6 +265,7 @@ class TuneTests(unittest.TestCase):
         self.assertEqual(saved["FLUORESCENCE_EXPOSURE_US"], "8000")
         self.assertEqual(float(saved["FLUORESCENCE_ILLUMINATION_PERCENT"]), 74.75)
         self.assertEqual(saved["FPS"], "80.5")
+        self.assertEqual(saved["SURFACE_TO_FLUORESCENCE_GAP_US"], "1250")
         self.assertEqual(saved["ROI_WIDTH"], "12")
         self.assertEqual(saved["ROI_HORIZONTAL"], "right")
         dpg.create_viewport.assert_called_once()

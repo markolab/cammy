@@ -17,7 +17,7 @@ from cammy.util import shared_asset
 
 BANKS = ("surface", "fluorescence")
 SETTINGS = ("DATA_DIR", "CAMERA_OPTIONS", "FPS", "GAIN_DB", "LIGHT_SETTLE_US", "ROI_WIDTH", "ROI_HEIGHT",
-            "ROI_HORIZONTAL", "ROI_VERTICAL",
+            "ROI_HORIZONTAL", "ROI_VERTICAL", "SURFACE_TO_FLUORESCENCE_GAP_US",
             "SURFACE_EXPOSURE_US", "FLUORESCENCE_EXPOSURE_US", "SURFACE_VOLTAGE",
             "FLUORESCENCE_VOLTAGE", "SURFACE_ILLUMINATION_PERCENT", "FLUORESCENCE_ILLUMINATION_PERCENT")
 
@@ -203,7 +203,8 @@ class TuneSession:
                 advice = timing_advice(
                     metadata, dpg.get_value("surface_us"), dpg.get_value("fluorescence_us"),
                     dpg.get_value("fluorescence_underfill"), dpg.get_value("tune_fps"),
-                    int(self.values["LIGHT_SETTLE_US"]), dpg.get_value("margin_ms"))
+                    int(self.values["LIGHT_SETTLE_US"]), dpg.get_value("margin_ms"),
+                    requested_gap=dpg.get_value("surface_gap_us"))
             except ValueError as exc:
                 advice = str(exc)
             dpg.set_value("timing_advice", advice)
@@ -291,6 +292,11 @@ class TuneSession:
             dpg.add_text(current_size(), tag="roi_size")
             dpg.add_text(f"Previewing {self.mode}. Target {self.values['FPS']} FPS.", tag="tune_status")
             with dpg.group(horizontal=True):
+                dpg.add_input_int(label="Surface → fluorescence gap (µs, 0 = shortest)", tag="surface_gap_us",
+                                  width=115, default_value=int(self.values["SURFACE_TO_FLUORESCENCE_GAP_US"]))
+                with dpg.tooltip("surface_gap_us"):
+                    dpg.add_text("From surface exposure end to fluorescence exposure start.\n"
+                                 f"Includes {self.values['LIGHT_SETTLE_US']} µs of light settling.")
                 dpg.add_input_double(label="Margin (ms)", tag="margin_ms", width=100, default_value=1.5,
                                      min_value=1, max_value=2, min_clamped=True, max_clamped=True, step=.1, format="%.1f")
                 dpg.add_button(label="Suggest alternating timing", callback=suggest)

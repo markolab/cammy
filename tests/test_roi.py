@@ -58,6 +58,23 @@ class RoiTests(unittest.TestCase):
         meta["A"]["OverlapMode"] = "Off"
         self.assertIn("gap 7500 µs", timing_advice(meta, 1000, 10000, 80, 100, 100, 1.5))
 
+    def test_requested_gap_reserves_only_the_surface_to_fluorescence_interval(self):
+        meta = {"A": {"SensorReadoutTime": 6000}}
+        tip = timing_advice(meta, 1000, 10000, 50, 100, 100, 1.5, requested_gap=3000)
+        self.assertIn("Shortest surface-to-fluorescence gap 100 µs", tip)
+        self.assertIn("gap 3000 µs → fluorescence 10000 µs (5000 µs lit) → wait 6500 µs", tip)
+        self.assertIn("97.56 FPS total", tip)
+        self.assertIn("exceeds the target period by 500 µs", tip)
+        self.assertIn("up to 9500 µs", tip)
+
+        # A short draft exposure needs extra readout time. A longer candidate can reclaim it.
+        tip = timing_advice(meta, 1000, 5000, 50, 100, 100, 1.5, requested_gap=500)
+        self.assertIn("gap 2500 µs → fluorescence 5000 µs", tip)
+        self.assertIn("up to 12000 µs", tip)
+        for invalid in (-1, .5):
+            with self.subTest(invalid=invalid), self.assertRaisesRegex(ValueError, "gap"):
+                timing_advice(meta, 1000, 5000, 50, 100, 100, 1.5, requested_gap=invalid)
+
     def test_unknown_sensor_readout_identifies_camera_even_when_link_data_is_available(self):
         for bad in (None, 0, -1, float("nan"), float("inf")):
             meta = {"A": {"ReadoutTimeAbs": 100}, "B": {"SensorReadoutTime": bad, "GevSCBWA": 5e8}}
