@@ -1,6 +1,6 @@
 # Shared by the capture and tuning launchers. Exposure widths are in microseconds.
 GAIN_DB=""                      # Empty uses the gain from the camera TOML.
-ROI_WIDTH=0                     # Crop within the configured view. 0 keeps that axis.
+ROI_WIDTH=0                     # Overrides the TOML crop. 0 uses the full sensor axis.
 ROI_HEIGHT=0
 ROI_HORIZONTAL=center           # Part to keep: left, center, or right.
 ROI_VERTICAL=center             # Part to keep: top, center, or bottom.

@@ -92,18 +92,25 @@ In alternation, each bank receives half that rate. Closing the preview stops
 the lights and restores camera gain. For the final timing and illumination
 duty cycle, check **Alternate Preview**.
 
-**Apply crop** sets the width and height in camera pixels on every
-camera. Choose which part of each camera's configured view to keep horizontally
-(left, center, right) and vertically (top, center, bottom). For example,
-**right** and **top** keep the upper-right corner. Both axes default to center.
-Enter `0` on either axis to restore its configured extent. Tune briefly
+**Apply crop** sets the width and height in camera pixels on every camera.
+A width or height overrides the camera TOML's size and offset on that axis.
+Enter `0` to use the full available width or height after binning. The desktop
+launchers pass both dimensions, so two zeros select the full frame. Position
+the crop using left, center, or right and top, center, or bottom. Both axes
+default to center when a size is specified. Tune briefly
 pauses triggering and resizes the receive buffers on the affected streams.
 The preview stays open and shows the crop at its original position with black
 padding. Saturation and recordings use the cropped pixels only.
 **Save applied settings** writes `ROI_WIDTH`, `ROI_HEIGHT`, `ROI_HORIZONTAL`
 and `ROI_VERTICAL` for all preview and recording launchers. Both tune and capture
 restore the camera's original region on exit. Direct runs accept the same
-choices, e.g. `--roi-width 1024 --roi-height 768 --roi-horizontal right --roi-vertical top`.
+choices, e.g. `--roi-width 1024 --roi-horizontal right` takes the rightmost
+1024 columns and keeps the configured height and vertical offset. On the CLI,
+omit all options for an axis to use its TOML crop, or pass only its position
+to move the configured size. Each session's
+`metadata.toml` stores the camera's actual `OffsetX`, `OffsetY`, `Width`, and
+`Height` under `camera_metadata.<camera ID>`. The requested flags are in
+`cli_parameters`.
 
 **Suggest alternating timing** uses the applied crop and the draft exposures,
 underfill, target FPS, and **Surface → fluorescence gap**. The gap starts at

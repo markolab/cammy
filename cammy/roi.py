@@ -8,7 +8,7 @@ VERTICAL_POSITIONS = ("top", "center", "bottom")
 
 
 def crop_region(camera, original, width, height, horizontal="center", vertical="center"):
-    """Zero preserves the corresponding axis of the configured camera region."""
+    """A size of zero uses the full extent of the supplied region on that axis."""
     x, y, w, h = original
 
     def axis(name, size, start, span, position, choices, bounds, increment, offset_increment):
@@ -42,9 +42,16 @@ def centered_region(camera, original, width, height):
 
 
 def set_region(camera, region):
-    if tuple(camera.get_region()) == region:
+    current = tuple(camera.get_region())
+    if current == region:
         return
-    camera.set_region(*region)
+    # Aravis accepts -1 to leave a feature alone. The other axis may be auto-centered.
+    x, y, w, h = region
+    if (x, w) == (current[0], current[2]):
+        x = w = -1
+    if (y, h) == (current[1], current[3]):
+        y = h = -1
+    camera.set_region(x, y, w, h)
     actual = tuple(camera.get_region())
     if actual != region:
         raise ValueError(f"Camera requested {region}, read back {actual}.")

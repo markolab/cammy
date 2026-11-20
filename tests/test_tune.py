@@ -112,10 +112,13 @@ class TuneTests(unittest.TestCase):
             cam = Mock()
             native = cam.camera
             native.get_region.return_value = (0, 0, 128, 128)
+            native.get_width_bounds.return_value = (1, 128)
             native.get_height_bounds.return_value = (1, 128)
+            native.is_feature_available.side_effect = lambda name: name == "CenterY"
+            native.get_boolean.return_value = True
             native.get_height_increment.return_value = native.get_y_offset_increment.return_value = 1
             def set_roi(*region, n=native, name=key):
-                n.get_region.return_value = region
+                n.get_region.return_value = tuple(old if new == -1 else new for old, new in zip(n.get_region(), region))
                 if name == "B" and region[3] == 64:
                     raise RuntimeError("camera rejected ROI")
             native.set_region.side_effect = set_roi
@@ -132,6 +135,7 @@ class TuneTests(unittest.TestCase):
         self.assertIn("Could not crop B", result.output)
         for cam in cameras.values():
             self.assertEqual(cam.camera.get_region(), (0, 0, 128, 128))
+            self.assertEqual(cam.camera.set_boolean.call_args_list, [call("CenterY", False), call("CenterY", True)])
             cam.initialize_acquisition_stream.assert_not_called()
 
     def test_tune_preview_switch_crop_suggest_and_save(self):
@@ -143,6 +147,7 @@ class TuneTests(unittest.TestCase):
         dpg.add_button.side_effect = add_button
         with self.settings.open("a") as settings:
             settings.write("ROI_WIDTH=24\nSURFACE_TO_FLUORESCENCE_GAP_US=1250\n")
+        (self.settings.parent / "camera rig.toml").write_text("[genicam.A.a]\nWidth=12\nOffsetX=6\n")
         original = self.settings.read_bytes()
         fields = {"tune_gain": "2.5", "tune_fps": 80.5, "surface_us": 1000, "surface_underfill": 0,
                   "surface_volts": 3, "fluorescence_us": 8000, "fluorescence_volts": 3.75,
@@ -191,8 +196,8 @@ class TuneTests(unittest.TestCase):
                 fields["roi_width"] = 18
                 buttons["Apply crop"][0]()
                 self.assertIn("Could not crop B", fields["tune_status"])
-                for cam in cameras.values():
-                    self.assertEqual(cam.camera.get_region(), (0, 0, 36, 36))
+                self.assertEqual(cameras["A"].camera.get_region(), (0, 0, 36, 36))
+                self.assertEqual(cameras["B"].camera.get_region(), (0, 0, 36, 36))
             elif tick == 8:
                 fields["roi_width"] = 12
                 buttons["Apply crop"][0]()
@@ -209,8 +214,11 @@ class TuneTests(unittest.TestCase):
             cam.get_all_features.return_value = dict(PixelFormat="Mono8", SensorReadoutTime=2000, ExposureMode="TriggerWidth",
                 TriggerSelector="FrameStart", TriggerMode="On", TriggerActivation="RisingEdge", TriggerSource="Line1")
             cam.camera.get_region.return_value = (0, 0, 36, 36)
-            cam.camera.set_region.side_effect = lambda *r, c=cam: setattr(c.camera.get_region, "return_value", r)
+            def set_roi(*region, n=cam.camera):
+                n.get_region.return_value = tuple(old if new == -1 else new for old, new in zip(n.get_region(), region))
+            cam.camera.set_region.side_effect = set_roi
             cam.camera.get_width_bounds.return_value = (1, 36)
+            cam.camera.get_height_bounds.return_value = (1, 36)
             cam.camera.get_width_increment.return_value = cam.camera.get_x_offset_increment.return_value = 1
             def init_stream(c=cam):
                 _, _, c._width, c._height = c.camera.get_region()

@@ -145,12 +145,12 @@ txt_pos = (25, 25)
 )
 @click.option("--record-counters", type=int, default=0, help="Record counter data")
 @click.option("--gain-db", type=click.FloatRange(min=0), help="Override the camera TOML with a manual GenICam gain in dB.")
-@click.option("--roi-width", type=click.IntRange(min=0), default=0, help="Crop width in pixels. 0 keeps the configured width.")
-@click.option("--roi-height", type=click.IntRange(min=0), default=0, help="Crop height in pixels. 0 keeps the configured height.")
-@click.option("--roi-horizontal", type=click.Choice(HORIZONTAL_POSITIONS), default="center", show_default=True,
-              help="Horizontal part of the configured view to keep.")
-@click.option("--roi-vertical", type=click.Choice(VERTICAL_POSITIONS), default="center", show_default=True,
-              help="Vertical part of the configured view to keep.")
+@click.option("--roi-width", type=click.IntRange(min=0), help="Override TOML width in pixels. 0 uses the full width.")
+@click.option("--roi-height", type=click.IntRange(min=0), help="Override TOML height in pixels. 0 uses the full height.")
+@click.option("--roi-horizontal", type=click.Choice(HORIZONTAL_POSITIONS),
+              help="Position the ROI on the full sensor. Defaults to center when specifying a width.")
+@click.option("--roi-vertical", type=click.Choice(VERTICAL_POSITIONS),
+              help="Position the ROI on the full sensor. Defaults to center when specifying a height.")
 @click.option("--duration", type=float, default=0, help="Run for N minutes")
 @click.option(
     "--camera-options",
@@ -207,10 +207,10 @@ def simple_preview(
     n_fake_cameras: int,
     camera_options: Optional[str],
     gain_db: Optional[float],
-    roi_width: int,
-    roi_height: int,
-    roi_horizontal: str,
-    roi_vertical: str,
+    roi_width: Optional[int],
+    roi_height: Optional[int],
+    roi_horizontal: Optional[str],
+    roi_vertical: Optional[str],
     record: bool,
     writer_cores: Optional[int],
     jumbo_frames: bool,
@@ -317,9 +317,21 @@ def simple_preview(
     # TODO: TURN INTO AN AUTOMATIC CHECK, IF NO FRAMES ARE GETTING
     # ACQUIRED, PAUSE FOR 1 SEC AND RE-INITIALIZE
     # don't initialize streams, just alter settings
+    override_x = roi_width is not None or roi_horizontal is not None
+    override_y = roi_height is not None or roi_vertical is not None
+    skip_features = set()
+    if override_x:
+        skip_features.update(("OffsetX", "CenterX"))
+    if override_y:
+        skip_features.update(("OffsetY", "CenterY"))
+    if roi_width is not None:
+        skip_features.add("Width")
+    if roi_height is not None:
+        skip_features.add("Height")
     cameras = initialize_cameras(
         ids,
         camera_dct,
+        skip_features=skip_features,
         jumbo_frames=jumbo_frames,
         record_counters=record_counters,
         buffer_size=buffer_size,
@@ -342,6 +354,7 @@ def simple_preview(
     cameras = initialize_cameras(
         ids,
         camera_dct,
+        skip_features=skip_features,
         jumbo_frames=jumbo_frames,
         record_counters=record_counters,
         buffer_size=buffer_size,
@@ -358,20 +371,31 @@ def simple_preview(
                 camera.set_feature("Gain", str(gain_db))
             except Exception as exc:
                 raise click.ClickException(f"{camera_id}: could not set gain to {gain_db} dB: {exc}") from exc
-    if tuning is not None or roi_width or roi_height:
+    if tuning is not None or override_x or override_y:
         # Restore even if stream allocation or a later camera fails during startup.
         for key, cam in cameras.items():
             try:
                 native = cam.camera
                 original = tuple(native.get_region())
-                region = crop_region(native, original, roi_width, roi_height, roi_horizontal, roi_vertical)
-                if tuning is not None or region != original:
-                    click.get_current_context().call_on_close(
-                        lambda c=native, r=original: set_region(c, r))
-                if region != original:
-                    set_region(native, region)
+                x, y, w, h = original
+                ctx = click.get_current_context()
+                for name in ("CenterX", "CenterY"):
+                    if name in skip_features and native.is_feature_available(name) and native.get_boolean(name):
+                        ctx.call_on_close(lambda c=native, n=name: c.set_boolean(n, True))
+                        native.set_boolean(name, False)
+                ctx.call_on_close(lambda c=native, r=original: set_region(c, r))
+                # Bounds can shrink at a nonzero offset and reflect the current binning/decimation.
+                if (override_x and x) or (override_y and y):
+                    native.set_region(0 if override_x else -1, 0 if override_y else -1, -1, -1)
+                full_width, full_height = native.get_width_bounds()[1], native.get_height_bounds()[1]
+                bounds = (0 if override_x else x, 0 if override_y else y,
+                          full_width if override_x else w, full_height if override_y else h)
+                region = crop_region(native, bounds, w if roi_width is None else roi_width,
+                                     h if roi_height is None else roi_height,
+                                     roi_horizontal or "center", roi_vertical or "center")
+                set_region(native, region)
                 if tuning is not None:
-                    tuning.original_regions[key] = original
+                    tuning.sensor_regions[key] = (0, 0, full_width, full_height)
             except Exception as exc:
                 raise click.ClickException(f"Could not crop {key}: {exc}") from exc
     try:
@@ -508,6 +532,10 @@ def simple_preview(
         show_fields = toml.load(metadata_path)["show_fields"]
         init_timestamp = datetime.datetime.now()
 
+        for key, features in cameras_metadata.items():
+            if ids[key] in ("aravis", "all"):
+                x, y, width, height = cameras[key].camera.get_region()
+                features.update(OffsetX=x, OffsetY=y, Width=width, Height=height)
         recording_metadata = {
             "codec": "raw",
             "start_time": init_timestamp.isoformat(),
@@ -678,7 +706,7 @@ def simple_preview(
         if rejected:
             raise ValueError(rejected)
 
-    # A tune texture always spans the original configured region, including when starting cropped.
+    # A tune texture spans all possible sensor-relative crops.
     display_sizes = {key: (c._width, c._height) for key, c in cameras.items()}
     display_offsets = {}
     tune_canvases = {}
@@ -686,10 +714,9 @@ def simple_preview(
     def update_tune_canvas(key):
         cam = cameras[key]
         x, y, _, _ = cam.camera.get_region()
-        base_x, base_y, w, h = tuning.original_regions[key]
         for image in [cam, *cam._spoof_cameras]:
-            display_sizes[image.id] = (w, h)
-            display_offsets[image.id] = ((x - base_x) // display_downsample, (y - base_y) // display_downsample)
+            display_sizes[image.id] = tuning.sensor_regions[key][2:]
+            display_offsets[image.id] = (x // display_downsample, y // display_downsample)
             if image.id in tune_canvases:
                 canvas = tune_canvases[image.id]
                 canvas[:, :, :3] = 0

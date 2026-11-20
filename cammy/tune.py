@@ -101,7 +101,7 @@ class TuneSession:
         self.saved = self.values.copy()
         self.original_gains = {}
         self.gains_changed = False
-        self.original_regions = {}
+        self.sensor_regions = {}
 
     @staticmethod
     def controller(mode, values, port):
@@ -217,7 +217,7 @@ class TuneSession:
             changes = {}
             try:
                 for key, camera in cameras.items():
-                    region = crop_region(camera.camera, self.original_regions[key], width, height, horizontal, vertical)
+                    region = crop_region(camera.camera, self.sensor_regions[key], width, height, horizontal, vertical)
                     if region != tuple(camera.camera.get_region()):
                         changes[key] = region
             except Exception as exc:
@@ -236,7 +236,7 @@ class TuneSession:
 
         def current_size():
             sizes = sorted({f"{c._width} × {c._height}" for c in cameras.values()})
-            return "Current: " + ", ".join(sizes) + " px. 0 keeps original axis."
+            return "Current: " + ", ".join(sizes) + " px. 0 uses the full sensor axis."
 
         def apply_bank(sender, app_data, bank):
             try:

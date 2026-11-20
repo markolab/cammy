@@ -200,15 +200,16 @@ def initialize_camera(id, interface: str, config={}, **kwargs):
     return cam
 
 
-def initialize_cameras(ids, configs, **kwargs):
+def initialize_cameras(ids, configs, *, skip_features=(), **kwargs):
     cameras = {}
     for _id, _interface in ids.items():
         use_config = {}
-        if "genicam" in configs.keys():
-            for k, v in configs["genicam"].items():
-                for k2, v2 in v.items():
-                    if k in _id:
-                        use_config = {**use_config, **v2}
+        for pattern, groups in configs.get("genicam", {}).items():
+            if pattern in _id:
+                for settings in groups.values():
+                    use_config.update(settings)
+        for name in skip_features:
+            use_config.pop(name, None)
         try:
             cameras[_id] = initialize_camera(_id, _interface, use_config, **kwargs)
         except Exception:

@@ -1,11 +1,69 @@
 import unittest
-from unittest.mock import Mock
+from pathlib import Path
+from threading import Event
+from unittest.mock import MagicMock, Mock, patch
+
+import toml
+from click.testing import CliRunner
 
 from cammy.camera.aravis import Aravis
+from cammy.cli import cli
+from cammy.record.video import RawVideoRecorder
 from cammy.roi import centered_region, crop_region, set_region, timing_advice
 
 
 class RoiTests(unittest.TestCase):
+    def test_recording_metadata_uses_hardware_roi_after_cli_override(self):
+        runner = CliRunner()
+        dpg = MagicMock()
+        written = Event()
+        write_batch = RawVideoRecorder.write_batch
+
+        def write_and_notify(recorder, frames, timestamps):
+            write_batch(recorder, frames, timestamps)
+            written.set()
+
+        def finish_preview():
+            self.assertTrue(written.wait(3), "Fake camera did not record a frame")
+            return False
+
+        dpg.is_dearpygui_running.side_effect = finish_preview
+        native = Aravis.Camera.new_with_device(Aravis.FakeDevice.new("roi-test"))
+        native.set_region(20, 0, 256, 256)
+        with runner.isolated_filesystem(), \
+                patch.dict("sys.modules", {"dearpygui": Mock(dearpygui=dpg), "dearpygui.dearpygui": dpg}), \
+                patch("cammy.cli.get_all_camera_ids", return_value={"Fake": "aravis"}), \
+                patch.object(Aravis.Camera, "new", return_value=native), \
+                patch("cammy.cli.get_cpu_affinity", return_value=(None, [None], [None])), \
+                patch("cammy.cli.mpl_to_cv2_colormap", return_value=2), \
+                patch("cammy.cli.time.sleep"), patch("os.nice", create=True), \
+                patch.object(RawVideoRecorder, "write_batch", write_and_notify), \
+                patch("cammy.camera.aravis.AravisCamera.get_all_features", return_value={"PixelFormat": "Mono8"}):
+            options = Path("camera_options.toml")
+            config = "[genicam.Fake.a]\nWidth = 128\nOffsetX = 32\nHeight = 96\nOffsetY = 24\n"
+            for args, expected, requested_width in [
+                ([], (32, 24, 128, 96), None),
+                (["--roi-width", "512", "--roi-horizontal", "right"], (1536, 24, 512, 96), 512),
+                (["--roi-width", "0", "--roi-height", "192", "--roi-vertical", "bottom"], (0, 1856, 2048, 192), 0),
+                (["--roi-horizontal", "center"], (960, 24, 128, 96), None),
+            ]:
+                with self.subTest(args=args):
+                    # Even an unusable TOML offset must be ignored on the overridden axis.
+                    options.write_text(config.replace("OffsetX = 32", 'OffsetX = "invalid"') if "right" in args else config)
+                    written.clear()
+                    result = runner.invoke(cli, ["run", "--record", "--frame-writer-batch-size", "1", *args],
+                                           catch_exceptions=False)
+                    self.assertEqual(result.exit_code, 0, result.output)
+                    session = sorted(Path.cwd().glob("session_*"))[-1]
+                    metadata = toml.load(session / "metadata.toml")
+                    features = metadata["camera_metadata"]["Fake"]
+                    self.assertEqual(tuple(features[k] for k in ("OffsetX", "OffsetY", "Width", "Height")), expected)
+                    self.assertEqual(metadata["cli_parameters"].get("roi_width"), requested_width)
+                    frame_count = len((session / "Fake.txt").read_text().splitlines()) - 1
+                    self.assertGreater(frame_count, 0)
+                    self.assertEqual((session / "Fake.dat").stat().st_size, frame_count * features["Width"] * features["Height"])
+            self.assertEqual(tuple(native.get_region()), (32, 24, 128, 96))
+
     def test_camera_payload_tracks_the_centered_crop_and_restore(self):
         camera = Aravis.Camera.new_with_device(Aravis.FakeDevice.new("test-roi"))
         camera.set_region(20, 40, 256, 192)
