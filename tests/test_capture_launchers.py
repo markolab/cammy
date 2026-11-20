@@ -76,6 +76,7 @@ class CaptureLauncherTests(unittest.TestCase):
             f.write("STREAM_STATS=off\nGAIN_DB=2.5\nROI_WIDTH=1024\nROI_HEIGHT=768\nROI_HORIZONTAL=right\nROI_VERTICAL=bottom\n"
                     "PREVIEW_TIME_DOWNSAMPLE=4\nSURFACE_TO_FLUORESCENCE_GAP_US=1250\nLIGHT_SETTLE_US=200\n"
                     "WRITER_CORES=5\nACQUISITION_CORES=3\nSHARED_GUI_CORES=2\n"
+                    "ARAVIS_BUFFER_SIZE=192\nRECORD_QUEUE_FRAMES=96\n"
                     "SURFACE_VOLTAGE=3.5\nFLUORESCENCE_VOLTAGE=1.25\n"
                     "SURFACE_ILLUMINATION_PERCENT=0\nFLUORESCENCE_ILLUMINATION_PERCENT=62.5\n")
         self.install(desktop)
@@ -94,6 +95,11 @@ class CaptureLauncherTests(unittest.TestCase):
                     p = simple_preview.make_context("run", args).params
                     self.assertEqual(p["light_mode"], mode)
                     self.assertEqual(p["record"], action == "record")
+                    self.assertEqual(p["buffer_size"], 192)
+                    if action == "record":
+                        self.assertEqual(p["record_queue_frames"], 96)
+                    else:
+                        self.assertNotIn("--record-queue-frames", args)
                     self.assertFalse(p["stream_stats"])
                     self.assertEqual(p["display_time_downsample"], 0 if action == "record" else 4)
                     self.assertEqual(p["shared_gui_cores"], 2)
@@ -135,6 +141,8 @@ class CaptureLauncherTests(unittest.TestCase):
         self.assertTrue(upgraded.startswith(original))
         self.assertIn("# SURFACE_VOLTAGE=", upgraded)
         self.assertIn("# STREAM_STATS=on", upgraded)
+        self.assertIn("# ARAVIS_BUFFER_SIZE=512", upgraded)
+        self.assertIn("# RECORD_QUEUE_FRAMES=512", upgraded)
         self.install(desktop)
         self.assertEqual(settings.read_text(), upgraded)
         result = self.run_shortcut(desktop / "cammy-alternate-preview.desktop")
@@ -150,6 +158,7 @@ class CaptureLauncherTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         params = simple_preview.make_context("run", result.stdout.splitlines()[2:]).params
         self.assertEqual((params["shared_gui_cores"], params["writer_cores"], params["acquisition_cores"]), (1, 7, None))
+        self.assertEqual((params["buffer_size"], params["record_queue_frames"]), (512, 512))
 
     def test_tight_alternation_reserves_time_for_both_lights_to_settle(self):
         with self.settings.open("a") as settings:

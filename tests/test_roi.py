@@ -62,7 +62,7 @@ class RoiTests(unittest.TestCase):
                     written.clear()
                     dpg.reset_mock()
                     sleep.reset_mock()
-                    # Acquisition can publish frames, but the status-only GUI must never read them.
+                    # A status-only recording never publishes or reads preview frames.
                     pixels = (nullcontext() if display_stride else
                               patch.object(AravisCamera, "display_frame", new_callable=PropertyMock, create=True))
                     with pixels as display_frame, self.assertLogs(level="INFO") as logs:
@@ -72,7 +72,8 @@ class RoiTests(unittest.TestCase):
                     self.assertEqual(result.exit_code, 0, result.output)
                     self.assertEqual(sleep.call_args_list.count(call(0.1)), int(display_stride == 0))
                     if not display_stride:
-                        self.assertNotIn(call(), display_frame.call_args_list)
+                        for access in display_frame.call_args_list:
+                            self.assertEqual(access, call((None, None)))
                     self.assertEqual(dpg.add_raw_texture.call_count, int(display_stride > 0))
                     self.assertTrue(any(isinstance(c.args[1], str) and "Writer:" in c.args[1]
                                         for c in dpg.set_value.call_args_list))

@@ -182,81 +182,64 @@ class AravisCamera(CammyCamera):
         )
 
 
-    # https://github.com/SintefManufacturing/python-aravis/blob/master/aravis.py#L162
-    # added timeout in ms
     def try_pop_frame(self, timeout=50000):
-        # buffer = self.stream.try_pop_buffer()
         buffer = self.stream.timeout_pop_buffer(timeout)
-        if buffer:
-            # self.total_frames += 1
-            # can potentially use this, are bit depths handled automatically by aravis? 
-            # if all come back as uint64s need to rethink...
-            status = buffer.get_status()
-            # print(status)
-            if status == Aravis.BufferStatus.TIMEOUT:
-                self.logger.debug("missed frame")
-                # self.missed_frames += 1
-                frame = None
-                timestamps = None
-                self.stream.push_buffer(buffer)
-            elif status == Aravis.BufferStatus.SIZE_MISMATCH:
-                self.logger.debug("buffer size mismatch")
-                # self.missed_frames += 1
-                frame = None
-                timestamps = None
-                self.stream.push_buffer(buffer)
-            elif status == Aravis.BufferStatus.SUCCESS:
-                frame = self._array_from_buffer_address(buffer)
-                timestamp = buffer.get_timestamp()
-                system_timestamp = buffer.get_system_timestamp()
-                timestamps = {
-                    "capture_number": self.total_frames,
-                    "device_timestamp": timestamp,
-                    "system_timestamp": system_timestamp,
-                    "frame_id": buffer.get_frame_id(),
-                } 
-                self.stream.push_buffer(buffer)
-                if isinstance(frame, tuple):
-                    for _frame, _cam in zip(frame[1:], self._spoof_cameras):
-                        # send _frame and timestamps...        
-                        _cam.recv_queue.put((_frame, timestamps))
-                    # now proceed as if we only collected the first...
-                    frame = frame[0]
-                
-                frame_id = timestamps["frame_id"]
-                advance = 1
-                if self._last_frame_id is not None:
-                    advance = frame_id - self._last_frame_id
-                    if self._frame_id_modulus is not None:
-                        advance %= self._frame_id_modulus
-                        if advance > self._frame_id_modulus // 2:
-                            advance = 0  # Backward/reset ID, rather than a forward gap.
-                    if advance <= 0:
-                        advance = 1
-                        self._last_framegrab = [np.nan] * len(self._last_framegrab)
-                self._last_frame_id = frame_id
-                self.missed_frames += advance - 1
-                self.total_frames += advance
-
-                grab_time = timestamp
-                self.frame_count += 1
-                # In alternate mode, compare timestamps from the same light bank.
-                fps_index = (self.total_frames - 1) % len(self._last_framegrab)
-                last_grab = self._last_framegrab[fps_index]
-                if grab_time > last_grab:
-                    new_fps_val = self._tick_frequency / (grab_time - last_grab)
-                    if np.isnan(self.fps):
-                        self.fps = new_fps_val
-                    else:
-                        self.fps = .01 * new_fps_val + .99 * self.fps
-                self._last_framegrab[fps_index] = grab_time
-                
-            else:
-                raise RuntimeError(f"Did not understand status: {status}")
-            #self.stream.push_buffer(buffer)
-            return frame, timestamps
-        else:
+        if buffer is None:
             return None, None
+
+        try:
+            status = buffer.get_status()
+            if status != Aravis.BufferStatus.SUCCESS:
+                if status in (Aravis.BufferStatus.TIMEOUT, Aravis.BufferStatus.SIZE_MISMATCH,
+                              Aravis.BufferStatus.MISSING_PACKETS, Aravis.BufferStatus.WRONG_PACKET_ID,
+                              Aravis.BufferStatus.ABORTED):
+                    self.logger.debug("Discarding incomplete frame: %s", status)
+                    return None, None
+                raise RuntimeError(f"Did not understand status: {status}")
+
+            frame = self._array_from_buffer_address(buffer)
+            timestamp = buffer.get_timestamp()
+            frame_id = buffer.get_frame_id()
+            timestamps = {
+                "capture_number": self.total_frames,
+                "device_timestamp": timestamp,
+                "system_timestamp": buffer.get_system_timestamp(),
+                "frame_id": frame_id,
+            }
+        finally:
+            self.stream.push_buffer(buffer)
+
+        if isinstance(frame, tuple):
+            for child_frame, camera in zip(frame[1:], self._spoof_cameras):
+                camera.recv_queue.put((child_frame, timestamps))
+            frame = frame[0]
+
+        advance = 1
+        if self._last_frame_id is not None:
+            advance = frame_id - self._last_frame_id
+            if self._frame_id_modulus is not None:
+                advance %= self._frame_id_modulus
+                if advance > self._frame_id_modulus // 2:
+                    advance = 0  # Backward/reset ID, rather than a forward gap.
+            if advance <= 0:
+                advance = 1
+                self._last_framegrab = [np.nan] * len(self._last_framegrab)
+        self._last_frame_id = frame_id
+        self.missed_frames += advance - 1
+        self.total_frames += advance
+
+        self.frame_count += 1
+        # In alternate mode, compare timestamps from the same light bank.
+        fps_index = (self.total_frames - 1) % len(self._last_framegrab)
+        last_grab = self._last_framegrab[fps_index]
+        if timestamp > last_grab:
+            new_fps_val = self._tick_frequency / (timestamp - last_grab)
+            if np.isnan(self.fps):
+                self.fps = new_fps_val
+            else:
+                self.fps = .01 * new_fps_val + .99 * self.fps
+        self._last_framegrab[fps_index] = timestamp
+        return frame, timestamps
 
     # https://github.com/SintefManufacturing/python-aravis/blob/master/aravis.py#L180
     def _array_from_buffer_address(self, buffer):
@@ -380,7 +363,7 @@ class AravisCamera(CammyCamera):
 
 
 # alllllrighty time for zmq...
-def acquisition_loop(camera, shutdown_event, cpu_id=None):
+def acquisition_loop(camera, shutdown_event, cpu_id=None, *, publish_preview=True):
     # NOTE: this is a mission critical loop, do everything to ensure
     # that's it's own cpu with high priority
     import time
@@ -401,15 +384,13 @@ def acquisition_loop(camera, shutdown_event, cpu_id=None):
         start_time = time.perf_counter() if debug_enabled else None
         frame, ts = camera.try_pop_frame()
 
-        if frame is not None and debug_enabled:
+        if frame is None:
+            continue
+        if debug_enabled:
             camera.logger.debug("Frame processing time: %s", time.perf_counter() - start_time)
-        # print(ts)
-        if (frame is not None) and (camera.zmq_publisher is None):
-            # with camera.display_lock:
+        if publish_preview:
             camera.display_frame = (frame, ts)
-        elif (frame is not None) and (camera.zmq_publisher is not None):  
-            camera.display_frame = (frame, ts)
-
+        if camera.zmq_publisher is not None:
             metadata = {
                 'timestamps': ts,
                 'shape': frame.shape,

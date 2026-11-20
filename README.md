@@ -54,8 +54,11 @@ and 100% fill keeps it on across frames.
 
 The defaults use the rig's `/data/qdpi/basler_new_8bit.toml` and save recordings
 under `/data/qdpi/session_*`. Preview shows live images. Record opens the usual
-experiment dialog and uses seven writer cores, batches of 20, a queue setting
-of 512, and disabled image updates. Direct preview and recording runs from the checkout use
+experiment dialog and uses seven writer cores, batches of 20, and disabled
+image updates. `ARAVIS_BUFFER_SIZE=512` sets the number of receive buffers per
+camera in Preview, Record, and Tune. `RECORD_QUEUE_FRAMES=512` sets the per-camera
+ZeroMQ queue limit in frames on both the sending and receiving sockets during
+recording. Both settings take positive integers. Direct preview and recording runs from the checkout use
 `launchers/settings.sh` by default.
 
 Set `PREVIEW_TIME_DOWNSAMPLE=4` in `cammy-settings.sh` to show every fourth new

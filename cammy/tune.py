@@ -18,7 +18,7 @@ from cammy.util import shared_asset
 
 BANKS = ("surface", "fluorescence")
 SETTINGS = ("DATA_DIR", "CAMERA_OPTIONS", "FPS", "STREAM_STATS", "PREVIEW_TIME_DOWNSAMPLE", "TUNE_DISPLAY",
-            "GAIN_DB", "LIGHT_SETTLE_US", "ROI_WIDTH", "ROI_HEIGHT",
+            "ARAVIS_BUFFER_SIZE", "GAIN_DB", "LIGHT_SETTLE_US", "ROI_WIDTH", "ROI_HEIGHT",
             "ROI_HORIZONTAL", "ROI_VERTICAL", "SURFACE_TO_FLUORESCENCE_GAP_US",
             "SURFACE_EXPOSURE_US", "FLUORESCENCE_EXPOSURE_US", "SURFACE_VOLTAGE",
             "FLUORESCENCE_VOLTAGE", "SURFACE_ILLUMINATION_PERCENT", "FLUORESCENCE_ILLUMINATION_PERCENT")
@@ -388,10 +388,14 @@ def tune(ctx, settings, mode, trigger_port, stream_stats, display):
         raise click.ClickException(f"Invalid PREVIEW_TIME_DOWNSAMPLE: {exc}") from exc
     except (ValueError, OSError, OverflowError) as exc:
         raise click.ClickException(str(exc)) from exc
+    try:
+        buffer_size = click.IntRange(min=1).convert(session.values["ARAVIS_BUFFER_SIZE"], None, None)
+    except click.BadParameter as exc:
+        raise click.ClickException(f"Invalid ARAVIS_BUFFER_SIZE: {exc}") from exc
     preview = ctx.parent.command.get_command(ctx.parent, "run")
     ctx.invoke(preview, tuning=session, interface="aravis", hw_trigger=True, trigger_device="nucleo",
                display_time_downsample=display_stride,
-               light_mode=session.mode, trigger_port=trigger_port, buffer_size=512, display_downsample=6, stream_stats=stream_stats,
+               light_mode=session.mode, trigger_port=trigger_port, buffer_size=buffer_size, display_downsample=6, stream_stats=stream_stats,
                roi_width=int(session.values["ROI_WIDTH"]), roi_height=int(session.values["ROI_HEIGHT"]),
                roi_horizontal=session.values["ROI_HORIZONTAL"], roi_vertical=session.values["ROI_VERTICAL"],
                camera_options=str(camera_options.resolve()))

@@ -75,7 +75,7 @@ txt_pos = (25, 25)
 # fmt: off
 @cli.command(name="run", context_settings={'show_default': True})
 @click.option("--interface", type=click.Choice(["aravis", "fake_custom", "all"]), default="all")
-@click.option("--buffer-size", "-b", type=int, default=5, help="Buffer size")
+@click.option("--buffer-size", "-b", type=click.IntRange(min=1), default=5, help="Aravis receive buffers per camera (frames).")
 @click.option("--n-fake-cameras", type=int, default=1)
 @click.option("--record", is_flag=True, help="Save frames to disk")
 @click.option("--acquisition-cores", type=click.IntRange(min=1),
@@ -684,8 +684,11 @@ def simple_preview(
         for i, (key, camera) in enumerate(cameras.items()):
             if tuning is not None and key in cameras_metadata:
                 camera.reset_tune_trial(2 if trigger_dev.mode == "alternate" else 1)
-            thread = threading.Thread(target=acquisition_loop, daemon=True,
-                                      args=(camera, acquisition_thread_shutdown_event, acquire_cpus[i % len(acquire_cpus)]))
+            thread = threading.Thread(
+                target=acquisition_loop, daemon=True,
+                args=(camera, acquisition_thread_shutdown_event, acquire_cpus[i % len(acquire_cpus)]),
+                kwargs={"publish_preview": key in texture_sizes},
+            )
             threads[key] = thread
             thread.start()
 

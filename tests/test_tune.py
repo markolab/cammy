@@ -220,6 +220,22 @@ class TuneTests(unittest.TestCase):
                 self.assertEqual(result.exit_code, 0, result.output)
                 self.assertEqual(preview.call_args.kwargs["stream_stats"], expected)
 
+    def test_aravis_buffer_size_from_settings(self):
+        for value, expected in [(None, 512), ("192", 192), ("0", None), ("bad", None)]:
+            with self.subTest(value=value):
+                if value is not None:
+                    with self.settings.open("a") as f:
+                        f.write(f"ARAVIS_BUFFER_SIZE={value}\n")
+                with patch.object(cli.commands["run"], "callback") as preview:
+                    result = CliRunner().invoke(cli, ["tune", "--settings", str(self.settings)])
+                if expected is None:
+                    self.assertNotEqual(result.exit_code, 0)
+                    self.assertIn("ARAVIS_BUFFER_SIZE", result.output)
+                    preview.assert_not_called()
+                else:
+                    self.assertEqual(result.exit_code, 0, result.output)
+                    self.assertEqual(preview.call_args.kwargs["buffer_size"], expected)
+
     def test_tune_display_startup_setting_and_override(self):
         for setting, stride, flags, enabled, effective_stride in [
             ("", 0, [], False, 0), ("off", 4, [], False, 4),

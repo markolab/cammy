@@ -53,6 +53,29 @@ class CameraFpsTests(unittest.TestCase):
             self.assertAlmostEqual(camera.fps, 50)
         self.assertEqual(camera.missed_frames, 1)
 
+    def test_incomplete_buffer_is_recycled_and_next_frame_counts_the_gap_once(self):
+        for status in (Aravis.BufferStatus.TIMEOUT, Aravis.BufferStatus.SIZE_MISMATCH,
+                       Aravis.BufferStatus.MISSING_PACKETS, Aravis.BufferStatus.WRONG_PACKET_ID,
+                       Aravis.BufferStatus.ABORTED):
+            with self.subTest(status=status):
+                camera = self.make_camera()
+                self.pop_frame(camera, 1, 0)
+                bad = Mock()
+                bad.get_status.return_value = status
+                camera.stream.timeout_pop_buffer.return_value = bad
+                camera.stream.push_buffer.reset_mock()
+                self.assertEqual(camera.try_pop_frame(), (None, None))
+                camera.stream.push_buffer.assert_called_once_with(bad)
+                self.pop_frame(camera, 3, 20)
+                self.assertEqual((camera.frame_count, camera.missed_frames, camera.total_frames), (2, 1, 3))
+
+    def test_decode_error_returns_buffer_to_stream(self):
+        camera = self.make_camera()
+        camera._array_from_buffer_address.side_effect = ValueError("invalid image")
+        with self.assertRaisesRegex(ValueError, "invalid image"):
+            self.pop_frame(camera, 1, 0)
+        camera.stream.push_buffer.assert_called_once_with(camera.stream.timeout_pop_buffer.return_value)
+
     def test_session_counts_start_at_first_received_frame(self):
         for first_id in [0, 48000]:
             with self.subTest(first_id=first_id):

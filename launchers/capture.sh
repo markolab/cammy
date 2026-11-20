@@ -34,7 +34,7 @@ case "$action" in
     preview) options=(--display-time-downsample "$PREVIEW_TIME_DOWNSAMPLE"
                       --shared-gui-cores "${SHARED_GUI_CORES:-0}") ;;
     record)  options=(--record --display-time-downsample 0 --shared-gui-cores "${SHARED_GUI_CORES:-1}"
-                      --frame-writer-batch-size 20 --record-queue-frames 512)
+                      --frame-writer-batch-size 20 --record-queue-frames "$RECORD_QUEUE_FRAMES")
              if [[ -n $WRITER_CORES ]]; then options+=(--writer-cores "$WRITER_CORES"); fi ;;
     *) die "Choose preview or record." ;;
 esac
@@ -83,4 +83,4 @@ cd -- "$DATA_DIR"
     --camera-options "$CAMERA_OPTIONS" --light-mode "$mode" --light-settle-us "$LIGHT_SETTLE_US" \
     --surface-illumination-percent "$SURFACE_ILLUMINATION_PERCENT" --fluorescence-illumination-percent "$FLUORESCENCE_ILLUMINATION_PERCENT" \
     --surface-voltage "$SURFACE_VOLTAGE" --fluorescence-voltage "$FLUORESCENCE_VOLTAGE" --display-downsample 6 \
-    --buffer-size 512 "${options[@]}"
+    --buffer-size "$ARAVIS_BUFFER_SIZE" "${options[@]}"

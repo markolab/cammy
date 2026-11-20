@@ -11,6 +11,8 @@ STREAM_STATS=on                 # Log per-camera stream counters once a second i
 PREVIEW_TIME_DOWNSAMPLE=1       # Display every Nth new preview frame. 0 pauses image updates.
 TUNE_DISPLAY=""                 # Tune only: on or off. Empty follows the preview setting (0 is off).
 
+ARAVIS_BUFFER_SIZE=512          # Receive buffers per camera in Preview, Record, and Tune (frames).
+RECORD_QUEUE_FRAMES=512         # Record only. ZeroMQ queue limit per camera on each socket (frames).
 WRITER_CORES=7                  # Record only. Empty lets Cammy choose the writer count.
 ACQUISITION_CORES=""            # Preview and Record. Empty uses the remaining worker cores.
 SHARED_GUI_CORES=""             # Physical cores shared with Aravis receivers. Empty uses 0 in Preview, 1 in Record.
