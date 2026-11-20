@@ -208,6 +208,18 @@ class TuneTests(unittest.TestCase):
         dpg.set_value.assert_any_call(dpg.add_text.return_value, "0 missed / 5 total (0.0% missed)")
         cam.start_acquisition.assert_called_once()
 
+    def test_tune_stream_stats_follows_file_and_command_line(self):
+        for setting, flags, expected in [(None, [], True), ("off", [], False),
+                                         ("off", ["--stream-stats"], True), ("on", ["--no-stream-stats"], False)]:
+            with self.subTest(setting=setting, flags=flags):
+                if setting is not None:
+                    with self.settings.open("a") as f:
+                        f.write(f"STREAM_STATS={setting}\n")
+                with patch.object(cli.commands["run"], "callback") as preview:
+                    result = CliRunner().invoke(cli, ["tune", "--settings", str(self.settings), *flags])
+                self.assertEqual(result.exit_code, 0, result.output)
+                self.assertEqual(preview.call_args.kwargs["stream_stats"], expected)
+
     def test_tune_display_startup_setting_and_override(self):
         for setting, stride, flags, enabled, effective_stride in [
             ("", 0, [], False, 0), ("off", 4, [], False, 4),

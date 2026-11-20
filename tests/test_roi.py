@@ -35,7 +35,9 @@ class RoiTests(unittest.TestCase):
                 patch.dict("sys.modules", {"dearpygui": Mock(dearpygui=dpg), "dearpygui.dearpygui": dpg}), \
                 patch("cammy.cli.get_all_camera_ids", return_value={"Fake": "aravis"}), \
                 patch.object(Aravis.Camera, "new", return_value=native), \
-                patch("cammy.cli.get_cpu_affinity", return_value=(None, [None], [None])), \
+                patch("cammy.cli.get_cpu_affinity", return_value=({0}, [1], [2])), \
+                patch("os.sched_getaffinity", return_value={0, 1, 2}, create=True), \
+                patch("os.sched_setaffinity", create=True), \
                 patch("cammy.cli.mpl_to_cv2_colormap", return_value=2), \
                 patch("cammy.cli.time.sleep"), patch("os.nice", create=True), \
                 patch.object(RawVideoRecorder, "write_batch", write_and_notify), \
@@ -62,6 +64,8 @@ class RoiTests(unittest.TestCase):
                     self.assertTrue(any(isinstance(c.args[1], str) and "Writer:" in c.args[1]
                                         for c in dpg.set_value.call_args_list))
                     messages = [record.getMessage() for record in logs.records]
+                    self.assertRegex("\n".join(messages), r"Fake acquisition TID \d+ pinned to CPU 1")
+                    self.assertRegex("\n".join(messages), r"Fake\.dat writer TID \d+ pinned to CPU 2")
                     if args:
                         self.assertIn("Requested ROI: " + " ".join(args), messages)
                     x, y, w, h = expected

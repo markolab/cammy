@@ -78,12 +78,14 @@ txt_pos = (25, 25)
 @click.option("--buffer-size", "-b", type=int, default=5, help="Buffer size")
 @click.option("--n-fake-cameras", type=int, default=1)
 @click.option("--record", is_flag=True, help="Save frames to disk")
+@click.option("--acquisition-cores", type=click.IntRange(min=1),
+              help="Linux physical cores for acquisition. Defaults to the available non-writer worker cores.")
 @click.option(
     "--writer-cores",
     type=click.IntRange(min=1),
     default=None,
-    help="Linux physical cores reserved for writers; remaining worker cores go to acquisition. "
-         "Requires --record. Default: half the worker cores."
+    help="Linux physical cores reserved for writers. Requires --record. Defaults to the cores left by "
+         "--acquisition-cores, or half the worker cores if neither count is set."
 )
 @click.option("--jumbo-frames", default=True, type=bool, help="Turn on jumbo frames (GigE only)")
 @click.option(
@@ -91,6 +93,9 @@ txt_pos = (25, 25)
     is_flag=True,
     help="Let Linux Aravis receivers also use the GUI core. Requires --display-time-downsample 0.",
 )
+@click.option("--shared-gui-cores", type=click.IntRange(min=0),
+              help="Physical cores shared by the GUI and Aravis receivers. 0 isolates the GUI. "
+                   "1 shares its usual core. Higher counts also let the GUI use acquisition cores.")
 @click.option(
     "--receiver-realtime-priority",
     type=click.IntRange(min=0, max=99),
@@ -213,8 +218,10 @@ def simple_preview(
     roi_vertical: Optional[str],
     record: bool,
     writer_cores: Optional[int],
+    acquisition_cores: Optional[int],
     jumbo_frames: bool,
     share_gui_core: bool,
+    shared_gui_cores: Optional[int],
     receiver_realtime_priority: int,
     stream_stats: bool,
     save_engine: str,
@@ -254,6 +261,10 @@ def simple_preview(
         raise click.UsageError("--writer-cores requires --record")
     if share_gui_core and display_time_downsample != 0:
         raise click.UsageError("--share-gui-core requires --display-time-downsample 0")
+    if share_gui_core and shared_gui_cores not in (None, 1):
+        raise click.UsageError("--share-gui-core conflicts with --shared-gui-cores other than 1")
+    if shared_gui_cores is None:
+        shared_gui_cores = int(share_gui_core)
     if trigger_device == "nucleo" and not hw_trigger:
         raise click.UsageError("--trigger-device nucleo requires --hw-trigger")
     if trigger_device == "nucleo" and light_mode is None:
@@ -272,6 +283,22 @@ def simple_preview(
         logging.getLogger().setLevel(logging.DEBUG)
     else:
         logging.getLogger().setLevel(logging.INFO)
+
+    try:
+        gui_cpus, acquire_cpus, write_cpus = get_cpu_affinity(
+            record, writer_cores=writer_cores, acquisition_cores=acquisition_cores, shared_gui_cores=shared_gui_cores)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    if gui_cpus is not None:
+        allowed = os.sched_getaffinity(0)
+        click.get_current_context().call_on_close(lambda: os.sched_setaffinity(0, allowed))
+        receiver_cpus = set(acquire_cpus)
+        if shared_gui_cores:
+            receiver_cpus.update(gui_cpus)
+        logger.info("CPU affinity: GUI=%s, acquisition=%s, recording=%s", sorted(gui_cpus), acquire_cpus, write_cpus)
+        logger.info("Aravis receiver CPUs: %s (shared GUI cores=%d)", sorted(receiver_cpus), shared_gui_cores)
+    else:
+        logger.info("CPU affinity is managed by the OS outside Linux")
 
     import dearpygui.dearpygui as dpg
     import cv2
@@ -402,25 +429,6 @@ def simple_preview(
                     tuning.sensor_regions[key] = (0, 0, full_width, full_height)
             except Exception as exc:
                 raise click.ClickException(f"Could not crop {key}: {exc}") from exc
-    try:
-        gui_cpus, acquire_cpus, write_cpus = get_cpu_affinity(record, writer_cores=writer_cores)
-    except ValueError as exc:
-        raise click.ClickException(str(exc)) from exc
-    logger.info(
-        "CPU affinity: GUI=%s, acquisition=%s, recording=%s",
-        gui_cpus, acquire_cpus, write_cpus,
-    )
-    if gui_cpus is not None:
-        if tuning is not None:
-            allowed = os.sched_getaffinity(0)
-            click.get_current_context().call_on_close(lambda: os.sched_setaffinity(0, allowed))
-        receiver_cpus = set(acquire_cpus)
-        if share_gui_core:
-            receiver_cpus.update(gui_cpus)
-        logger.info("Aravis receiver CPUs: %s", sorted(receiver_cpus))
-    elif share_gui_core:
-        logger.info("--share-gui-core only applies on Linux")
-
     @contextmanager
     def receiver_affinity():
         # Native Aravis receive threads inherit this mask on startup and after a crop.

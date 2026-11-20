@@ -73,8 +73,9 @@ class CaptureLauncherTests(unittest.TestCase):
         settings = desktop / "cammy-settings.sh"
         self.assertEqual(settings.read_bytes(), self.settings.read_bytes())
         with settings.open("a") as f:
-            f.write("GAIN_DB=2.5\nROI_WIDTH=1024\nROI_HEIGHT=768\nROI_HORIZONTAL=right\nROI_VERTICAL=bottom\n"
+            f.write("STREAM_STATS=off\nGAIN_DB=2.5\nROI_WIDTH=1024\nROI_HEIGHT=768\nROI_HORIZONTAL=right\nROI_VERTICAL=bottom\n"
                     "PREVIEW_TIME_DOWNSAMPLE=4\nSURFACE_TO_FLUORESCENCE_GAP_US=1250\nLIGHT_SETTLE_US=200\n"
+                    "WRITER_CORES=5\nACQUISITION_CORES=3\nSHARED_GUI_CORES=2\n"
                     "SURFACE_VOLTAGE=3.5\nFLUORESCENCE_VOLTAGE=1.25\n"
                     "SURFACE_ILLUMINATION_PERCENT=0\nFLUORESCENCE_ILLUMINATION_PERCENT=62.5\n")
         self.install(desktop)
@@ -93,9 +94,11 @@ class CaptureLauncherTests(unittest.TestCase):
                     p = simple_preview.make_context("run", args).params
                     self.assertEqual(p["light_mode"], mode)
                     self.assertEqual(p["record"], action == "record")
+                    self.assertFalse(p["stream_stats"])
                     self.assertEqual(p["display_time_downsample"], 0 if action == "record" else 4)
-                    self.assertEqual(p["share_gui_core"], action == "record")
-                    self.assertEqual(p["writer_cores"], 7 if action == "record" else None)
+                    self.assertEqual(p["shared_gui_cores"], 2)
+                    self.assertEqual(p["acquisition_cores"], 3)
+                    self.assertEqual(p["writer_cores"], 5 if action == "record" else None)
                     self.assertEqual(p["gain_db"], 2.5)
                     self.assertEqual((p["roi_width"], p["roi_height"]), (1024, 768))
                     self.assertEqual((p["roi_horizontal"], p["roi_vertical"]), ("right", "bottom"))
@@ -131,6 +134,7 @@ class CaptureLauncherTests(unittest.TestCase):
         upgraded = settings.read_text()
         self.assertTrue(upgraded.startswith(original))
         self.assertIn("# SURFACE_VOLTAGE=", upgraded)
+        self.assertIn("# STREAM_STATS=on", upgraded)
         self.install(desktop)
         self.assertEqual(settings.read_text(), upgraded)
         result = self.run_shortcut(desktop / "cammy-alternate-preview.desktop")
@@ -138,7 +142,14 @@ class CaptureLauncherTests(unittest.TestCase):
         direct = self.launch("alternate", "preview")
         self.assertEqual(direct.returncode, 0, direct.stderr)
         self.assertEqual(result.stdout, direct.stdout)
-        self.assertEqual(simple_preview.make_context("run", direct.stdout.splitlines()[2:]).params["display_time_downsample"], 1)
+        params = simple_preview.make_context("run", direct.stdout.splitlines()[2:]).params
+        self.assertEqual(params["display_time_downsample"], 1)
+        self.assertTrue(params["stream_stats"])
+        self.assertEqual(params["shared_gui_cores"], 0)
+        result = self.run_shortcut(desktop / "cammy-alternate-record.desktop")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        params = simple_preview.make_context("run", result.stdout.splitlines()[2:]).params
+        self.assertEqual((params["shared_gui_cores"], params["writer_cores"], params["acquisition_cores"]), (1, 7, None))
 
     def test_tight_alternation_reserves_time_for_both_lights_to_settle(self):
         with self.settings.open("a") as settings:

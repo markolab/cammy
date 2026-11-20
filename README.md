@@ -26,6 +26,10 @@ from [launchers/settings.sh](launchers/settings.sh) on first install. Rerun the
 installer to add new settings to an older desktop copy as commented examples.
 Uncomment an example to override its default. The settings include gain in dB
 (empty uses the camera TOML), exposure widths in µs, and total FPS per camera.
+Set `STREAM_STATS=off` in that file to silence the once-per-second camera logs
+in Preview, Record, and Tune. The default is `on`. The GUI frame counters stay
+active in either case. For a single Tune session, use `--stream-stats` or
+`--no-stream-stats` to override the file.
 
 With the default alternating settings, one pair takes 21.5 ms (46.51 pairs/s,
 93.02 frames/s per camera). Times below are relative to the surface trigger rising edge.
@@ -174,12 +178,24 @@ each exposure, following gap, light-on interval, brightness, total FPS and
 alternating pairs/s. Times are programmed microseconds relative to the first
 D4 rising edge. The final `CONFIG` line is the exact command sent to the controller.
 
-On Linux, `--record --writer-cores 2` reserves two physical cores for writers,
-one for the GUI, and gives the remaining cores to acquisition. SMT siblings stay
-in the same pool. On a ten-core machine this gives seven acquisition cores.
-The default still splits worker cores roughly equally between acquisition and
-recording. Compare acquisition misses and recording drops using `--stream-stats`
-at the same trigger settings; omit `--writer-cores` to restore the default split.
+On Linux, set `WRITER_CORES`, `ACQUISITION_CORES`, and `SHARED_GUI_CORES` in
+the desktop settings for Preview and Record. For direct runs use `--writer-cores`
+(recording only), `--acquisition-cores`, and `--shared-gui-cores`. Counts are
+physical cores within the process's allowed CPUs. SMT siblings stay together.
+After setting aside the first core for the GUI, an unspecified worker count gets
+the remaining cores. If both worker counts are omitted, recording splits them
+roughly equally. Specifying both can leave cores unused by these workers.
+
+With `SHARED_GUI_CORES=0` the GUI has its own core. At `1`, Aravis receivers can
+also run on that core (the existing `--share-gui-core` behavior). At `2`, the GUI
+can also run on the first acquisition core. Higher counts include more acquisition
+cores. Each camera's acquisition reader and raw writer stays pinned to one CPU in
+its respective pool. The terminal prints the masks and each worker's TID and CPU.
+
+On a ten-core rig the Record defaults give writers seven cores and readers two.
+Receivers can use those two plus the GUI core. Setting `SHARED_GUI_CORES=2` keeps
+that worker split and lets the GUI run on two of the three receiver cores. Preview
+defaults to a dedicated GUI core and allocates all other cores to acquisition.
 
 Add `--stream-stats` to `cammy run` to log one line per Aravis camera per second,
 even with preview images disabled. Logs include free input buffers, queued

@@ -39,13 +39,17 @@ def get_physical_core_map():
     return physical_cores
 
 
-def get_cpu_affinity(record=False, writer_cores=None):
-    """Give GUI one physical core and split the rest into disjoint worker pools."""
+def get_cpu_affinity(record=False, writer_cores=None, acquisition_cores=None, shared_gui_cores=0):
+    """Split physical worker cores and optionally extend the GUI mask into acquisition."""
     import platform
 
     if platform.system().lower() != "linux":
         if writer_cores is not None:
             logger.warning("--writer-cores only applies on Linux")
+        if acquisition_cores is not None:
+            logger.warning("--acquisition-cores only applies on Linux")
+        if shared_gui_cores:
+            logger.warning("GUI core sharing only applies on Linux")
         return None, [None], [None]
 
     cores = list(get_physical_core_map().values())
@@ -58,20 +62,33 @@ def get_cpu_affinity(record=False, writer_cores=None):
 
     gui_cpus = set(cores[0])
     workers = cores[1:]
+    max_acquisition = len(workers) - int(record)
+    if acquisition_cores is not None and not 1 <= acquisition_cores <= max_acquisition:
+        raise ValueError(f"--acquisition-cores must be between 1 and {max_acquisition} "
+                         f"with {len(cores)} available physical cores")
     if record:
         if writer_cores is None:
-            writer_cores = len(workers) // 2
+            writer_cores = len(workers) // 2 if acquisition_cores is None else len(workers) - acquisition_cores
         if not 1 <= writer_cores < len(workers):
             raise ValueError(
                 f"--writer-cores must be between 1 and {len(workers) - 1} "
                 f"with {len(cores)} available physical cores"
             )
-        acquisition, recording = workers[:-writer_cores], workers[-writer_cores:]
+        if acquisition_cores is not None and acquisition_cores + writer_cores > len(workers):
+            raise ValueError(f"--acquisition-cores and --writer-cores together exceed the {len(workers)} worker cores")
+        recording = workers[-writer_cores:]
+        workers = workers[:-writer_cores]
     else:
-        acquisition, recording = workers, []
+        recording = []
+    acquisition = workers[:acquisition_cores]
+    if not 0 <= shared_gui_cores <= 1 + len(acquisition):
+        raise ValueError(f"--shared-gui-cores must be between 0 and {1 + len(acquisition)} "
+                         "for this GUI and acquisition allocation")
+    # The first shared core is the original GUI core. Additional ones come from acquisition.
+    if shared_gui_cores > 1:
+        gui_cpus.update(cpu for core in acquisition[:shared_gui_cores - 1] for cpu in core)
 
     # Use one CPU per physical core before using its sibling hardware threads.
-    # Cameras can reuse CPUs within a pool without sharing cores across roles.
     acquire_cpus = [core[0] for core in acquisition] + [
         cpu for core in acquisition for cpu in core[1:]
     ]

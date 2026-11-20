@@ -7,8 +7,13 @@ ROI_VERTICAL=center             # Part to keep: top, center, or bottom.
 FLUORESCENCE_EXPOSURE_US=10000
 SURFACE_EXPOSURE_US=1000
 FPS=93.0233                     # Total frames/s per camera. Alternate pairs run at FPS/2.
+STREAM_STATS=on                 # Log per-camera stream counters once a second in Preview, Record, and Tune (on/off).
 PREVIEW_TIME_DOWNSAMPLE=1       # Display every Nth new preview frame. 0 pauses image updates.
 TUNE_DISPLAY=""                 # Tune only: on or off. Empty follows the preview setting (0 is off).
+
+WRITER_CORES=7                  # Record only. Empty lets Cammy choose the writer count.
+ACQUISITION_CORES=""            # Preview and Record. Empty uses the remaining worker cores.
+SHARED_GUI_CORES=""             # Physical cores shared with Aravis receivers. Empty uses 0 in Preview, 1 in Record.
 
 SURFACE_TO_FLUORESCENCE_GAP_US=500  # Preferred time from surface exposure end to fluorescence exposure start.
 LIGHT_SETTLE_US=100                 # Turn on the selected light this far before exposure, within the gap.

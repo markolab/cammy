@@ -387,8 +387,8 @@ def acquisition_loop(camera, shutdown_event, cpu_id=None):
     camera.recording_drops = 0
     debug_enabled = camera.logger.isEnabledFor(logging.DEBUG)
     if cpu_id is not None:
-        print(f"Setting affinity to {cpu_id}")
         os.sched_setaffinity(0, {int(cpu_id)})
+        camera.logger.info("%s acquisition TID %d pinned to CPU %d", camera.id, threading.get_native_id(), cpu_id)
 
     try:
         os.nice(-10)

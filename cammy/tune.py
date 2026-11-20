@@ -17,7 +17,8 @@ from cammy.util import shared_asset
 
 
 BANKS = ("surface", "fluorescence")
-SETTINGS = ("DATA_DIR", "CAMERA_OPTIONS", "FPS", "PREVIEW_TIME_DOWNSAMPLE", "TUNE_DISPLAY", "GAIN_DB", "LIGHT_SETTLE_US", "ROI_WIDTH", "ROI_HEIGHT",
+SETTINGS = ("DATA_DIR", "CAMERA_OPTIONS", "FPS", "STREAM_STATS", "PREVIEW_TIME_DOWNSAMPLE", "TUNE_DISPLAY",
+            "GAIN_DB", "LIGHT_SETTLE_US", "ROI_WIDTH", "ROI_HEIGHT",
             "ROI_HORIZONTAL", "ROI_VERTICAL", "SURFACE_TO_FLUORESCENCE_GAP_US",
             "SURFACE_EXPOSURE_US", "FLUORESCENCE_EXPOSURE_US", "SURFACE_VOLTAGE",
             "FLUORESCENCE_VOLTAGE", "SURFACE_ILLUMINATION_PERCENT", "FLUORESCENCE_ILLUMINATION_PERCENT")
@@ -358,7 +359,8 @@ class TuneSession:
 @click.option("--mode", type=click.Choice([*BANKS, "alternate"]), default="surface", show_default=True)
 @click.option("--display", type=click.Choice(["on", "off"], case_sensitive=False),
               help="Start Tune with camera images on or off. Overrides TUNE_DISPLAY.")
-@click.option("--stream-stats", is_flag=True, help="Log per-camera stream counters once per second.")
+@click.option("--stream-stats/--no-stream-stats", default=None,
+              help="Override STREAM_STATS for this session's per-camera stream logging.")
 @click.option("--trigger-port", default="/dev/ttyACM0", show_default=True)
 @click.pass_context
 def tune(ctx, settings, mode, trigger_port, stream_stats, display):
@@ -368,6 +370,10 @@ def tune(ctx, settings, mode, trigger_port, stream_stats, display):
         raise click.ClickException(f"Cannot find {path}. Run launchers/install.py or supply --settings PATH.")
     try:
         session = TuneSession(path, mode, trigger_port)
+        if stream_stats is None:
+            if session.values["STREAM_STATS"] not in ("on", "off"):
+                raise ValueError("STREAM_STATS must be on or off.")
+            stream_stats = session.values["STREAM_STATS"] == "on"
         display_stride = click.IntRange(0, 2**31 - 1).convert(session.values["PREVIEW_TIME_DOWNSAMPLE"], None, None)
         if display is not None:
             session.values["TUNE_DISPLAY"] = display

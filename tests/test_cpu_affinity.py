@@ -23,10 +23,10 @@ class CpuAffinityTests(unittest.TestCase):
 
         self.assertEqual(dict(cores), {"0,4": [0, 4], "1,5": [1], "2,6": [2, 6]})
 
-    def allocate(self, cores, record=True, writer_cores=None):
+    def allocate(self, cores, record=True, **options):
         with patch("platform.system", return_value="Linux"), \
                 patch("cammy.util.get_physical_core_map", return_value=cores):
-            return get_cpu_affinity(record, writer_cores=writer_cores)
+            return get_cpu_affinity(record, **options)
 
     def assert_separate_physical_cores(self, cores, pools):
         for siblings in cores.values():
@@ -73,6 +73,25 @@ class CpuAffinityTests(unittest.TestCase):
         for count in [0, -1, 3, 4]:
             with self.subTest(count=count), self.assertRaisesRegex(ValueError, "between 1 and 2"):
                 self.allocate(cores, writer_cores=count)
+
+    def test_gui_sharing_extends_over_acquisition_and_preserves_writer_assignments(self):
+        cores = {core: [core, core + 10] for core in range(10)}
+        for count, gui in [(0, {0, 10}), (1, {0, 10}), (2, {0, 1, 10, 11}), (3, {0, 1, 2, 10, 11, 12})]:
+            with self.subTest(count=count):
+                self.assertEqual(self.allocate(cores, writer_cores=7, shared_gui_cores=count),
+                                 (gui, [1, 2, 11, 12], [*range(3, 10), *range(13, 20)]))
+        with self.assertRaisesRegex(ValueError, "--shared-gui-cores"):
+            self.allocate(cores, writer_cores=7, shared_gui_cores=4)
+
+    def test_acquisition_count_with_and_without_writers(self):
+        cores = {i: [i] for i in range(5)}
+        self.assertEqual(self.allocate(cores, record=False, acquisition_cores=2, shared_gui_cores=2),
+                         ({0, 1}, [1, 2], []))
+        self.assertEqual(self.allocate(cores, acquisition_cores=1), ({0}, [1], [2, 3, 4]))
+        self.assertEqual(self.allocate(cores, acquisition_cores=1, writer_cores=1), ({0}, [1], [4]))
+        for options in [dict(acquisition_cores=4), dict(acquisition_cores=2, writer_cores=3)]:
+            with self.subTest(options=options), self.assertRaisesRegex(ValueError, "--acquisition-cores"):
+                self.allocate(cores, **options)
 
     def test_all_hardware_threads_stay_in_their_pool_with_four_way_smt(self):
         cores = {core: [core, core + 3, core + 6, core + 9] for core in range(3)}
@@ -135,8 +154,11 @@ class ReceiverAffinityCliTests(unittest.TestCase):
         self.assertIn("--share-gui-core requires --display-time-downsample 0", result.output)
 
     def test_only_stream_creation_uses_the_shared_mask(self):
-        gui, acquisition, writers = {0, 4}, [1, 5], [2, 6]
-        for flags, expected in [([], {1, 5}), (["--share-gui-core"], {0, 1, 4, 5})]:
+        cores = {i: [i, i + 4] for i in range(4)}
+        allowed = set(range(8))
+        for flags, gui, expected in [([], {0, 4}, {1, 2, 5, 6}),
+                                     (["--share-gui-core"], {0, 4}, {0, 1, 2, 4, 5, 6}),
+                                     (["--shared-gui-cores", "2"], {0, 1, 4, 5}, {0, 1, 2, 4, 5, 6})]:
             with self.subTest(flags=flags):
                 trace = Mock()
                 # Stop before opening the GUI, and exercise affinity restoration on failure.
@@ -145,15 +167,16 @@ class ReceiverAffinityCliTests(unittest.TestCase):
                         patch("cammy.cli.mpl_to_cv2_colormap"), patch("cammy.cli.time.sleep"), \
                         patch("cammy.cli.get_all_camera_ids", return_value={"camera": "aravis"}), \
                         patch("cammy.cli.initialize_cameras", return_value={"camera": trace.camera}), \
-                        patch("cammy.cli.get_cpu_affinity", return_value=(gui, acquisition, writers)), \
+                        patch("platform.system", return_value="Linux"), \
+                        patch("cammy.util.get_physical_core_map", return_value=cores), \
+                        patch("os.sched_getaffinity", return_value=allowed, create=True), \
                         patch("cammy.cli.os.sched_setaffinity", trace.affinity, create=True):
                     result = CliRunner().invoke(cli, ["run", "--record", "--display-time-downsample", "0", *flags])
                 self.assertEqual(str(result.exception), "stream failure")
                 self.assertEqual(trace.mock_calls, [
-                    call.affinity(0, expected), call.camera.initialize_acquisition_stream(), call.affinity(0, gui),
+                    call.affinity(0, expected), call.camera.initialize_acquisition_stream(),
+                    call.affinity(0, gui), call.affinity(0, allowed),
                 ])
-                self.assertEqual(acquisition, [1, 5])
-                self.assertEqual(writers, [2, 6])
 
 
 if __name__ == "__main__":
