@@ -156,15 +156,26 @@ class TuneTests(unittest.TestCase):
             cam.initialize_acquisition_stream.assert_not_called()
 
     def test_live_preview_stride_pauses_images_and_keeps_frame_counters(self):
-        cam = Mock(id="A", _width=36, _height=36, _spoof_cameras=[], missed_frames=0, fps=100)
-        cam.get_all_features.return_value = {"PixelFormat": "Mono8"}
+        cameras = {k: Mock(id=k, _width=36, _height=36, _spoof_cameras=[], missed_frames=0, fps=100,
+                           display_frame=(None, None), frame_count=0, total_frames=0) for k in ("A", "B")}
+        for camera in cameras.values():
+            camera.get_all_features.return_value = {"PixelFormat": "Mono8"}
+        cam = cameras["A"]
         dpg = MagicMock()
         dpg.get_value.side_effect = lambda tag: 0 if tag.endswith("_min") else 255
+        dpg.add_stage.return_value = "parked"
+        dpg.texture_registry.return_value.__enter__.return_value = "live"
+        moves = {"texture_A": [], "texture_B": []}
+        def move_texture(tag, *, parent):
+            moves[tag].append((dpg.is_dearpygui_running.call_count, parent))
+        dpg.move_item.side_effect = move_texture
         frame = np.zeros((36, 36), dtype=np.uint8)
         drawn = []
         def next_frame():
             number = dpg.is_dearpygui_running.call_count
-            if number > 7:
+            if number == 8:  # GUI refresh without a new frame from either camera.
+                return True
+            if number > 8:
                 return False
             field = dpg.add_input_int.call_args.kwargs
             self.assertEqual(field["default_value"], 2)
@@ -172,6 +183,10 @@ class TuneTests(unittest.TestCase):
                 field["callback"](None, 0 if number == 4 else 1)
             cam.frame_count = cam.total_frames = number
             cam.display_frame = (frame, {})
+            if number in (2, 5, 7):
+                cameras["B"].frame_count += 1
+                cameras["B"].total_frames += 1
+                cameras["B"].display_frame = (frame, {})
             return True
 
         dpg.is_dearpygui_running.side_effect = next_frame
@@ -180,14 +195,16 @@ class TuneTests(unittest.TestCase):
                 drawn.append(cam.frame_count)
         dpg.set_value.side_effect = update
         with patch.dict("sys.modules", {"dearpygui": Mock(dearpygui=dpg), "dearpygui.dearpygui": dpg}), \
-                patch("cammy.cli.get_all_camera_ids", return_value={"A": "aravis"}), \
-                patch("cammy.cli.initialize_cameras", return_value={"A": cam}), \
+                patch("cammy.cli.get_all_camera_ids", return_value=dict.fromkeys(cameras, "aravis")), \
+                patch("cammy.cli.initialize_cameras", return_value=cameras), \
                 patch("cammy.cli.get_cpu_affinity", return_value=(None, [None], [])), \
                 patch("cammy.cli.mpl_to_cv2_colormap", return_value=2), \
                 patch("cammy.cli.time.sleep"), patch("cammy.camera.aravis.acquisition_loop"):
             result = CliRunner().invoke(cli, ["run", "--display-time-downsample", "2"], catch_exceptions=False)
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertEqual(drawn, [1, 3, 6, 7])
+        self.assertEqual(moves["texture_A"], [(2, "parked"), (3, "live"), (4, "parked"), (6, "live"), (8, "parked")])
+        self.assertEqual(moves["texture_B"], [(3, "parked"), (7, "live"), (8, "parked")])
         dpg.set_value.assert_any_call(dpg.add_text.return_value, "0 missed / 5 total (0.0% missed)")
         cam.start_acquisition.assert_called_once()
 

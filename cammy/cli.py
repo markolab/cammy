@@ -813,9 +813,11 @@ def simple_preview(
         default_font_large = dpg.add_font(font_path, 20 * 2, tag="ttf-font-large")
         default_font_small = dpg.add_font(font_path, 16 * 2, tag="ttf-font-small")
 
-    parked_textures = dpg.add_stage() if tuning is not None else None
+    # A status-only recording never enables preview, so it needs no camera textures.
+    texture_sizes = display_sizes if tuning is not None or adjustable_display or display_time_downsample else {}
+    parked_textures = dpg.add_stage() if texture_sizes else None
     with dpg.texture_registry(show=False) as live_textures:
-        for _id, (width, height) in display_sizes.items():
+        for _id, (width, height) in texture_sizes.items():
             blank_data = np.zeros(
                 (
                     max(1, height // display_downsample),
@@ -849,13 +851,13 @@ def simple_preview(
             tag=f"Camera {_id}",
             no_collapse=True,
             no_scrollbar=True,
-            autosize=tuning is not None,
+            autosize=tuning is not None or not texture_sizes,
         ):
             if tuning is not None:
                 with dpg.group(tag=f"tune_images_{_id}", show=images_on):
                     dpg.add_image(f"texture_{_id}")
                     dpg.add_text("Saturated pixels: —", tag=f"saturation_{_id}")
-            else:
+            elif _id in texture_sizes:
                 dpg.add_image(f"texture_{_id}")
                 with dpg.group(horizontal=True):
                     dpg.add_slider_float(
@@ -941,6 +943,9 @@ def simple_preview(
         cur_duration = 0
         previous_stride = None
         last_seen_frame = {}
+        # Initialize blank run previews on the first draw. Afterwards only changed images need an upload.
+        active_textures = set(texture_sizes) if tuning is None else set()
+        changed_textures = active_textures.copy()
         next_stream_stats = 0.0
         if tuning is not None:
             # Service input between small batches, even when all cameras deliver frames together.
@@ -1024,6 +1029,7 @@ def simple_preview(
                             canvas[y:y + h, x:x + w] = plt_val
                         else:
                             dpg.set_value(f"texture_{cameras[_id].id}", plt_val)
+                            changed_textures.add(_id)
 
                     display_counter[_id] += 1
                     cameras[_id].count += 1
@@ -1079,7 +1085,13 @@ def simple_preview(
                         break
                 except zmq.Again:
                     pass
-            # time.sleep(0.005)
+            if tuning is None and texture_sizes:
+                # A staged texture keeps its last GPU image but skips Dear PyGui's per-draw upload.
+                for key in active_textures - changed_textures:
+                    dpg.move_item(f"texture_{key}", parent=parked_textures)
+                for key in changed_textures - active_textures:
+                    dpg.move_item(f"texture_{key}", parent=live_textures)
+                active_textures, changed_textures = changed_textures, set()
             dpg.render_dearpygui_frame()
     finally:
         try:

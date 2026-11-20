@@ -16,6 +16,7 @@ class RoiTests(unittest.TestCase):
     def test_recording_metadata_uses_hardware_roi_after_cli_override(self):
         runner = CliRunner()
         dpg = MagicMock()
+        dpg.get_value.side_effect = lambda tag: 0 if tag.endswith("_min") else 255
         written = Event()
         write_batch = RawVideoRecorder.write_batch
 
@@ -25,7 +26,7 @@ class RoiTests(unittest.TestCase):
 
         def finish_preview():
             self.assertTrue(written.wait(3), "Fake camera did not record a frame")
-            return False
+            return dpg.render_dearpygui_frame.call_count == 0
 
         dpg.is_dearpygui_running.side_effect = finish_preview
         native = Aravis.Camera.new_with_device(Aravis.FakeDevice.new("roi-test"))
@@ -41,20 +42,25 @@ class RoiTests(unittest.TestCase):
                 patch("cammy.camera.aravis.AravisCamera.get_all_features", return_value={"PixelFormat": "Mono8"}):
             options = Path("camera_options.toml")
             config = "[genicam.Fake.a]\nWidth = 128\nOffsetX = 32\nHeight = 96\nOffsetY = 24\n"
-            for args, expected, requested_width in [
-                ([], (32, 24, 128, 96), None),
-                (["--roi-width", "512", "--roi-horizontal", "right"], (1536, 24, 512, 96), 512),
-                (["--roi-width", "0", "--roi-height", "192", "--roi-vertical", "bottom"], (0, 1856, 2048, 192), 0),
-                (["--roi-horizontal", "center"], (960, 24, 128, 96), None),
+            for args, expected, requested_width, display_stride in [
+                ([], (32, 24, 128, 96), None, 1),
+                (["--roi-width", "512", "--roi-horizontal", "right"], (1536, 24, 512, 96), 512, 0),
+                (["--roi-width", "0", "--roi-height", "192", "--roi-vertical", "bottom"], (0, 1856, 2048, 192), 0, 0),
+                (["--roi-horizontal", "center"], (960, 24, 128, 96), None, 1),
             ]:
                 with self.subTest(args=args):
                     # Even an unusable TOML offset must be ignored on the overridden axis.
                     options.write_text(config.replace("OffsetX = 32", 'OffsetX = "invalid"') if "right" in args else config)
                     written.clear()
+                    dpg.reset_mock()
                     with self.assertLogs(level="INFO") as logs:
-                        result = runner.invoke(cli, ["run", "--record", "--frame-writer-batch-size", "1", *args],
+                        result = runner.invoke(cli, ["run", "--record", "--frame-writer-batch-size", "1",
+                                                     "--display-time-downsample", str(display_stride), *args],
                                                catch_exceptions=False)
                     self.assertEqual(result.exit_code, 0, result.output)
+                    self.assertEqual(dpg.add_raw_texture.call_count, int(display_stride > 0))
+                    self.assertTrue(any(isinstance(c.args[1], str) and "Writer:" in c.args[1]
+                                        for c in dpg.set_value.call_args_list))
                     messages = [record.getMessage() for record in logs.records]
                     if args:
                         self.assertIn("Requested ROI: " + " ".join(args), messages)
