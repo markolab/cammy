@@ -80,8 +80,11 @@ Click **Apply surface** or **Apply fluorescence** to preview that bank.
 Apply checks the exposure against the
 configured FPS and settle time, pauses the Nucleo, and restarts triggering over
 the same connection. Changing gain also briefly disarms and rearms the cameras.
-Each camera uses a fixed full-range display and shows the percentage of
-saturated pixels in a full-resolution frame, refreshed four times a second.
+Tune handles input every GUI frame and refreshes at most two camera images per
+frame, targeting 15 preview updates per second per camera. Each update uses
+the latest acquired image. Each camera uses a fixed full-range display and
+shows the percentage of saturated pixels in a full-resolution frame up to
+four times a second.
 
 **Save applied settings** writes the values you tried to the shared settings
 file. The saved FPS is the total frame rate per camera for all launchers.

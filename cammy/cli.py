@@ -9,6 +9,7 @@ import cv2
 import threading
 import gc
 from contextlib import contextmanager
+from itertools import cycle
 import platform
 # gc.disable()
 
@@ -645,7 +646,6 @@ def simple_preview(
 
     def apply_regions(regions):
         """Reconfigure the affected streams while neither trigger nor readers are running."""
-        nonlocal next_saturation
         previous = {}
         rejected = None
         try:
@@ -670,7 +670,7 @@ def simple_preview(
                         cameras_metadata[key][name] = camera.get_feature(name)
                 update_tune_canvas(key)
                 camera.start_acquisition()
-            next_saturation = 0
+            next_saturation.clear()
             start_readers()
             trigger_dev.start()
         except Exception as exc:
@@ -693,7 +693,6 @@ def simple_preview(
             if image.id in tune_canvases:
                 canvas = tune_canvases[image.id]
                 canvas[:, :, :3] = 0
-                dpg.set_value(f"texture_{image.id}", canvas)
                 dpg.set_value(f"saturation_{image.id}", "Saturated pixels: —")
 
     # start a new context for acquisition
@@ -836,7 +835,14 @@ def simple_preview(
         display_counter = {}
         last_seen_frame = {}
         next_stream_stats = 0.0
-        next_saturation = 0.0
+        if tuning is not None:
+            # Service input between small batches, even when all cameras deliver frames together.
+            camera_ids = tuple(cameras)
+            batches = [camera_ids[i:i + 2] for i in range(0, len(camera_ids), 2)]
+            tune_batches = cycle(batches)
+            batch_interval = 1 / (15 * len(batches))
+            next_batch = 0.0
+            next_saturation = {}
 
         for _camera in cameras.keys():
             display_counter[_camera] = 0
@@ -846,21 +852,20 @@ def simple_preview(
             trigger_dev.start()
 
         while dpg.is_dearpygui_running():
+            preview_ids = cameras
             if tuning is not None:
                 dpg.run_callbacks(dpg.get_callback_queue())
-                show_saturation = time.monotonic() >= next_saturation
-                if show_saturation:
-                    next_saturation = time.monotonic() + .25
+                now = time.monotonic()
+                preview_ids = ()
+                if now >= next_batch:
+                    preview_ids = next(tune_batches)
+                    next_batch = now + batch_interval
             if stream_stats and time.perf_counter() >= next_stream_stats:
                 for _cam in cameras.values():
                     if isinstance(_cam, AravisCamera):
                         _cam.log_stream_statistics()
                 next_stream_stats = time.perf_counter() + 1.0
-            dat = {}
-            for _id, _cam in cameras.items():
-                # with _cam.display_lock:
-                dat[_id] = _cam.display_frame
-                    # print(_thread.display_frame)
+            dat = {key: cameras[key].display_frame for key in preview_ids}
             
             for _id, _dat in dat.items():
                 if ~np.isfinite(start_time) and (_dat[0] is not None):
@@ -868,10 +873,11 @@ def simple_preview(
 
             cur_duration = (time.perf_counter() - start_time) / 60.0
             for _id, _dat in dat.items():
-                if tuning is not None and show_saturation and _dat[0] is not None:
+                if tuning is not None and _dat[0] is not None and now >= next_saturation.get(_id, 0):
                     max_pixel = (1 << bit_depth[_id]) - 1
                     percent = 100 * np.count_nonzero(_dat[0] >= max_pixel) / _dat[0].size
                     dpg.set_value(f"saturation_{_id}", f"Saturated pixels: {percent:.3f}%")
+                    next_saturation[_id] = now + .25
                 if _dat[0] is not None and _dat is not last_seen_frame.get(_id):
                     last_seen_frame[_id] = _dat
                     if tuning is not None:
@@ -905,11 +911,10 @@ def simple_preview(
                             x, y = display_offsets[_id]
                             # A sub-downsample ROI still occupies one display pixel at the edge.
                             x, y = min(x, canvas.shape[1] - w), min(y, canvas.shape[0] - h)
+                            # The raw texture already references this persistent NumPy buffer.
                             canvas[y:y + h, x:x + w] = plt_val
-                            plt_val = canvas
-                        dpg.set_value(f"texture_{cameras[_id].id}", plt_val)
-                    else:
-                        pass
+                        else:
+                            dpg.set_value(f"texture_{cameras[_id].id}", plt_val)
 
                     display_counter[_id] += 1
                     cameras[_id].count += 1

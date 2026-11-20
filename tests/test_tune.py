@@ -1,6 +1,7 @@
 from contextlib import ExitStack
 from pathlib import Path
 import tempfile
+import time
 import unittest
 from unittest.mock import MagicMock, Mock, call, patch
 
@@ -149,16 +150,26 @@ class TuneTests(unittest.TestCase):
                   "roi_width": 12, "roi_height": 0, "roi_horizontal": "right", "roi_vertical": "center"}
         dpg.get_value.side_effect = fields.__getitem__
         dpg.set_value.side_effect = fields.__setitem__
+        def add_texture(width, height, canvas, *, tag, **kwargs):
+            fields[tag] = canvas
+        dpg.add_raw_texture.side_effect = add_texture
         def interact(*_):
             self.assertEqual(self.settings.read_bytes(), original)
-            if dpg.run_callbacks.call_count == 1:
+            tick = dpg.run_callbacks.call_count
+            if tick == 1:
                 self.assertIn("Slowest sensor readout 1.50 ms", fields["timing_advice"])
                 apply, bank = buttons["Apply fluorescence"]
                 apply(None, None, bank)
                 fields["fluorescence_us"] = 8500  # Draft survives crop and is used only for advice.
-            elif dpg.run_callbacks.call_count == 2:
+            elif tick in (2, 3):
+                # Two input ticks after the A/B batch, including one before another image update is due.
+                self.assertIn("saturation_A", fields)
+                self.assertIn("saturation_B", fields)
+                self.assertNotIn("saturation_C", fields)
+            elif tick == 4:
+                self.assertIn("saturation_C", fields)
                 buttons["Apply crop"][0]()
-            elif dpg.run_callbacks.call_count == 3:
+            elif tick == 5:
                 image = fields["texture_A"]
                 self.assertEqual(image.shape, (6, 6, 4))
                 self.assertTrue(np.any(image[:, 4:, :3]))
@@ -168,7 +179,7 @@ class TuneTests(unittest.TestCase):
                 self.assertIn("Slowest sensor readout 1.00 ms", fields["timing_advice"])
                 fields["roi_width"] = 0
                 buttons["Apply crop"][0]()
-            elif dpg.run_callbacks.call_count == 4:
+            elif tick == 7:
                 self.assertIn("Slowest sensor readout 2.00 ms", fields["timing_advice"])
                 self.assertTrue(np.any(fields["texture_A"][:, :2, :3]))
                 fields["roi_width"] = 18
@@ -176,16 +187,17 @@ class TuneTests(unittest.TestCase):
                 self.assertIn("Could not crop B", fields["tune_status"])
                 for cam in cameras.values():
                     self.assertEqual(cam.camera.get_region(), (0, 0, 36, 36))
-            else:
+            elif tick == 8:
                 fields["roi_width"] = 12
                 buttons["Apply crop"][0]()
                 buttons["Save applied settings"][0]()
         dpg.run_callbacks.side_effect = interact
-        dpg.is_dearpygui_running.side_effect = [True] * 5 + [False]
+        dpg.is_dearpygui_running.side_effect = [True] * 8 + [False]
         frame = np.zeros((36, 36), dtype=np.uint8)
         frame[:9] = 255
         cameras = {}
-        for key, initial_gain in [("A", 1), ("B", 3)]:
+        initial_gains = {"A": 1, "B": 3, "C": 2}
+        for key, initial_gain in initial_gains.items():
             cam = Mock(id=key, _width=36, _height=36, _spoof_cameras=[], frame_count=1, total_frames=1, missed_frames=0,
                        fps=None, display_frame=(frame, {}))
             cam.get_all_features.return_value = dict(PixelFormat="Mono8", SensorReadoutTime=2000, ExposureMode="TriggerWidth",
@@ -216,10 +228,13 @@ class TuneTests(unittest.TestCase):
                                      b"OK CONFIG\n", b"OK START\n"] + [b"OK STOP\n", b"OK START\n"] * 4 + [b"OK STOP\n"]
         with ExitStack() as stack:
             stack.enter_context(patch.dict("sys.modules", {"dearpygui": Mock(dearpygui=dpg), "dearpygui.dearpygui": dpg}))
+            clock = stack.enter_context(patch("cammy.cli.time", wraps=time))
+            clock.monotonic.side_effect = [0, .01, .05, .1, .15, .2, .25, .3]
+            clock.sleep.return_value = None
             for name, value in [("cammy.cli.get_all_camera_ids", {k: "aravis" for k in cameras}),
                                 ("cammy.cli.initialize_cameras", cameras),
                                 ("cammy.cli.get_cpu_affinity", (None, [None], [])),
-                                ("cammy.cli.time.sleep", None), ("cammy.cli.mpl_to_cv2_colormap", 2),
+                                ("cammy.cli.mpl_to_cv2_colormap", 2),
                                 ("cammy.camera.aravis.acquisition_loop", None)]:
                 stack.enter_context(patch(name, return_value=value))
             stack.enter_context(patch("cammy.trigger.nucleo.serial.Serial", serial))
@@ -232,7 +247,7 @@ class TuneTests(unittest.TestCase):
                          ["HELLO", "CONFIG", "START", "STOP", "CONFIG", "START"] + ["STOP", "START"] * 4 + ["STOP"])
         self.assertEqual(commands[4], "CONFIG,1,1,100,3000,3750,10000,7475,1,8000,4422")
         port.close.assert_called_once()
-        for key, gain in [("A", 1), ("B", 3)]:
+        for key, gain in initial_gains.items():
             self.assertEqual(cameras[key].set_feature.call_args_list,
                              [call("GainAuto", "Off"), call("Gain", "2.5"), call("GainAuto", "Off"), call("Gain", str(gain))])
             cameras[key].initialize_acquisition_stream.assert_called_once()
