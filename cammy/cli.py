@@ -947,8 +947,7 @@ def simple_preview(
         # push frame grabbing to separate thread...
         # https://github.com/AravisProject/aravis/issues/754
 
-        start_time = -np.inf
-        cur_duration = 0
+        start_time = None
         previous_stride = None
         last_seen_frame = {}
         # Initialize blank run previews on the first draw. Afterwards only changed images need an upload.
@@ -983,17 +982,14 @@ def simple_preview(
                     if isinstance(_cam, AravisCamera):
                         _cam.log_stream_statistics()
                 next_stream_stats = time.perf_counter() + 1.0
-            dat = {key: cameras[key].display_frame if images_on else (None, None) for key in preview_ids}
             stride = display_time_downsample if images_on else 0
             if stride != previous_stride:
                 display_counter = dict.fromkeys(cameras, 0)
                 previous_stride = stride
-            
-            for _id, _dat in dat.items():
-                if ~np.isfinite(start_time) and (_dat[0] is not None):
-                    start_time = time.perf_counter()
-
-            cur_duration = (time.perf_counter() - start_time) / 60.0
+            if start_time is None and any(cameras[key].frame_count for key in preview_ids):
+                start_time = time.perf_counter()
+            # Snapshot all live previews together before processing any of the images.
+            dat = {key: cameras[key].display_frame if texture_sizes and images_on else (None, None) for key in preview_ids}
             for _id, _dat in dat.items():
                 new_frame = _dat[0] is not None and _dat is not last_seen_frame.get(_id)
                 if new_frame:
@@ -1041,7 +1037,7 @@ def simple_preview(
 
                     display_counter[_id] += 1
                     cameras[_id].count += 1
-                if not new_frame and tuning is None:
+                if texture_sizes and not new_frame and tuning is None:
                     continue
                 camera = trial_camera[_id] if tuning is not None else cameras[_id]
                 miss_frames = camera.missed_frames
@@ -1058,7 +1054,7 @@ def simple_preview(
                     miss_text = f"Frame IDs: {miss_text}"
                 if record:
                     writer = cameras[_id].recorder
-                    recording_drops = cameras[_id].recording_drops
+                    recording_drops = getattr(camera, "recording_drops", 0)
                     recording_total = getattr(writer, "frames_written", 0) + recording_drops
                     recording_percent_missed = 100 * recording_drops / recording_total if recording_total else 0
                     miss_text += (
@@ -1078,11 +1074,7 @@ def simple_preview(
                 elif cur_fps is not None:
                     dpg.set_value(fps_status[_id], f"{cur_fps:.0f} {fps_unit}")
 
-            if (
-                np.isfinite(cur_duration)
-                and (duration > 0)
-                and (cur_duration > duration)
-            ):
+            if duration > 0 and start_time is not None and time.perf_counter() - start_time > duration * 60:
                 logging.info(f"Exceeded {duration} minutes, exiting...")
                 break
             if server and (zsocket is not None):
@@ -1101,6 +1093,9 @@ def simple_preview(
                     dpg.move_item(f"texture_{key}", parent=live_textures)
                 active_textures, changed_textures = changed_textures, set()
             dpg.render_dearpygui_frame()
+            if not texture_sizes:
+                # Status-only windows share CPU time with camera workers on the recording rig.
+                time.sleep(0.1)
     finally:
         try:
             # Stop producers before asking writers to drain their inproc queues.

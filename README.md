@@ -66,7 +66,9 @@ applied settings** makes the new value the default for future previews. Direct
 runs accept `--display-time-downsample N`. After preview initialization,
 `cammy run` uploads a camera texture only when a new image is selected for
 display. With `--record --display-time-downsample 0`, the window shows FPS,
-acquisition misses and writer drops without allocating camera textures.
+acquisition misses and writer drops without allocating camera textures. This
+status-only window reads camera counters at most ten times a second. Acquisition
+and writing run independently between refreshes.
 
 ```sh
 bash launchers/capture.sh fluorescence preview

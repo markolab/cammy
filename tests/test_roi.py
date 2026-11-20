@@ -1,12 +1,13 @@
 import unittest
+from contextlib import nullcontext
 from pathlib import Path
 from threading import Event
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, Mock, PropertyMock, call, patch
 
 import toml
 from click.testing import CliRunner
 
-from cammy.camera.aravis import Aravis
+from cammy.camera.aravis import Aravis, AravisCamera
 from cammy.cli import cli
 from cammy.record.video import RawVideoRecorder
 from cammy.roi import centered_region, crop_region, set_region, timing_advice
@@ -28,6 +29,11 @@ class RoiTests(unittest.TestCase):
             self.assertTrue(written.wait(3), "Fake camera did not record a frame")
             return dpg.render_dearpygui_frame.call_count == 0
 
+        def gui_sleep(seconds):
+            if seconds == 0.1:
+                written.clear()
+                self.assertTrue(written.wait(3), "Writer stalled while the status GUI was asleep")
+
         dpg.is_dearpygui_running.side_effect = finish_preview
         native = Aravis.Camera.new_with_device(Aravis.FakeDevice.new("roi-test"))
         native.set_region(20, 0, 256, 256)
@@ -39,7 +45,7 @@ class RoiTests(unittest.TestCase):
                 patch("os.sched_getaffinity", return_value={0, 1, 2}, create=True), \
                 patch("os.sched_setaffinity", create=True), \
                 patch("cammy.cli.mpl_to_cv2_colormap", return_value=2), \
-                patch("cammy.cli.time.sleep"), patch("os.nice", create=True), \
+                patch("cammy.cli.time.sleep", side_effect=gui_sleep) as sleep, patch("os.nice", create=True), \
                 patch.object(RawVideoRecorder, "write_batch", write_and_notify), \
                 patch("cammy.camera.aravis.AravisCamera.get_all_features", return_value={"PixelFormat": "Mono8"}):
             options = Path("camera_options.toml")
@@ -55,11 +61,18 @@ class RoiTests(unittest.TestCase):
                     options.write_text(config.replace("OffsetX = 32", 'OffsetX = "invalid"') if "right" in args else config)
                     written.clear()
                     dpg.reset_mock()
-                    with self.assertLogs(level="INFO") as logs:
+                    sleep.reset_mock()
+                    # Acquisition can publish frames, but the status-only GUI must never read them.
+                    pixels = (nullcontext() if display_stride else
+                              patch.object(AravisCamera, "display_frame", new_callable=PropertyMock, create=True))
+                    with pixels as display_frame, self.assertLogs(level="INFO") as logs:
                         result = runner.invoke(cli, ["run", "--record", "--frame-writer-batch-size", "1",
                                                      "--display-time-downsample", str(display_stride), *args],
                                                catch_exceptions=False)
                     self.assertEqual(result.exit_code, 0, result.output)
+                    self.assertEqual(sleep.call_args_list.count(call(0.1)), int(display_stride == 0))
+                    if not display_stride:
+                        self.assertNotIn(call(), display_frame.call_args_list)
                     self.assertEqual(dpg.add_raw_texture.call_count, int(display_stride > 0))
                     self.assertTrue(any(isinstance(c.args[1], str) and "Writer:" in c.args[1]
                                         for c in dpg.set_value.call_args_list))
