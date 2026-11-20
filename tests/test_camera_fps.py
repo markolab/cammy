@@ -62,6 +62,20 @@ class CameraFpsTests(unittest.TestCase):
                 self.assertEqual(camera.total_frames, 2)
                 self.assertEqual(camera.missed_frames, 0)
 
+    def test_new_tune_trial_drops_old_buffers_and_resets_counts_and_bank_phase(self):
+        camera = self.make_camera()
+        self.pop_frame(camera, 12, 0)
+        self.pop_frame(camera, 15, 30)
+        stale_buffer = Mock()
+        camera.stream.try_pop_buffer.side_effect = [stale_buffer, None]
+        camera.reset_tune_trial(2)
+        camera.stream.push_buffer.assert_called_with(stale_buffer)
+        self.assertEqual((camera.frame_count, camera.missed_frames, camera.total_frames), (0, 0, 0))
+        self.assertTrue(np.isnan(camera.fps))
+        for frame_id, timestamp in [(40, 100), (41, 106), (42, 120)]:
+            self.pop_frame(camera, frame_id, timestamp)
+        self.assertEqual((camera.missed_frames, camera.total_frames, camera.fps), (0, 3, 50))
+
     def test_legacy_rollover_keeps_counts_and_alternate_fps_aligned(self):
         camera = self.make_camera(fps_stride=2, gige=True)
         for frame_id, timestamp in [(65534, 0), (65535, 6), (1, 20), (2, 26)]:

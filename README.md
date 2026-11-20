@@ -54,6 +54,13 @@ experiment dialog and uses seven writer cores, batches of 20, a queue setting
 of 512, and disabled image updates. Direct preview and recording runs from the checkout use
 `launchers/settings.sh` by default.
 
+Set `PREVIEW_TIME_DOWNSAMPLE=4` in `cammy-settings.sh` to show every fourth new
+frame the GUI sees in Preview and Tune. The default is `1`. During a preview,
+open **Display → Every Nth frame** to change it for all cameras. Set it to `0`
+to pause images while acquisition and frame counters continue. Tune's **Save
+applied settings** makes the new value the default for future previews. Direct
+runs accept `--display-time-downsample N`.
+
 ```sh
 bash launchers/capture.sh fluorescence preview
 bash launchers/capture.sh alternate record
@@ -62,8 +69,8 @@ bash launchers/capture.sh alternate record
 ## Live tuning
 
 Open **Cammy Tune**, run `bash launchers/capture.sh tune`, or run `cammy tune`
-in the acquisition environment to start with surface illumination. Run
-`cammy tune --mode fluorescence` to start with fluorescence.
+in the acquisition environment to start with surface illumination. Use
+`--mode fluorescence` or `--mode alternate` to start in either other mode.
 It reads the same desktop `cammy-settings.sh` as the launchers. Use
 `--settings "/path/to/cammy-settings.sh"` for a custom location and
 `--trigger-port` for a different serial port.
@@ -76,7 +83,8 @@ original gain settings, or enter a number to set all cameras to that gain.
 Each bank has its own exposure (µs), voltage (V), and **Underfill (% dark)**.
 For example, 25% underfill illuminates the first 75% of the exposure and saves
 `*_ILLUMINATION_PERCENT=75`. The camera integrates for the full exposure.
-Click **Apply surface** or **Apply fluorescence** to preview that bank.
+Click **Apply surface** or **Apply fluorescence** to preview that bank. Click
+**Apply alternate** to test both sets of fields, starting with surface.
 Apply checks the exposure against the
 configured FPS and settle time, pauses the Nucleo, and restarts triggering over
 the same connection. Changing gain also briefly disarms and rearms the cameras.
@@ -86,11 +94,18 @@ the latest acquired image. Each camera uses a fixed full-range display and
 shows the percentage of saturated pixels in a full-resolution frame up to
 four times a second.
 
+Each Apply and each crop change starts a fresh acquisition trial. Compare the
+missed-frame count (gaps in camera frame IDs) and the mean received FPS against
+the requested total FPS. A camera can ignore triggers and still deliver
+consecutive frame IDs. In alternation, the additional FPS/channel reading uses
+timestamps from the same bank. For example, `cammy tune --mode alternate --stream-stats`
+also logs Aravis stream counters once a second. To measure writer drops with the
+same timing, save the applied settings and use that mode's Record launcher.
+
 **Save applied settings** writes the values you tried to the shared settings
 file. The saved FPS is the total frame rate per camera for all launchers.
 In alternation, each bank receives half that rate. Closing the preview stops
-the lights and restores camera gain. For the final timing and illumination
-duty cycle, check **Alternate Preview**.
+the lights and restores camera gain.
 
 **Apply crop** sets the width and height in camera pixels on every camera.
 A width or height overrides the camera TOML's size and offset on that axis.
@@ -122,10 +137,12 @@ Enter **0** to estimate the shortest feasible gap for the selected exposures.
 Tune displays both the shortest gap and the proposed sequence. It reserves the
 larger of the requested and shortest gaps when estimating the FPS ceiling, and
 accounts for the requested gap in the maximum fluorescence exposure at your
-target FPS. Gap edits are advisory. To use an estimate in **Alternate Preview**
-or **Alternate Record**, copy the proposed gap to `SURFACE_TO_FLUORESCENCE_GAP_US`
-in the desktop settings, use the same exposure widths, and set FPS at or below
-the displayed ceiling.
+target FPS. **Suggest alternating timing** leaves the live sequence alone.
+**Apply alternate** uses the estimate when the gap is zero and reports if it
+cannot fit. A positive gap lets you test a specific timing, even below the
+estimated readout margin. As in the launcher, it is shortened if needed to
+leave settling time before the next surface frame. **Save applied settings**
+writes the gap actually used to `SURFACE_TO_FLUORESCENCE_GAP_US`.
 
 Tune assumes overlapping acquisition. It spaces successive **exposure ends** by
 at least the slowest sensor readout at the applied ROI plus a 1.5 ms margin
@@ -138,6 +155,12 @@ a sensor readout value. [Basler sensor readout time](https://docs.baslerweb.com/
 and [overlapping acquisition](https://docs.baslerweb.com/overlapping-image-acquisition)
 
 ## Acquisition and recording
+
+With the Nucleo, `cammy run` and `cammy tune` print each acknowledged trigger
+configuration once. The terminal shows one full repeating cycle, including
+each exposure, following gap, light-on interval, brightness, total FPS and
+alternating pairs/s. Times are programmed microseconds relative to the first
+D4 rising edge. The final `CONFIG` line is the exact command sent to the controller.
 
 On Linux, `--record --writer-cores 2` reserves two physical cores for writers,
 one for the GUI, and gives the remaining cores to acquisition. SMT siblings stay

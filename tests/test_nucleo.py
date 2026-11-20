@@ -14,6 +14,24 @@ class NucleoTests(unittest.TestCase):
         self.assertEqual(dev.config_command,
                          "CONFIG,1,2,200,700,10000,8000,5000,2,10000,2000,20000,2000")
 
+    def test_sequence_matches_full_light_and_trigger_cycle(self):
+        dev = NucleoTriggerDevice(mode="alternate", pulse_widths=(.001, .010), pulse_widths_low=(.0005, .010),
+                                  light_settle_us=100, fluorescence_illumination_percent=50)
+        sequence = dev.describe_sequence()
+        self.assertIn("21500 µs, 93.023 FPS total, 46.512 pairs/s", sequence)
+        self.assertIn("surface light on [-100, 1000) µs (100% fill), D4 high [0, 1000)", sequence)
+        self.assertIn("fluorescence light on [1400, 6500) µs (50% fill), D4 high [1500, 11500)", sequence)
+        self.assertTrue(sequence.endswith(dev.config_command))
+
+    def test_odd_step_list_and_single_bank_endpoints(self):
+        dev = NucleoTriggerDevice(mode="alternate", pulse_widths=(.000001,), pulse_widths_low=(.0002,),
+                                  surface_illumination_percent=0, fluorescence_illumination_percent=50)
+        sequence = dev.describe_sequence()
+        self.assertIn("cycle 402 µs", sequence)
+        self.assertIn("1. surface light off", sequence)
+        self.assertIn("2. fluorescence light on [1, 202) µs", sequence)
+        self.assertIn("1. fluorescence light continuous", NucleoTriggerDevice(mode="fluorescence").describe_sequence())
+
     def test_invalid_configuration_rejected_before_opening_serial(self):
         for kwargs in (
             {"mode": "both"}, {"pulse_widths": ()}, {"pulse_widths": (0,)},
@@ -32,7 +50,9 @@ class NucleoTests(unittest.TestCase):
         port = serial_class.return_value
         port.readline.side_effect = [b"CAMMY_NUCLEO,1\n", b"OK CONFIG\n", b"OK START\n", b"OK STOP\n"]
         device = NucleoTriggerDevice(com="test")
-        device.open()
+        with self.assertLogs("cammy.trigger.nucleo", level="INFO") as logs:
+            device.open()
+        self.assertIn(device.describe_sequence(), logs.output[0])
         self.assertEqual(port.write.call_count, 2)  # open() never starts timing.
         device.start()
         device.close()

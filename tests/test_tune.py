@@ -29,19 +29,20 @@ class TuneTests(unittest.TestCase):
 
     def test_invalid_edits_leave_live_preview_alone(self):
         session = TuneSession(self.settings, "surface", "/dev/test")
+        session.initial_trigger({})
         camera = Mock()
         camera.camera.get_gain_bounds.return_value = (0, 12)
         with patch.object(session.trigger, "stop") as stop:
             for gain, width, volts in [("20", 9000, 2), ("nan", 9000, 2), ("", 10000, 2),
                                        ("", 9000, 11), ("", 0, 2)]:
                 with self.subTest(gain=gain, width=width, volts=volts), self.assertRaises(ValueError):
-                    session.apply({"cam": camera}, "fluorescence", gain, width, volts)
+                    session.apply({"cam": camera}, "fluorescence", gain, {"fluorescence": (width, volts, 50)})
             for fps in [0, -1, float("nan"), float("inf"), 1e-320, 120]:
                 with self.subTest(fps=fps), self.assertRaises(ValueError):
-                    session.apply({"cam": camera}, "fluorescence", "", 9000, 2, fps=fps)
+                    session.apply({"cam": camera}, "fluorescence", "", {"fluorescence": (9000, 2, 50)}, fps=fps)
             for underfill in [-1, 101, float("nan")]:
                 with self.subTest(underfill=underfill), self.assertRaisesRegex(ValueError, "Underfill"):
-                    session.apply({"cam": camera}, "surface", "", 1000, 3, underfill=underfill)
+                    session.apply({"cam": camera}, "surface", "", {"surface": (1000, 3, underfill)})
             stop.assert_not_called()
         self.assertEqual(session.mode, "surface")
         self.assertEqual(session.saved, session.values)
@@ -66,6 +67,7 @@ class TuneTests(unittest.TestCase):
 
     def test_underfill_endpoints_only_change_the_selected_bank(self):
         session = TuneSession(self.settings, "surface", "/dev/test")
+        session.initial_trigger({})
         camera = Mock()
         port = session.trigger.dev = Mock()
         for bank, dark, exposure, expected_fill in [
@@ -74,7 +76,7 @@ class TuneTests(unittest.TestCase):
         ]:
             with self.subTest(bank=bank):
                 port.readline.side_effect = [b"OK STOP\n", b"OK CONFIG\n", b"OK START\n"]
-                session.apply({"cam": camera}, bank, "", exposure, 3, underfill=dark)
+                session.apply({"cam": camera}, bank, "", {bank: (exposure, 3, dark)})
                 command = session.trigger.config_command.split(",")
                 self.assertEqual(command[6:8], expected_fill)
                 self.assertEqual(int(command[9]), exposure)
@@ -95,16 +97,31 @@ class TuneTests(unittest.TestCase):
 
     def test_rejected_configuration_does_not_restart_or_commit_the_edit(self):
         session = TuneSession(self.settings, "surface", "/dev/test")
+        session.initial_trigger({})
         camera = Mock()
         port = session.trigger.dev = Mock()
         port.readline.side_effect = [b"OK STOP\n", b"ERR CONFIG\n"]
         with self.assertRaisesRegex(ClickException, "ERR CONFIG"):
-            session.apply({"A": camera}, "fluorescence", "", 8000, 3)
+            session.apply({"A": camera}, "fluorescence", "", {"fluorescence": (8000, 3, 50)})
         commands = [c.args[0].split(b",", 1)[0].strip() for c in port.write.call_args_list]
         self.assertEqual(commands, [b"STOP", b"CONFIG"])
         camera.stop_acquisition.assert_not_called()
         self.assertEqual(session.mode, "surface")
         self.assertEqual(session.values, session.saved)
+
+    def test_shortest_alternate_gap_at_startup_uses_roi_readout(self):
+        with self.settings.open("a") as settings:
+            settings.write("SURFACE_TO_FLUORESCENCE_GAP_US=0\n")
+        session = TuneSession(self.settings, "alternate", "/dev/test")
+        metadata = {"cam": {"SensorReadoutTime": 4000}}
+        self.assertEqual(session.initial_trigger(metadata).steps, [(1000, 100), (9000, 9900)])
+        edits = {"surface": (1000, 3, 0), "fluorescence": (9000, 2, 50)}
+        with patch.object(session.trigger, "stop") as stop:
+            with self.assertRaisesRegex(ValueError, "shortest estimated gaps"):
+                session.apply({}, "alternate", "", edits, gap=0, fps=150, metadata=metadata)
+            stop.assert_not_called()
+        self.assertEqual(session.values["FPS"], "100")
+        self.assertEqual(session.values["SURFACE_TO_FLUORESCENCE_GAP_US"], "100")
 
     def test_rejected_crop_restores_every_touched_camera_before_stream_setup(self):
         cameras = {}
@@ -138,6 +155,42 @@ class TuneTests(unittest.TestCase):
             self.assertEqual(cam.camera.set_boolean.call_args_list, [call("CenterY", False), call("CenterY", True)])
             cam.initialize_acquisition_stream.assert_not_called()
 
+    def test_live_preview_stride_pauses_images_and_keeps_frame_counters(self):
+        cam = Mock(id="A", _width=36, _height=36, _spoof_cameras=[], missed_frames=0, fps=100)
+        cam.get_all_features.return_value = {"PixelFormat": "Mono8"}
+        dpg = MagicMock()
+        dpg.get_value.side_effect = lambda tag: 0 if tag.endswith("_min") else 255
+        frame = np.zeros((36, 36), dtype=np.uint8)
+        drawn = []
+        def next_frame():
+            number = dpg.is_dearpygui_running.call_count
+            if number > 7:
+                return False
+            field = dpg.add_input_int.call_args.kwargs
+            self.assertEqual(field["default_value"], 2)
+            if number in (4, 6):
+                field["callback"](None, 0 if number == 4 else 1)
+            cam.frame_count = cam.total_frames = number
+            cam.display_frame = (frame, {})
+            return True
+
+        dpg.is_dearpygui_running.side_effect = next_frame
+        def update(tag, value):
+            if tag == "texture_A":
+                drawn.append(cam.frame_count)
+        dpg.set_value.side_effect = update
+        with patch.dict("sys.modules", {"dearpygui": Mock(dearpygui=dpg), "dearpygui.dearpygui": dpg}), \
+                patch("cammy.cli.get_all_camera_ids", return_value={"A": "aravis"}), \
+                patch("cammy.cli.initialize_cameras", return_value={"A": cam}), \
+                patch("cammy.cli.get_cpu_affinity", return_value=(None, [None], [])), \
+                patch("cammy.cli.mpl_to_cv2_colormap", return_value=2), \
+                patch("cammy.cli.time.sleep"), patch("cammy.camera.aravis.acquisition_loop"):
+            result = CliRunner().invoke(cli, ["run", "--display-time-downsample", "2"], catch_exceptions=False)
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertEqual(drawn, [1, 3, 6, 7])
+        dpg.set_value.assert_any_call(dpg.add_text.return_value, "0 missed / 5 total (0.0% missed)")
+        cam.start_acquisition.assert_called_once()
+
     def test_tune_preview_switch_crop_suggest_and_save(self):
         # Run the real Click command, preview loop and bulk camera/serial control, without a rig.
         dpg = MagicMock()
@@ -146,7 +199,7 @@ class TuneTests(unittest.TestCase):
             buttons[label] = (callback, attrs.get("user_data"))
         dpg.add_button.side_effect = add_button
         with self.settings.open("a") as settings:
-            settings.write("ROI_WIDTH=24\nSURFACE_TO_FLUORESCENCE_GAP_US=1250\n")
+            settings.write("ROI_WIDTH=24\nSURFACE_TO_FLUORESCENCE_GAP_US=1250\nPREVIEW_TIME_DOWNSAMPLE=3\n")
         (self.settings.parent / "camera rig.toml").write_text("[genicam.A.a]\nWidth=12\nOffsetX=6\n")
         original = self.settings.read_bytes()
         fields = {"tune_gain": "2.5", "tune_fps": 80.5, "surface_us": 1000, "surface_underfill": 0,
@@ -162,6 +215,9 @@ class TuneTests(unittest.TestCase):
             self.assertEqual(self.settings.read_bytes(), original)
             tick = dpg.run_callbacks.call_count
             if tick == 1:
+                stride = next(c.kwargs for c in dpg.add_input_int.call_args_list if c.kwargs["tag"] == "preview_time_downsample")
+                self.assertEqual(stride["default_value"], 3)
+                stride["callback"](None, 1)
                 self.assertIn("Slowest sensor readout 1.50 ms", fields["timing_advice"])
                 self.assertIn("gap 1250 µs → fluorescence", fields["timing_advice"])
                 gap_widget = next(c.kwargs for c in dpg.add_input_int.call_args_list if c.kwargs["tag"] == "surface_gap_us")
@@ -171,7 +227,7 @@ class TuneTests(unittest.TestCase):
                 self.assertIn("gap 100 µs → fluorescence", fields["timing_advice"])
                 apply, bank = buttons["Apply fluorescence"]
                 apply(None, None, bank)
-                fields["fluorescence_us"] = 8500  # Draft survives crop and is used only for advice.
+                fields["fluorescence_us"] = 8500  # Draft survives crop until Apply alternate.
             elif tick in (2, 3):
                 # Two input ticks after the A/B batch, including one before another image update is due.
                 self.assertIn("saturation_A", fields)
@@ -201,7 +257,12 @@ class TuneTests(unittest.TestCase):
             elif tick == 8:
                 fields["roi_width"] = 12
                 buttons["Apply crop"][0]()
+                apply, mode = buttons["Apply alternate"]
+                apply(None, None, mode)
+                self.assertIn("Applied surface-to-fluorescence gap 100 µs", fields["tune_status"])
                 buttons["Save applied settings"][0]()
+                for cam in cameras.values():
+                    cam.frame_count, cam.display_frame = 0, (None, None)
         dpg.run_callbacks.side_effect = interact
         dpg.is_dearpygui_running.side_effect = [True] * 8 + [False]
         frame = np.zeros((36, 36), dtype=np.uint8)
@@ -239,7 +300,8 @@ class TuneTests(unittest.TestCase):
         serial = Mock()
         port = serial.return_value
         port.readline.side_effect = [b"CAMMY_NUCLEO,1\n", b"OK CONFIG\n", b"OK START\n", b"OK STOP\n",
-                                     b"OK CONFIG\n", b"OK START\n"] + [b"OK STOP\n", b"OK START\n"] * 4 + [b"OK STOP\n"]
+                                     b"OK CONFIG\n", b"OK START\n"] + [b"OK STOP\n", b"OK START\n"] * 4 + [
+                                     b"OK STOP\n", b"OK CONFIG\n", b"OK START\n", b"OK STOP\n"]
         with ExitStack() as stack:
             stack.enter_context(patch.dict("sys.modules", {"dearpygui": Mock(dearpygui=dpg), "dearpygui.dearpygui": dpg}))
             clock = stack.enter_context(patch("cammy.cli.time", wraps=time))
@@ -252,28 +314,36 @@ class TuneTests(unittest.TestCase):
                                 ("cammy.camera.aravis.acquisition_loop", None)]:
                 stack.enter_context(patch(name, return_value=value))
             stack.enter_context(patch("cammy.trigger.nucleo.serial.Serial", serial))
-            result = CliRunner().invoke(cli, ["tune", "--settings", str(self.settings), "--trigger-port", "/dev/test"],
+            result = CliRunner().invoke(cli, ["tune", "--settings", str(self.settings), "--trigger-port", "/dev/test",
+                                              "--mode", "alternate", "--stream-stats"],
                                         catch_exceptions=False)
         self.assertEqual(result.exit_code, 0, result.output)
+        self.assertTrue(any(c.args[1] == "0.0 received / 80.5 target FPS" for c in dpg.set_value.call_args_list
+                            if isinstance(c.args[1], str)))
         serial.assert_called_once()
         commands = [c.args[0].decode().strip() for c in port.write.call_args_list]
         self.assertEqual([c.split(",")[0] for c in commands],
-                         ["HELLO", "CONFIG", "START", "STOP", "CONFIG", "START"] + ["STOP", "START"] * 4 + ["STOP"])
+                         ["HELLO", "CONFIG", "START", "STOP", "CONFIG", "START"] + ["STOP", "START"] * 4
+                         + ["STOP", "CONFIG", "START", "STOP"])
+        self.assertEqual(commands[1], "CONFIG,1,2,100,3000,2000,10000,5000,2,1000,1250,9000,8750")
         self.assertEqual(commands[4], "CONFIG,1,1,100,3000,3750,10000,7475,1,8000,4422")
+        self.assertEqual(commands[-3], "CONFIG,1,2,100,3000,3750,10000,7475,2,1000,100,8500,15245")
         port.close.assert_called_once()
         for key, gain in initial_gains.items():
             self.assertEqual(cameras[key].set_feature.call_args_list,
                              [call("GainAuto", "Off"), call("Gain", "2.5"), call("GainAuto", "Off"), call("Gain", str(gain))])
             cameras[key].initialize_acquisition_stream.assert_called_once()
+            self.assertEqual(cameras[key].reset_tune_trial.call_args_list, [call(2)] + [call(1)] * 5 + [call(2)])
             self.assertEqual(cameras[key].camera.get_region(), (0, 0, 36, 36))
             self.assertEqual(cameras[key]._payload, 432)
             dpg.set_value.assert_any_call(f"saturation_{key}", "Saturated pixels: 25.000%")
         self.assertIn('GAIN_DB=2.5  # Use the camera baseline', self.settings.read_text())
         saved = read_settings(self.settings)
-        self.assertEqual(saved["FLUORESCENCE_EXPOSURE_US"], "8000")
+        self.assertEqual(saved["FLUORESCENCE_EXPOSURE_US"], "8500")
         self.assertEqual(float(saved["FLUORESCENCE_ILLUMINATION_PERCENT"]), 74.75)
         self.assertEqual(saved["FPS"], "80.5")
-        self.assertEqual(saved["SURFACE_TO_FLUORESCENCE_GAP_US"], "1250")
+        self.assertEqual(saved["PREVIEW_TIME_DOWNSAMPLE"], "1")
+        self.assertEqual(saved["SURFACE_TO_FLUORESCENCE_GAP_US"], "100")
         self.assertEqual(saved["ROI_WIDTH"], "12")
         self.assertEqual(saved["ROI_HORIZONTAL"], "right")
         dpg.create_viewport.assert_called_once()

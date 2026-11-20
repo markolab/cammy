@@ -1,4 +1,5 @@
-"""Live single-bank tuning for the Nucleo preview."""
+"""Live tuning of single-bank and alternating Nucleo capture."""
+from contextlib import nullcontext
 import fcntl
 import math
 import os
@@ -10,13 +11,13 @@ import tempfile
 
 import click
 
-from cammy.roi import HORIZONTAL_POSITIONS, VERTICAL_POSITIONS, crop_region, timing_advice
+from cammy.roi import HORIZONTAL_POSITIONS, VERTICAL_POSITIONS, alternating_gaps, crop_region, timing_advice
 from cammy.trigger.nucleo import NucleoTriggerDevice
 from cammy.util import shared_asset
 
 
 BANKS = ("surface", "fluorescence")
-SETTINGS = ("DATA_DIR", "CAMERA_OPTIONS", "FPS", "GAIN_DB", "LIGHT_SETTLE_US", "ROI_WIDTH", "ROI_HEIGHT",
+SETTINGS = ("DATA_DIR", "CAMERA_OPTIONS", "FPS", "PREVIEW_TIME_DOWNSAMPLE", "GAIN_DB", "LIGHT_SETTLE_US", "ROI_WIDTH", "ROI_HEIGHT",
             "ROI_HORIZONTAL", "ROI_VERTICAL", "SURFACE_TO_FLUORESCENCE_GAP_US",
             "SURFACE_EXPOSURE_US", "FLUORESCENCE_EXPOSURE_US", "SURFACE_VOLTAGE",
             "FLUORESCENCE_VOLTAGE", "SURFACE_ILLUMINATION_PERCENT", "FLUORESCENCE_ILLUMINATION_PERCENT")
@@ -97,35 +98,57 @@ class TuneSession:
             if self.values[key] not in choices:
                 raise ValueError(f"{key} must be one of {', '.join(choices)}.")
         self.mode = mode
-        self.trigger = self.controller(mode, self.values, port)
+        self.port = port
+        self.trigger = None
         self.saved = self.values.copy()
         self.original_gains = {}
         self.gains_changed = False
         self.sensor_regions = {}
+        self.pause_readers = nullcontext
 
-    @staticmethod
-    def controller(mode, values, port):
+    def controller(self, mode, values, *, metadata=None, margin_ms=1.5):
         fps = float(values["FPS"])
         if not math.isfinite(fps) or fps <= 0:
             raise ValueError("FPS must be finite and positive.")
-        width = int(values[f"{mode.upper()}_EXPOSURE_US"])
+        banks = BANKS if mode == "alternate" else (mode,)
+        widths = [int(values[f"{bank.upper()}_EXPOSURE_US"]) for bank in banks]
         settle = int(values["LIGHT_SETTLE_US"])
-        period_us = 1_000_000 / fps
-        if period_us > NucleoTriggerDevice.MAX_INTERVAL_US:
+        min_low = max(1, settle)
+        period_us = len(banks) * 1_000_000 / fps
+        if period_us > len(banks) * NucleoTriggerDevice.MAX_INTERVAL_US:
             raise ValueError("FPS is too low for the Nucleo timing range.")
-        low = round(period_us) - width
-        if low < max(1, settle):
-            raise ValueError(f"{mode.title()} exposure leaves less than {max(1, settle)} µs between frames at {fps:g} FPS.")
+        idle = round(period_us) - sum(widths)
+        if idle < len(banks) * min_low:
+            raise ValueError(f"{mode.title()} needs at least {min_low} µs between exposures. Lower FPS or shorten an exposure.")
+        lows = [idle]
+        if mode == "alternate":
+            gap = int(values["SURFACE_TO_FLUORESCENCE_GAP_US"])
+            if gap == 0:
+                gap, tail, *_ = alternating_gaps(metadata, *widths, settle, margin_ms)
+                if gap + tail > idle:
+                    raise ValueError("The shortest estimated gaps do not fit. Lower FPS or shorten an exposure.")
+            elif not min_low <= gap <= NucleoTriggerDevice.MAX_INTERVAL_US:
+                raise ValueError(f"The gap must include {min_low} µs of settling, or use 0 for the shortest estimate.")
+            # Match the Alternate launcher: reserve settling for the return to surface.
+            gap = min(gap, idle - min_low)
+            lows = [gap, idle - gap]
         gain = values["GAIN_DB"]
         if gain and (not math.isfinite(float(gain)) or float(gain) < 0):
             raise ValueError("Gain must be blank or a finite, nonnegative number in dB.")
         return NucleoTriggerDevice(
-            com=port, mode=mode, pulse_widths=(width / 1e6,), pulse_widths_low=(low / 1e6,),
+            com=self.port, mode=mode, pulse_widths=[w / 1e6 for w in widths], pulse_widths_low=[v / 1e6 for v in lows],
             light_settle_us=settle, surface_voltage=float(values["SURFACE_VOLTAGE"]),
             fluorescence_voltage=float(values["FLUORESCENCE_VOLTAGE"]),
             surface_illumination_percent=float(values["SURFACE_ILLUMINATION_PERCENT"]),
             fluorescence_illumination_percent=float(values["FLUORESCENCE_ILLUMINATION_PERCENT"]),
         )
+
+    def initial_trigger(self, metadata):
+        # The shortest alternating gap needs readout times at the applied camera ROI.
+        self.trigger = self.controller(self.mode, self.values, metadata=metadata)
+        if self.mode == "alternate":
+            self.values["SURFACE_TO_FLUORESCENCE_GAP_US"] = str(self.trigger.steps[0][1])
+        return self.trigger
 
     def set_gain(self, cameras, gain):
         # Called with triggers stopped and cameras disarmed, including on shutdown.
@@ -143,23 +166,27 @@ class TuneSession:
             if auto != "Off":
                 camera.set_feature("GainAuto", auto)
 
-    def apply(self, cameras, mode, gain, exposure, voltage, *, fps=None, underfill=None):
+    def apply(self, cameras, mode, gain, bank_settings, *, fps=None, gap=None, metadata=None, margin_ms=1.5):
         # Canonical numeric strings are also safe to write as shell assignments.
         requested_gain = float(gain) if gain.strip() else None
-        changes = {"GAIN_DB": str(requested_gain) if requested_gain is not None else "",
-                   f"{mode.upper()}_EXPOSURE_US": str(int(exposure)),
-                   f"{mode.upper()}_VOLTAGE": str(float(voltage))}
+        changes = {"GAIN_DB": str(requested_gain) if requested_gain is not None else ""}
         if fps is not None and float(fps) != float(self.values["FPS"]):
             changes["FPS"] = str(float(fps))
-        if underfill is not None:
+        for bank, (exposure, voltage, underfill) in bank_settings.items():
+            changes[f"{bank.upper()}_EXPOSURE_US"] = str(int(exposure))
+            changes[f"{bank.upper()}_VOLTAGE"] = str(float(voltage))
             if not 0 <= underfill <= 100:
                 raise ValueError("Underfill must be between 0 and 100% of the exposure.")
-            key = f"{mode.upper()}_ILLUMINATION_PERCENT"
+            key = f"{bank.upper()}_ILLUMINATION_PERCENT"
             lit_percent = round(100 - underfill, 2)
             if lit_percent != float(self.values[key]):
                 changes[key] = str(lit_percent)
         values = {**self.values, **changes}
-        candidate = self.controller(mode, values, self.trigger.com)
+        if gap is not None:
+            values["SURFACE_TO_FLUORESCENCE_GAP_US"] = str(gap)
+        candidate = self.controller(mode, values, metadata=metadata, margin_ms=margin_ms)
+        if mode == "alternate":
+            values["SURFACE_TO_FLUORESCENCE_GAP_US"] = str(candidate.steps[0][1])
         previous_gain = float(self.values["GAIN_DB"]) if self.values["GAIN_DB"] else None
         gain_changed = requested_gain != previous_gain
         if gain_changed and requested_gain is not None:
@@ -172,13 +199,14 @@ class TuneSession:
                     raise ValueError(f"{key} supports {minimum:g}–{maximum:g} dB gain.")
         try:
             self.trigger.stop()
-            if gain_changed:
-                for camera in cameras.values():
-                    camera.stop_acquisition()
-                self.set_gain(cameras, values["GAIN_DB"])
-                for camera in cameras.values():
-                    camera.start_acquisition()
-            self.trigger.reconfigure(candidate)
+            with self.pause_readers():
+                if gain_changed:
+                    for camera in cameras.values():
+                        camera.stop_acquisition()
+                    self.set_gain(cameras, values["GAIN_DB"])
+                    for camera in cameras.values():
+                        camera.start_acquisition()
+                self.trigger.reconfigure(candidate)
             self.trigger.start()
         except Exception as exc:
             # Exit through preview's ordered hardware shutdown after any partial application.
@@ -186,7 +214,7 @@ class TuneSession:
         self.values = values
         self.mode = mode
 
-    def build_panel(self, dpg, cameras, metadata=None, apply_regions=None):
+    def build_panel(self, dpg, cameras, metadata=None, apply_regions=None, *, top=0):
         # A hint shows the startup reading while an empty input preserves per-camera gain.
         gains = {}
         for key, camera in cameras.items():
@@ -197,6 +225,12 @@ class TuneSession:
                 gains[key] = "Unavailable"
         distinct = set(gains.values())
         gain_hint = "Mixed" if len(distinct) > 1 else next(iter(distinct), "Unavailable")
+
+        def preview_status():
+            status = f"Previewing {self.mode}. Target {self.values['FPS']} FPS."
+            if self.mode == "alternate":
+                status += f" Applied surface-to-fluorescence gap {self.trigger.steps[0][1]} µs."
+            return status
 
         def suggest():
             try:
@@ -231,19 +265,22 @@ class TuneSession:
                     return
             self.values.update(ROI_WIDTH=str(width), ROI_HEIGHT=str(height), ROI_HORIZONTAL=horizontal, ROI_VERTICAL=vertical)
             dpg.set_value("roi_size", current_size())
-            dpg.set_value("tune_status", f"Previewing {self.mode}. Target {self.values['FPS']} FPS.")
+            dpg.set_value("tune_status", preview_status())
             suggest()
 
         def current_size():
             sizes = sorted({f"{c._width} × {c._height}" for c in cameras.values()})
             return "Current: " + ", ".join(sizes) + " px. 0 uses the full sensor axis."
 
-        def apply_bank(sender, app_data, bank):
+        def apply_bank(sender, app_data, mode):
             try:
-                self.apply(cameras, bank, dpg.get_value("tune_gain"), dpg.get_value(bank + "_us"),
-                           dpg.get_value(bank + "_volts"), fps=dpg.get_value("tune_fps"),
-                           underfill=dpg.get_value(bank + "_underfill"))
-                status = f"Previewing {bank}. Target {self.values['FPS']} FPS."
+                banks = BANKS if mode == "alternate" else (mode,)
+                edits = {bank: (dpg.get_value(bank + "_us"), dpg.get_value(bank + "_volts"),
+                                dpg.get_value(bank + "_underfill")) for bank in banks}
+                self.apply(cameras, mode, dpg.get_value("tune_gain"), edits, fps=dpg.get_value("tune_fps"),
+                           gap=dpg.get_value("surface_gap_us") if mode == "alternate" else None,
+                           metadata=metadata, margin_ms=dpg.get_value("margin_ms"))
+                status = preview_status()
             except ValueError as exc:
                 status = f"Settings not applied. {exc}"
             dpg.set_value("tune_status", status)
@@ -259,7 +296,7 @@ class TuneSession:
                 status = str(exc)
             dpg.set_value("tune_status", status)
 
-        with dpg.window(label="Tune", pos=(0, 0), height=self.PANEL_HEIGHT, width=self.PANEL_WIDTH, no_collapse=True):
+        with dpg.window(label="Tune", pos=(0, top), height=self.PANEL_HEIGHT, width=self.PANEL_WIDTH, no_collapse=True):
             with dpg.group(horizontal=True):
                 dpg.add_input_text(label="Gain (dB, all cameras)", tag="tune_gain", width=90,
                                    hint=gain_hint, default_value=self.values["GAIN_DB"])
@@ -281,6 +318,9 @@ class TuneSession:
                     dpg.add_input_double(label=f"Underfill (% dark)##{bank}", tag=bank + "_underfill", width=105,
                                          step=1, format="%.2f", default_value=round(100 - lit_percent, 2))
             with dpg.group(horizontal=True):
+                dpg.add_button(label="Apply alternate", width=145, callback=apply_bank, user_data="alternate")
+                dpg.add_text(preview_status(), tag="tune_status")
+            with dpg.group(horizontal=True):
                 for axis in ("width", "height"):
                     dpg.add_input_int(label=f"ROI {axis} (px)", tag="roi_" + axis, width=115,
                                       default_value=int(self.values["ROI_" + axis.upper()]))
@@ -290,10 +330,9 @@ class TuneSession:
                               default_value=self.values["ROI_VERTICAL"])
                 dpg.add_button(label="Apply crop", callback=crop)
             dpg.add_text(current_size(), tag="roi_size")
-            dpg.add_text(f"Previewing {self.mode}. Target {self.values['FPS']} FPS.", tag="tune_status")
             with dpg.group(horizontal=True):
                 dpg.add_input_int(label="Surface → fluorescence gap (µs, 0 = shortest)", tag="surface_gap_us",
-                                  width=115, default_value=int(self.values["SURFACE_TO_FLUORESCENCE_GAP_US"]))
+                                  width=115, default_value=int(self.saved["SURFACE_TO_FLUORESCENCE_GAP_US"]))
                 with dpg.tooltip("surface_gap_us"):
                     dpg.add_text("From surface exposure end to fluorescence exposure start.\n"
                                  f"Includes {self.values['LIGHT_SETTLE_US']} µs of light settling.")
@@ -308,24 +347,29 @@ class TuneSession:
 @click.command(name="tune")
 @click.option("--settings", type=click.Path(exists=True, dir_okay=False, path_type=Path),
               help="Trusted launcher settings file. Defaults to cammy-settings.sh on the desktop.")
-@click.option("--mode", type=click.Choice(BANKS), default="surface", show_default=True)
+@click.option("--mode", type=click.Choice([*BANKS, "alternate"]), default="surface", show_default=True)
+@click.option("--stream-stats", is_flag=True, help="Log per-camera stream counters once per second.")
 @click.option("--trigger-port", default="/dev/ttyACM0", show_default=True)
 @click.pass_context
-def tune(ctx, settings, mode, trigger_port):
-    """Tune single-bank previews, crop cameras, and estimate alternating timing."""
+def tune(ctx, settings, mode, trigger_port, stream_stats):
+    """Try trigger settings and measure acquisition drops in all three light modes."""
     path = settings or desktop_settings()
     if not path.is_file():
         raise click.ClickException(f"Cannot find {path}. Run launchers/install.py or supply --settings PATH.")
     try:
         session = TuneSession(path, mode, trigger_port)
+        display_stride = click.IntRange(0, 2**31 - 1).convert(session.values["PREVIEW_TIME_DOWNSAMPLE"], None, None)
         camera_options = Path(session.values["DATA_DIR"]) / session.values["CAMERA_OPTIONS"]
         if not camera_options.is_file():
             raise ValueError(f"Camera options file does not exist: {camera_options}")
+    except click.BadParameter as exc:
+        raise click.ClickException(f"Invalid PREVIEW_TIME_DOWNSAMPLE: {exc}") from exc
     except (ValueError, OSError, OverflowError) as exc:
         raise click.ClickException(str(exc)) from exc
     preview = ctx.parent.command.get_command(ctx.parent, "run")
     ctx.invoke(preview, tuning=session, interface="aravis", hw_trigger=True, trigger_device="nucleo",
-               light_mode=session.mode, trigger_port=trigger_port, buffer_size=512, display_downsample=6,
+               display_time_downsample=display_stride,
+               light_mode=session.mode, trigger_port=trigger_port, buffer_size=512, display_downsample=6, stream_stats=stream_stats,
                roi_width=int(session.values["ROI_WIDTH"]), roi_height=int(session.values["ROI_HEIGHT"]),
                roi_horizontal=session.values["ROI_HORIZONTAL"], roi_vertical=session.values["ROI_VERTICAL"],
                camera_options=str(camera_options.resolve()))

@@ -1,10 +1,13 @@
 """Acknowledged, newline-delimited control of trigger-nucleo firmware."""
 
+import logging
 import math
 import time
 
 import serial
 import serial.tools.list_ports
+
+logger = logging.getLogger(__name__)
 
 
 class NucleoTriggerDevice:
@@ -68,11 +71,53 @@ class NucleoTriggerDevice:
         ]
         for width, low in zip(widths, lows):
             params.extend((width, low))
-        self.config_command = "CONFIG," + ",".join(map(str, params))
+        self._config = tuple(params)
         self.com = com
         self.baudrate = baudrate
         self.timeout = timeout
         self.dev = None
+
+    @property
+    def config_command(self):
+        return "CONFIG," + ",".join(map(str, self._config))
+
+    @property
+    def mode(self):
+        return ("surface", "fluorescence", "alternate")[self._config[1]]
+
+    @property
+    def steps(self):
+        return list(zip(self._config[8::2], self._config[9::2]))
+
+    def describe_sequence(self):
+        _, _, settle, surface_mv, fluo_mv, surface_fill, fluo_fill, _ = self._config[:8]
+        steps = self.steps
+        if self.mode == "alternate" and len(steps) % 2:
+            steps *= 2  # The banks toggle independently of the firmware's step index.
+        period = sum(width + low for width, low in steps)
+        fps = 1e6 * len(steps) / period
+        rate = f"{fps:.3f} FPS total"
+        if self.mode == "alternate":
+            rate += f", {fps / 2:.3f} pairs/s"
+        lines = [f"Nucleo {self.mode}, programmed cycle {period} µs, {rate}",
+                 f"D2 surface active low, D3 fluorescence active high. Brightness setpoints "
+                 f"{surface_mv / 1000:g} V surface, {fluo_mv / 1000:g} V fluorescence. "
+                 f"Settling {settle} µs. Times from first D4 rise."]
+        start = 0
+        for i, (width, low) in enumerate(steps):
+            fluo = self.mode == "fluorescence" or (self.mode == "alternate" and i % 2 == 1)
+            bank, fill = ("fluorescence", fluo_fill) if fluo else ("surface", surface_fill)
+            lit = (width * fill + 5000) // 10000  # Same integer rounding as prepare_light().
+            if not lit:
+                light = "off"
+            elif self.mode != "alternate" and fill == 10000:
+                light = f"continuous from {-settle} µs"
+            else:
+                light = f"on [{start - settle}, {start + lit}) µs"
+            lines.append(f"  {i + 1}. {bank} light {light} ({fill / 100:g}% fill), D4 high [{start}, {start + width}) µs "
+                         f"({width} µs exposure), then low {low} µs")
+            start += width + low
+        return "\n".join([*lines, self.config_command])
 
     @staticmethod
     def _scaled(value, minimum, maximum, scale, name):
@@ -120,6 +165,7 @@ class NucleoTriggerDevice:
             self.dev.reset_input_buffer()
             self._command("HELLO", "CAMMY_NUCLEO,1")
             self._command(self.config_command, "OK CONFIG")
+            logger.info("%s", self.describe_sequence())
         except BaseException:
             # HELLO/CONFIG never starts outputs. Do not send our STOP protocol
             # to a device whose firmware identity could not be verified.
@@ -132,6 +178,7 @@ class NucleoTriggerDevice:
         try:
             self.open()
             self._command("START", "OK START")
+            self.started_at = time.perf_counter()
         except BaseException:
             try:
                 self.close()
@@ -142,7 +189,8 @@ class NucleoTriggerDevice:
     def reconfigure(self, candidate):
         """Apply a validated configuration on the existing, stopped controller."""
         self._command(candidate.config_command, "OK CONFIG")
-        self.config_command = candidate.config_command
+        self._config = candidate._config
+        logger.info("%s", self.describe_sequence())
 
     def stop(self):
         if self.dev is not None:

@@ -31,7 +31,7 @@ case "$mode" in
     *) die "Choose surface, fluorescence, or alternate." ;;
 esac
 case "$action" in
-    preview) options=(--display-time-downsample 1) ;;
+    preview) options=(--display-time-downsample "$PREVIEW_TIME_DOWNSAMPLE") ;;
     record)  options=(--record --display-time-downsample 0 --share-gui-core
                       --writer-cores 7 --frame-writer-batch-size 20 --record-queue-frames 512) ;;
     *) die "Choose preview or record." ;;

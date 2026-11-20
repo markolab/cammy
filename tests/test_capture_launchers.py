@@ -74,7 +74,7 @@ class CaptureLauncherTests(unittest.TestCase):
         self.assertEqual(settings.read_bytes(), self.settings.read_bytes())
         with settings.open("a") as f:
             f.write("GAIN_DB=2.5\nROI_WIDTH=1024\nROI_HEIGHT=768\nROI_HORIZONTAL=right\nROI_VERTICAL=bottom\n"
-                    "SURFACE_TO_FLUORESCENCE_GAP_US=1250\nLIGHT_SETTLE_US=200\n"
+                    "PREVIEW_TIME_DOWNSAMPLE=4\nSURFACE_TO_FLUORESCENCE_GAP_US=1250\nLIGHT_SETTLE_US=200\n"
                     "SURFACE_VOLTAGE=3.5\nFLUORESCENCE_VOLTAGE=1.25\n"
                     "SURFACE_ILLUMINATION_PERCENT=0\nFLUORESCENCE_ILLUMINATION_PERCENT=62.5\n")
         self.install(desktop)
@@ -93,7 +93,7 @@ class CaptureLauncherTests(unittest.TestCase):
                     p = simple_preview.make_context("run", args).params
                     self.assertEqual(p["light_mode"], mode)
                     self.assertEqual(p["record"], action == "record")
-                    self.assertEqual(p["display_time_downsample"], 0 if action == "record" else 1)
+                    self.assertEqual(p["display_time_downsample"], 0 if action == "record" else 4)
                     self.assertEqual(p["share_gui_core"], action == "record")
                     self.assertEqual(p["writer_cores"], 7 if action == "record" else None)
                     self.assertEqual(p["gain_db"], 2.5)
@@ -138,6 +138,7 @@ class CaptureLauncherTests(unittest.TestCase):
         direct = self.launch("alternate", "preview")
         self.assertEqual(direct.returncode, 0, direct.stderr)
         self.assertEqual(result.stdout, direct.stdout)
+        self.assertEqual(simple_preview.make_context("run", direct.stdout.splitlines()[2:]).params["display_time_downsample"], 1)
 
     def test_tight_alternation_reserves_time_for_both_lights_to_settle(self):
         with self.settings.open("a") as settings:

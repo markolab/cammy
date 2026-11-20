@@ -57,18 +57,10 @@ def set_region(camera, region):
         raise ValueError(f"Camera requested {region}, read back {actual}.")
 
 
-def timing_advice(metadata, surface, fluorescence, dark_percent, fps, settle, margin_ms, requested_gap=0):
-    """Estimate alternating trigger gaps with overlapping sensor readout at the applied ROI (µs)."""
-    if not (surface > 0 and fluorescence > 0 and 0 <= dark_percent <= 100 and
-            math.isfinite(fps) and fps > 0 and 1 <= margin_ms <= 2):
-        raise ValueError("Use positive exposures and FPS, 0–100% underfill and a 1–2 ms margin.")
-    period = 2e6 / fps
-    limit = NucleoTriggerDevice.MAX_INTERVAL_US
-    if not 0 <= requested_gap <= limit or int(requested_gap) != requested_gap:
-        raise ValueError("Use a nonnegative whole number of µs for the surface-to-fluorescence gap.")
-    if not math.isfinite(period) or period > 2 * limit:
-        raise ValueError("FPS is outside the trigger timing range.")
-    period = round(period)
+def alternating_gaps(metadata, surface, fluorescence, settle, margin_ms):
+    """Minimum low intervals and readout constraints for the current camera regions, in µs."""
+    if not (surface > 0 and fluorescence > 0 and 1 <= margin_ms <= 2):
+        raise ValueError("Use positive exposures and a 1–2 ms margin.")
     if not metadata:
         raise ValueError("Timing unavailable. No camera readout data.")
 
@@ -96,9 +88,24 @@ def timing_advice(metadata, surface, fluorescence, dark_percent, fps, settle, ma
 
     # Each exposure must end after the previous frame has finished reading out.
     guard = math.ceil(slowest_us + 1000 * margin_ms)
-    shortest_gap = max(gap_floor, guard - fluorescence)
+    return max(gap_floor, guard - fluorescence), max(gap_floor, guard - surface), slowest_us, gap_floor, min_width
+
+
+def timing_advice(metadata, surface, fluorescence, dark_percent, fps, settle, margin_ms, requested_gap=0):
+    """Estimate alternating trigger gaps with overlapping sensor readout at the applied ROI (µs)."""
+    if not (0 <= dark_percent <= 100 and math.isfinite(fps) and fps > 0):
+        raise ValueError("Use positive FPS and 0–100% underfill.")
+    period = 2e6 / fps
+    limit = NucleoTriggerDevice.MAX_INTERVAL_US
+    if not 0 <= requested_gap <= limit or int(requested_gap) != requested_gap:
+        raise ValueError("Use a nonnegative whole number of µs for the surface-to-fluorescence gap.")
+    if not math.isfinite(period) or period > 2 * limit:
+        raise ValueError("FPS is outside the trigger timing range.")
+    period = round(period)
+    shortest_gap, before_surface, slowest_us, gap_floor, min_width = alternating_gaps(
+        metadata, surface, fluorescence, settle, margin_ms)
+    guard = math.ceil(slowest_us + 1000 * margin_ms)
     before_fluo = max(requested_gap, shortest_gap)
-    before_surface = max(gap_floor, guard - surface)
     fastest = surface + before_fluo + fluorescence + before_surface
     tail = before_surface + max(0, period - fastest)
     if max(surface + before_fluo, fluorescence + tail) > limit:

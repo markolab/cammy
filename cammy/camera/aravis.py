@@ -130,7 +130,9 @@ class AravisCamera(CammyCamera):
         self._payload = self.camera.get_payload()
         for _ in range(self.buffer_size):
             self.stream.push_buffer(Aravis.Buffer.new_allocate(self._payload))
-        _, _, self._width, self._height = self.camera.get_region()
+        x, y, self._width, self._height = self.camera.get_region()
+        self.logger.info("%s ROI readback: Width=%d Height=%d OffsetX=%d OffsetY=%d (pixels)",
+                         self.id, self._width, self._height, x, y)
 
     def change_region(self, region):
         """Called with acquisition stopped and no reader holding a buffer."""
@@ -150,6 +152,16 @@ class AravisCamera(CammyCamera):
             while not child.recv_queue.empty():
                 child.recv_queue.get_nowait()
 
+
+    def reset_tune_trial(self, fps_stride):
+        """Start a new measurement with the trigger stopped and acquisition reader paused."""
+        while (buffer := self.stream.try_pop_buffer()) is not None:
+            self.stream.push_buffer(buffer)
+        self.display_frame = (None, None)
+        self.frame_count = self.missed_frames = self.total_frames = 0
+        self._last_frame_id = None
+        self._last_framegrab = [np.nan] * fps_stride
+        self.fps = np.nan
 
     def log_stream_statistics(self):
         """Sample from the GUI thread, independently of frame acquisition."""

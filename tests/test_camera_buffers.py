@@ -1,6 +1,6 @@
 import gc
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import numpy as np
 
@@ -89,11 +89,9 @@ class CameraBufferTests(unittest.TestCase):
         self.assertEqual(frame.tobytes(), original)
 
     def test_existing_stream_receives_cropped_and_full_frames(self):
-        cam = self.camera
-        cam.camera = Aravis.Camera.new_with_device(Aravis.FakeDevice.new("live-roi"))
-        cam.buffer_size = 4
-        cam._last_framegrab = [np.nan]
-        cam._spoof_cameras = []
+        native = Aravis.Camera.new_with_device(Aravis.FakeDevice.new("live-roi"))
+        with patch.object(Aravis.Camera, "new", return_value=native):
+            cam = AravisCamera("live-roi", buffer_size=4)
         cam.initialize_acquisition_stream()
         stream = cam.stream
         original = tuple(cam.camera.get_region())

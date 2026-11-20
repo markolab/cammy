@@ -51,9 +51,15 @@ class RoiTests(unittest.TestCase):
                     # Even an unusable TOML offset must be ignored on the overridden axis.
                     options.write_text(config.replace("OffsetX = 32", 'OffsetX = "invalid"') if "right" in args else config)
                     written.clear()
-                    result = runner.invoke(cli, ["run", "--record", "--frame-writer-batch-size", "1", *args],
-                                           catch_exceptions=False)
+                    with self.assertLogs(level="INFO") as logs:
+                        result = runner.invoke(cli, ["run", "--record", "--frame-writer-batch-size", "1", *args],
+                                               catch_exceptions=False)
                     self.assertEqual(result.exit_code, 0, result.output)
+                    messages = [record.getMessage() for record in logs.records]
+                    if args:
+                        self.assertIn("Requested ROI: " + " ".join(args), messages)
+                    x, y, w, h = expected
+                    self.assertIn(f"Fake ROI readback: Width={w} Height={h} OffsetX={x} OffsetY={y} (pixels)", messages)
                     session = sorted(Path.cwd().glob("session_*"))[-1]
                     metadata = toml.load(session / "metadata.toml")
                     features = metadata["camera_metadata"]["Fake"]

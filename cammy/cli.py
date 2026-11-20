@@ -177,9 +177,9 @@ txt_pos = (25, 25)
 )
 @click.option(
     "--display-time-downsample",
-    type=int,
+    type=click.IntRange(0, 2**31 - 1),
     default=1,
-    help="Display every nth frame (set to 0 for no display)"
+    help="Display every Nth new preview frame. 0 pauses image updates."
 )
 @click.option(
     "--record-queue-frames",
@@ -319,6 +319,10 @@ def simple_preview(
     # don't initialize streams, just alter settings
     override_x = roi_width is not None or roi_horizontal is not None
     override_y = roi_height is not None or roi_vertical is not None
+    if override_x or override_y:
+        roi_flags = (f"--{name.replace('_', '-')} {value}" for name, value in cli_params.items()
+                     if name.startswith("roi_") and value is not None)
+        logger.info("Requested ROI: %s", " ".join(roi_flags))
     skip_features = set()
     if override_x:
         skip_features.update(("OffsetX", "CenterX"))
@@ -497,7 +501,7 @@ def simple_preview(
             if not hw_trigger_pulse_low:
                 hw_trigger_pulse_low = [.002]
             try:
-                trigger_dev = tuning.trigger if tuning is not None else NucleoTriggerDevice(
+                trigger_dev = tuning.initial_trigger(cameras_metadata) if tuning is not None else NucleoTriggerDevice(
                     com=trigger_port,
                     mode=light_mode,
                     pulse_widths=hw_trigger_pulse_width,
@@ -510,11 +514,14 @@ def simple_preview(
                 )
             except ValueError as exc:
                 raise click.UsageError(str(exc)) from exc
-            logging.info("Nucleo: D2 surface, D3 fluorescence, D4 camera; mode=%s", light_mode)
         else:
             from cammy.trigger.trigger import TriggerDevice
 
-            logging.info(f"Trigger pins: {trigger_pins}")
+            hw_trigger_pulse_low = hw_trigger_pulse_low or [.002]
+            if len(hw_trigger_pulse_low) == 1:
+                hw_trigger_pulse_low = hw_trigger_pulse_low * len(hw_trigger_pulse_width)
+            if len(hw_trigger_pulse_low) != len(hw_trigger_pulse_width):
+                raise click.UsageError("Supply one low interval or one per exposure width")
             trigger_dev = TriggerDevice(
                 com=trigger_port,
                 pins=trigger_pins,
@@ -525,6 +532,7 @@ def simple_preview(
             )
     else:
         trigger_dev = None
+        logger.info("Hardware triggering by Cammy is disabled.")
 
     zmq_addresses = {}
     if record:
@@ -661,6 +669,8 @@ def simple_preview(
     def start_readers():
         acquisition_thread_shutdown_event.clear()
         for i, (key, camera) in enumerate(cameras.items()):
+            if tuning is not None and key in cameras_metadata:
+                camera.reset_tune_trial(2 if trigger_dev.mode == "alternate" else 1)
             thread = threading.Thread(target=acquisition_loop, daemon=True,
                                       args=(camera, acquisition_thread_shutdown_event, acquire_cpus[i % len(acquire_cpus)]))
             threads[key] = thread
@@ -671,6 +681,12 @@ def simple_preview(
         for thread in threads.values():
             if thread.ident is not None:
                 thread.join()
+
+    @contextmanager
+    def pause_tune_readers():
+        stop_readers()
+        yield
+        start_readers()
 
     def apply_regions(regions):
         """Reconfigure the affected streams while neither trigger nor readers are running."""
@@ -724,12 +740,28 @@ def simple_preview(
 
     # start a new context for acquisition
     dpg.create_context()
+    adjustable_display = not record and not share_gui_core
+    menu_height = 28 if adjustable_display else 0
+    if adjustable_display:
+        def change_display_stride(sender, value):
+            nonlocal display_time_downsample
+            display_time_downsample = value
+            if tuning is not None:
+                tuning.values["PREVIEW_TIME_DOWNSAMPLE"] = str(value)
+
+        with dpg.viewport_menu_bar():
+            with dpg.menu(label="Display"):
+                dpg.add_input_int(label="Every Nth frame (0 pauses images)", tag="preview_time_downsample", width=110,
+                                  default_value=display_time_downsample, min_value=0, min_clamped=True,
+                                  callback=change_display_stride)
     if tuning is not None:
         dpg.configure_app(manual_callback_management=True)
+        tuning.pause_readers = pause_tune_readers
         gain_cameras = {key: cameras[key] for key in cameras_metadata}
+        trial_camera = {image.id: cam for cam in gain_cameras.values() for image in (cam, *cam._spoof_cameras)}
         for key in gain_cameras:
             update_tune_canvas(key)
-        tuning.build_panel(dpg, gain_cameras, cameras_metadata, apply_regions)
+        tuning.build_panel(dpg, gain_cameras, cameras_metadata, apply_regions, top=menu_height)
 
     # https://github.com/hoffstadt/DearPyGui/issues/1380
     with dpg.font_registry():
@@ -794,7 +826,7 @@ def simple_preview(
             dpg.set_global_font_scale(0.5)
 
     gui_x_offset = 0
-    gui_y_offset = tuning.PANEL_HEIGHT if tuning is not None else 0
+    gui_y_offset = menu_height + (tuning.PANEL_HEIGHT if tuning is not None else 0)
     gui_x_max = tuning.PANEL_WIDTH if tuning is not None else 0
     gui_y_max = 0
     row_pos = 0
@@ -857,9 +889,8 @@ def simple_preview(
         # https://github.com/AravisProject/aravis/issues/754
 
         start_time = -np.inf
-        prior_fps = np.nan
         cur_duration = 0
-        display_counter = {}
+        previous_stride = None
         last_seen_frame = {}
         next_stream_stats = 0.0
         if tuning is not None:
@@ -871,8 +902,6 @@ def simple_preview(
             next_batch = 0.0
             next_saturation = {}
 
-        for _camera in cameras.keys():
-            display_counter[_camera] = 0
         start_readers()
         # Cameras and acquisition threads are ready before external timing starts.
         if hw_trigger and (trigger_dev is not None):
@@ -893,6 +922,10 @@ def simple_preview(
                         _cam.log_stream_statistics()
                 next_stream_stats = time.perf_counter() + 1.0
             dat = {key: cameras[key].display_frame for key in preview_ids}
+            stride = display_time_downsample
+            if stride != previous_stride:
+                display_counter = dict.fromkeys(cameras, 0)
+                previous_stride = stride
             
             for _id, _dat in dat.items():
                 if ~np.isfinite(start_time) and (_dat[0] is not None):
@@ -900,19 +933,19 @@ def simple_preview(
 
             cur_duration = (time.perf_counter() - start_time) / 60.0
             for _id, _dat in dat.items():
-                if tuning is not None and _dat[0] is not None and now >= next_saturation.get(_id, 0):
-                    max_pixel = (1 << bit_depth[_id]) - 1
-                    percent = 100 * np.count_nonzero(_dat[0] >= max_pixel) / _dat[0].size
-                    dpg.set_value(f"saturation_{_id}", f"Saturated pixels: {percent:.3f}%")
-                    next_saturation[_id] = now + .25
-                if _dat[0] is not None and _dat is not last_seen_frame.get(_id):
+                new_frame = _dat[0] is not None and _dat is not last_seen_frame.get(_id)
+                if new_frame:
                     last_seen_frame[_id] = _dat
-                    if tuning is not None:
-                        disp_min, disp_max = 0, (1 << bit_depth[_id]) - 1
-                    else:
-                        disp_min = dpg.get_value(f"texture_{_id}_min")
-                        disp_max = dpg.get_value(f"texture_{_id}_max")
-                    if (display_time_downsample > 0)  and ((display_counter[_id] % display_time_downsample) == 0):
+                    if stride and display_counter[_id] % stride == 0:
+                        if tuning is not None:
+                            disp_min, disp_max = 0, (1 << bit_depth[_id]) - 1
+                            if now >= next_saturation.get(_id, 0):
+                                percent = 100 * np.count_nonzero(_dat[0] >= disp_max) / _dat[0].size
+                                dpg.set_value(f"saturation_{_id}", f"Saturated pixels: {percent:.3f}%")
+                                next_saturation[_id] = now + .25
+                        else:
+                            disp_min = dpg.get_value(f"texture_{_id}_min")
+                            disp_max = dpg.get_value(f"texture_{_id}_max")
                         height, width = _dat[0].shape
                         disp_img = cv2.resize(
                             _dat[0],
@@ -945,37 +978,38 @@ def simple_preview(
 
                     display_counter[_id] += 1
                     cameras[_id].count += 1
-                    miss_frames = cameras[_id].missed_frames
-                    total_frames = cameras[_id].total_frames
-                    cur_fps = cameras[_id].fps
-                    # if np.isnan(prior_fps):
-                    #     smooth_fps = cur_fps
-                    # else:
-                    #     smooth_fps = .01 * cur_fps + .99 * prior_fps
-                    # prior_fps = smooth_fps
-                    try:
-                        percent_missed = (miss_frames / total_frames) * 100
-                    except ZeroDivisionError:
-                        percent_missed = 0
-                    miss_text = f"{miss_frames} missed / {total_frames} total ({percent_missed:.1f}% missed)"
-                    if record:
-                        writer = cameras[_id].recorder
-                        recording_drops = cameras[_id].recording_drops
-                        recording_total = getattr(writer, "frames_written", 0) + recording_drops
-                        recording_percent_missed = 100 * recording_drops / recording_total if recording_total else 0
-                        miss_text += (
-                            f"\nWriter: {recording_drops} missed / {recording_total} total "
-                            f"({recording_percent_missed:.1f}% missed)"
-                        )
-                        if not writer.is_alive():
-                            miss_text += " / WRITER STOPPED (see terminal)"
-                    dpg.set_value(miss_status[_id], miss_text)
-                    if cur_fps is not None:
-                        dpg.set_value(
-                            fps_status[_id],
-                            f"{cur_fps:.0f} {fps_unit}",
-                        )
-                        
+                if not new_frame and tuning is None:
+                    continue
+                camera = trial_camera[_id] if tuning is not None else cameras[_id]
+                miss_frames = camera.missed_frames
+                total_frames = camera.total_frames
+                cur_fps = camera.fps
+                percent_missed = 100 * miss_frames / total_frames if total_frames else 0
+                miss_text = f"{miss_frames} missed / {total_frames} total ({percent_missed:.1f}% missed)"
+                if tuning is not None:
+                    miss_text = f"Frame IDs: {miss_text}"
+                if record:
+                    writer = cameras[_id].recorder
+                    recording_drops = cameras[_id].recording_drops
+                    recording_total = getattr(writer, "frames_written", 0) + recording_drops
+                    recording_percent_missed = 100 * recording_drops / recording_total if recording_total else 0
+                    miss_text += (
+                        f"\nWriter: {recording_drops} missed / {recording_total} total "
+                        f"({recording_percent_missed:.1f}% missed)"
+                    )
+                    if not writer.is_alive():
+                        miss_text += " / WRITER STOPPED (see terminal)"
+                dpg.set_value(miss_status[_id], miss_text)
+                if tuning is not None:
+                    elapsed = time.perf_counter() - trigger_dev.started_at
+                    received = camera.frame_count / elapsed if elapsed > 0 else 0
+                    fps_text = f"{received:.1f} received / {float(tuning.values['FPS']):g} target FPS"
+                    if tuning.mode == "alternate" and cur_fps is not None and np.isfinite(cur_fps):
+                        fps_text += f"\n{cur_fps:.1f} FPS/channel"
+                    dpg.set_value(fps_status[_id], fps_text)
+                elif cur_fps is not None:
+                    dpg.set_value(fps_status[_id], f"{cur_fps:.0f} {fps_unit}")
+
             if (
                 np.isfinite(cur_duration)
                 and (duration > 0)
