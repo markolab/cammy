@@ -13,6 +13,8 @@ TUNE_DISPLAY=""                 # Tune only: on or off. Empty follows the previe
 
 ARAVIS_BUFFER_SIZE=512          # Receive buffers per camera in Preview, Record, and Tune (frames).
 RECORD_QUEUE_FRAMES=512         # Record only. ZeroMQ queue limit per camera on each socket (frames).
+WRITER_BUFFER_MIB=0             # Extra raw pixel buffer per camera. Try 512 for two-thread recording.
+FRAME_WRITER_BATCH_SIZE=20      # Frames per disk write. 16 is 55 MiB at 2000 x 1800 Mono8.
 WRITER_CORES=7                  # Record only. Empty lets Cammy choose the writer count.
 ACQUISITION_CORES=""            # Preview and Record. Empty uses the remaining worker cores.
 SHARED_GUI_CORES=""             # Physical cores shared with Aravis receivers. Empty uses 0 in Preview, 1 in Record.

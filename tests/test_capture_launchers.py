@@ -76,7 +76,7 @@ class CaptureLauncherTests(unittest.TestCase):
             f.write("STREAM_STATS=off\nGAIN_DB=2.5\nROI_WIDTH=1024\nROI_HEIGHT=768\nROI_HORIZONTAL=right\nROI_VERTICAL=bottom\n"
                     "PREVIEW_TIME_DOWNSAMPLE=4\nSURFACE_TO_FLUORESCENCE_GAP_US=1250\nLIGHT_SETTLE_US=200\n"
                     "WRITER_CORES=5\nACQUISITION_CORES=3\nSHARED_GUI_CORES=2\n"
-                    "ARAVIS_BUFFER_SIZE=192\nRECORD_QUEUE_FRAMES=96\n"
+                    "ARAVIS_BUFFER_SIZE=192\nRECORD_QUEUE_FRAMES=96\nWRITER_BUFFER_MIB=512\nFRAME_WRITER_BATCH_SIZE=16\n"
                     "SURFACE_VOLTAGE=3.5\nFLUORESCENCE_VOLTAGE=1.25\n"
                     "SURFACE_ILLUMINATION_PERCENT=0\nFLUORESCENCE_ILLUMINATION_PERCENT=62.5\n")
         self.install(desktop)
@@ -98,8 +98,10 @@ class CaptureLauncherTests(unittest.TestCase):
                     self.assertEqual(p["buffer_size"], 192)
                     if action == "record":
                         self.assertEqual(p["record_queue_frames"], 96)
+                        self.assertEqual((p["writer_buffer_mib"], p["frame_writer_batch_size"]), (512, 16))
                     else:
                         self.assertNotIn("--record-queue-frames", args)
+                        self.assertNotIn("--writer-buffer-mib", args)
                     self.assertFalse(p["stream_stats"])
                     self.assertEqual(p["display_time_downsample"], 0 if action == "record" else 4)
                     self.assertEqual(p["shared_gui_cores"], 2)

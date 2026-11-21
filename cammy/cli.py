@@ -36,6 +36,7 @@ from cammy.util import (
     shared_asset,
 )
 from cammy.record.base import RECORD_QUEUE_FRAMES
+from cammy.record.buffered import BufferedRawVideoRecorder
 from cammy.record.video import FfmpegVideoRecorder, RawVideoRecorder
 from cammy.camera.spoof import SpoofCamera
 from cammy.roi import HORIZONTAL_POSITIONS, VERTICAL_POSITIONS, crop_region, set_region
@@ -194,6 +195,11 @@ txt_pos = (25, 25)
          "Queue RAM is roughly 2 x this value x frame bytes, plus writer batches."
 )
 @click.option(
+    "--writer-buffer-mib", type=click.IntRange(min=0), default=0,
+    help="Preallocated raw recording buffer per camera in MiB, in addition to ZMQ. "
+         "A positive size enables a separate disk thread. 0 uses the original writer.",
+)
+@click.option(
     "--frame-writer-batch-size",
     type=int,
     default=20,
@@ -247,6 +253,7 @@ def simple_preview(
     prefix: Optional[str],
     display_time_downsample: int,
     record_queue_frames: int,
+    writer_buffer_mib: int,
     frame_writer_batch_size: int,
     verbose: bool,
     tuning=None,
@@ -254,6 +261,8 @@ def simple_preview(
     
     cli_params = locals().copy()
     del cli_params["tuning"]
+    if writer_buffer_mib and (not record or save_engine != "raw"):
+        raise click.UsageError("--writer-buffer-mib requires --record with the raw save engine")
 
     if gain_db is not None and (not np.isfinite(gain_db) or interface == "fake_custom"):
         raise click.UsageError("--gain-db requires a finite gain and an Aravis camera")
@@ -562,6 +571,15 @@ def simple_preview(
         }
 
         write_dtype, codec = get_output_format(save_engine, bit_depth)
+        writer_buffer_bytes = writer_buffer_mib * 1024**2
+        frame_bytes = {}
+        if writer_buffer_bytes:
+            for key, camera in cameras.items():
+                size = camera._width * camera._height * np.dtype(write_dtype[key]).itemsize
+                if not 0 < size * frame_writer_batch_size <= writer_buffer_bytes:
+                    raise click.UsageError(f"{key}: a batch of {frame_writer_batch_size} frames "
+                                           f"of {size} bytes must fit in --writer-buffer-mib {writer_buffer_mib}")
+                frame_bytes[key] = size
         recording_metadata["codec"] = codec
         recording_metadata["pixel_format"] = write_dtype
 
@@ -641,7 +659,12 @@ def simple_preview(
                     batch_size=frame_writer_batch_size,
                 )
             elif save_engine == "raw":
-                _recorder = RawVideoRecorder(
+                raw_writer = RawVideoRecorder
+                buffer_options = {}
+                if writer_buffer_mib:
+                    raw_writer = BufferedRawVideoRecorder
+                    buffer_options = dict(frame_bytes=frame_bytes[_id], buffer_bytes=writer_buffer_bytes)
+                _recorder = raw_writer(
                     filename=os.path.join(save_path, f"{_id}.dat"),
                     write_dtype=write_dtype[_id],
                     timestamp_fields=timestamp_fields,
@@ -649,6 +672,7 @@ def simple_preview(
                     cpu_id=write_cpus[i % len(write_cpus)],
                     zmq_address=zmq_addresses[_id],
                     queue_frames=record_queue_frames,
+                    **buffer_options,
                 )
             else:
                 raise RuntimeError(

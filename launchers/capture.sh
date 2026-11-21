@@ -34,7 +34,8 @@ case "$action" in
     preview) options=(--display-time-downsample "$PREVIEW_TIME_DOWNSAMPLE"
                       --shared-gui-cores "${SHARED_GUI_CORES:-0}") ;;
     record)  options=(--record --display-time-downsample 0 --shared-gui-cores "${SHARED_GUI_CORES:-1}"
-                      --frame-writer-batch-size 20 --record-queue-frames "$RECORD_QUEUE_FRAMES")
+                      --frame-writer-batch-size "$FRAME_WRITER_BATCH_SIZE" --writer-buffer-mib "$WRITER_BUFFER_MIB"
+                      --record-queue-frames "$RECORD_QUEUE_FRAMES")
              if [[ -n $WRITER_CORES ]]; then options+=(--writer-cores "$WRITER_CORES"); fi ;;
     *) die "Choose preview or record." ;;
 esac

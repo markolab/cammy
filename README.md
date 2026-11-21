@@ -225,6 +225,21 @@ memory is roughly `2 * N * frame_bytes` per camera, in addition to writer
 batches and filesystem cache. For five 2048x2048 Mono8 cameras, `N=256`
 allows roughly 10 GiB of queued pixels. Zero is rejected to keep queues bounded.
 
+For raw recordings, `--writer-buffer-mib 512 --frame-writer-batch-size 16`
+gives each camera a receiver that copies frames into a preallocated pool and a
+disk thread that writes 16 frames at a time. At 2000 × 1800 Mono8, each pool holds
+149 frames and each full write is 54.9 MiB. Eight pools add about 4 GiB of RAM
+on top of the ZeroMQ queues. A write keeps its slots until both pixels and
+timestamps have been written. When the pool and ZeroMQ queues fill, acquisition
+continues and counts rejected recording frames as usual.
+
+Set `WRITER_BUFFER_MIB` and `FRAME_WRITER_BATCH_SIZE` in the launcher settings.
+The default buffer size of 0 selects the original single-threaded recorder.
+With buffering enabled, `--stream-stats` reports occupied/total slots, peak
+occupancy, the number of times the receiver waited on a full pool, and the last
+and longest completed batch write in milliseconds. Batch timings exclude the
+final file sync.
+
 On normal shutdown, capture stops first, then recording queues drain and the
 final partial batch is written. Writers sync and close their own files before
 the program exits; this can take time while disk writes finish. Recording
