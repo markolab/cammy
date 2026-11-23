@@ -47,6 +47,11 @@ class CaptureLauncherTests(unittest.TestCase):
         return subprocess.run(shlex.split(fields["Exec"]), cwd=fields["Path"], text=True, capture_output=True,
                               env={"PATH": os.defpath, "HOME": str(self.root)})
 
+    def assert_printed_command_matches(self, result):
+        command, = [line for line in result.stderr.splitlines() if line.startswith("cd -- ")]
+        replay = subprocess.run(["bash", "-c", command], cwd=self.root, text=True, capture_output=True, check=True)
+        self.assertEqual(replay.stdout, result.stdout)
+
     def test_desktop_launch_recreates_the_installing_shells_aravis_environment(self):
         desktop = self.root / "Desktop"
         prefix = str(self.root / "conda envs" / "aravis")
@@ -89,6 +94,7 @@ class CaptureLauncherTests(unittest.TestCase):
                     self.assertTrue(os.access(shortcut, os.X_OK))
                     result = self.run_shortcut(shortcut)
                     self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assert_printed_command_matches(result)
                     data, command, *args = result.stdout.splitlines()
                     self.assertEqual(Path(data).resolve(), (self.root / "camera data").resolve())
                     self.assertEqual(command, "run")
@@ -127,6 +133,7 @@ class CaptureLauncherTests(unittest.TestCase):
         result = self.run_shortcut(shortcut)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.splitlines()[1:], ["tune", "--settings", str(desktop.resolve() / "cammy-settings.sh")])
+        self.assert_printed_command_matches(result)
         direct = subprocess.run(["bash", self.scripts / "capture.sh", "tune"], text=True, capture_output=True,
                                 env={"PATH": f"{self.root}:{os.defpath}"}, cwd=self.root)
         self.assertEqual(direct.returncode, 0, direct.stderr)

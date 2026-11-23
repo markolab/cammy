@@ -2,6 +2,14 @@
 set -eu
 
 die() { echo "$*" >&2; exit 1; }
+run_cammy() {
+    {
+        printf 'cd -- %q &&' "$PWD"
+        printf ' %q' "$@"
+        printf '\n'
+    } >&2
+    "$@"
+}
 check_us() {
     [[ $2 =~ ^(0|[1-9][0-9]{0,9})$ ]] && (( $2 >= $3 && $2 <= 2147483647 )) ||
         die "$1 must be a whole number of microseconds between $3 and 2147483647 (got '$2')."
@@ -12,9 +20,9 @@ fi
 if [[ ${1:-} == tune ]]; then
     cammy=${2:-cammy}
     if [[ -n ${3:-} ]]; then
-        "$cammy" tune --settings "$3"
+        run_cammy "$cammy" tune --settings "$3"
     else
-        "$cammy" tune
+        run_cammy "$cammy" tune
     fi
     exit
 fi
@@ -80,7 +88,7 @@ done
 
 cd -- "$DATA_DIR"
 [[ -f $CAMERA_OPTIONS && -r $CAMERA_OPTIONS ]] || die "Cannot read camera settings: $CAMERA_OPTIONS (in $PWD)"
-"$cammy" run --hw-trigger --trigger-device nucleo --trigger-port /dev/ttyACM0 \
+run_cammy "$cammy" run --hw-trigger --trigger-device nucleo --trigger-port /dev/ttyACM0 \
     --camera-options "$CAMERA_OPTIONS" --light-mode "$mode" --light-settle-us "$LIGHT_SETTLE_US" \
     --surface-illumination-percent "$SURFACE_ILLUMINATION_PERCENT" --fluorescence-illumination-percent "$FLUORESCENCE_ILLUMINATION_PERCENT" \
     --surface-voltage "$SURFACE_VOLTAGE" --fluorescence-voltage "$FLUORESCENCE_VOLTAGE" --display-downsample 6 \
