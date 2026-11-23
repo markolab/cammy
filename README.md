@@ -215,6 +215,15 @@ falling behind. Increasing underruns mean no free receive buffer was available;
 increasing missing packets with healthy buffer queues points to reception loss.
 Sampling runs in the GUI loop, without Python stream callbacks.
 
+For synchronized GigE cameras, try `cammy run --transmission-stagger-us 100`
+with your usual capture options. Cammy sorts the selected GigE cameras by ID
+and requests frame transmission delays of 0, 100, 200 µs and so on across the
+whole set, including cameras on different uplinks. Exposures still use the
+same trigger sequence. Startup logs show each camera's delay and tick readback,
+and recordings save the applied `GevSCFTD` ticks in camera metadata. Omit the
+option to use the camera/TOML settings, or pass 0 for an all-zero comparison.
+Cammy restores the previous settings on normal exit.
+
 On Linux, use `--receiver-realtime-priority 10` to try `SCHED_RR` realtime
 scheduling for native GigE receiver threads. The default is 0 (disabled).
 Priority is applied once at startup without Python stream callbacks. Each

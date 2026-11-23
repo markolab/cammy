@@ -51,6 +51,41 @@ def cli():
 cli.add_command(tune)
 
 
+def apply_transmission_stagger(cameras, step_us):
+    """Apply a run-scoped GevSCFTD override after the camera TOML and ROI."""
+    from cammy.camera.aravis import AravisCamera
+
+    applied = {}
+    for key, cam in sorted(cameras.items()):
+        if not isinstance(cam, AravisCamera) or not cam.camera.is_gv_device():
+            continue
+        delay_us = len(applied) * step_us
+        try:
+            native = cam.camera
+            hz = cam.device.get_timestamp_tick_frequency()
+            if hz <= 0:
+                raise ValueError("camera reported no timestamp tick frequency")
+            ticks = (delay_us * hz + 500_000) // 1_000_000
+            low, high = native.get_integer_bounds("GevSCFTD")
+            if not low <= ticks <= high:
+                raise ValueError(f"{ticks} ticks outside camera range {low}–{high}")
+            original = native.get_integer("GevSCFTD")
+            if original != ticks:
+                native.set_integer("GevSCFTD", ticks)
+                click.get_current_context().call_on_close(
+                    lambda c=native, value=original: c.set_integer("GevSCFTD", value))
+            actual = native.get_integer("GevSCFTD")
+            if actual != ticks:
+                raise ValueError(f"requested {ticks} ticks, read back {actual}")
+            applied[key] = actual
+            logger.info("%s GevSCFTD: %d µs requested, %d ticks read back (%d Hz)", key, delay_us, actual, hz)
+        except Exception as exc:
+            raise click.ClickException(f"{key}: could not set GevSCFTD for {delay_us} µs: {exc}") from exc
+    if not applied:
+        raise click.ClickException("--transmission-stagger-us requires a GigE camera")
+    return applied
+
+
 slider_defaults_min = {
     "default_value": 1800,
     "min_value": 0,
@@ -89,6 +124,9 @@ txt_pos = (25, 25)
          "--acquisition-cores, or half the worker cores if neither count is set."
 )
 @click.option("--jumbo-frames", default=True, type=bool, help="Turn on jumbo frames (GigE only)")
+@click.option("--transmission-stagger-us", type=click.IntRange(min=0),
+              help="GigE frame transmission delay step in µs across sorted camera IDs (0, step, 2×step, …). "
+                   "Omit to keep configured delays. 0 sets every delay to zero.")
 @click.option(
     "--share-gui-core",
     is_flag=True,
@@ -228,6 +266,7 @@ def simple_preview(
     writer_cores: Optional[int],
     acquisition_cores: Optional[int],
     jumbo_frames: bool,
+    transmission_stagger_us: Optional[int],
     share_gui_core: bool,
     shared_gui_cores: Optional[int],
     receiver_realtime_priority: int,
@@ -441,6 +480,9 @@ def simple_preview(
                     tuning.sensor_regions[key] = (0, 0, full_width, full_height)
             except Exception as exc:
                 raise click.ClickException(f"Could not crop {key}: {exc}") from exc
+    transmission_delays = (apply_transmission_stagger(cameras, transmission_stagger_us)
+                           if transmission_stagger_us is not None else {})
+
     @contextmanager
     def receiver_affinity():
         # Native Aravis receive threads inherit this mask on startup and after a crop.
@@ -458,6 +500,8 @@ def simple_preview(
     set_receiver_realtime_priority(receiver_realtime_priority)
     for i, (k, v) in enumerate(cameras.items()):
         feature_dct = v.get_all_features()
+        if k in transmission_delays:
+            feature_dct["GevSCFTD"] = transmission_delays[k]
         feature_dct = dict(sorted(feature_dct.items()))
 
         # make sure we set so we know how to decode frame buffers
