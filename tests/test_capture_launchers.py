@@ -82,7 +82,7 @@ class CaptureLauncherTests(unittest.TestCase):
                     "PREVIEW_TIME_DOWNSAMPLE=4\nSURFACE_TO_FLUORESCENCE_GAP_US=1250\nLIGHT_SETTLE_US=200\n"
                     "WRITER_CORES=5\nACQUISITION_CORES=3\nSHARED_GUI_CORES=2\n"
                     "ARAVIS_BUFFER_SIZE=192\nRECORD_QUEUE_FRAMES=96\nWRITER_BUFFER_MIB=512\nFRAME_WRITER_BATCH_SIZE=16\n"
-                    "SURFACE_VOLTAGE=3.5\nFLUORESCENCE_VOLTAGE=1.25\n"
+                    "SURFACE_POLARITY=high\nSURFACE_VOLTAGE=3.5\nFLUORESCENCE_VOLTAGE=1.25\n"
                     "SURFACE_ILLUMINATION_PERCENT=0\nFLUORESCENCE_ILLUMINATION_PERCENT=62.5\n")
         self.install(desktop)
         expected_steps = {"surface": "1,1000,9750", "fluorescence": "1,10000,750",
@@ -114,16 +114,18 @@ class CaptureLauncherTests(unittest.TestCase):
                     self.assertEqual(p["acquisition_cores"], 3)
                     self.assertEqual(p["writer_cores"], 5 if action == "record" else None)
                     self.assertEqual(p["gain_db"], 2.5)
+                    self.assertEqual(p["surface_polarity"], "high")
                     self.assertEqual((p["roi_width"], p["roi_height"]), (1024, 768))
                     self.assertEqual((p["roi_horizontal"], p["roi_vertical"]), ("right", "bottom"))
                     dev = NucleoTriggerDevice(
                         mode=mode, pulse_widths=p["hw_trigger_pulse_width"],
                         pulse_widths_low=p["hw_trigger_pulse_low"], light_settle_us=p["light_settle_us"],
                         surface_voltage=p["surface_voltage"], fluorescence_voltage=p["fluorescence_voltage"],
+                        surface_polarity=p["surface_polarity"],
                         surface_illumination_percent=p["surface_illumination_percent"],
                         fluorescence_illumination_percent=p["fluorescence_illumination_percent"],
                     )
-                    self.assertEqual(dev.config_command, f"CONFIG,1,{dev.MODES[mode]},200,3500,1250,0,6250,{steps}")
+                    self.assertEqual(dev.config_command, f"CONFIG,2,{dev.MODES[mode]},200,3500,1250,0,6250,{steps},1")
 
     def test_tune_shortcut_uses_installed_settings_and_direct_launch_uses_cli_default(self):
         desktop = self.root / "custom desktop"

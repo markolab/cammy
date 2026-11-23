@@ -169,6 +169,8 @@ txt_pos = (25, 25)
 @click.option("--surface-illumination-percent", type=click.FloatRange(0, 100), default=100, help="Nucleo: percent of each surface exposure illuminated")
 @click.option("--fluorescence-illumination-percent", type=click.FloatRange(0, 100), default=100, help="Nucleo: percent of each fluorescence exposure illuminated")
 @click.option("--surface-voltage", type=click.FloatRange(0.7, 10), default=0.7, help="Nucleo: surface brightness voltage after 3.3x gain")
+@click.option("--surface-polarity", type=click.Choice(["low", "high"]), default="low",
+              help="Nucleo D2 level that turns the surface light on. High requires updated firmware.")
 @click.option("--fluorescence-voltage", type=click.FloatRange(0.7, 10), default=0.7, help="Nucleo: fluorescence brightness voltage after 3.3x gain")
 @click.option("--light-settle-us", type=click.IntRange(min=0), default=200, help="Nucleo: light settling time before D4 rises, included in pulse-low time")
 @click.option("--hw-trigger-rate", type=float, default=0.0, help="Trigger rate")
@@ -282,6 +284,7 @@ def simple_preview(
     surface_illumination_percent: float,
     fluorescence_illumination_percent: float,
     surface_voltage: float,
+    surface_polarity: str,
     fluorescence_voltage: float,
     light_settle_us: int,
     hw_trigger_rate: float,
@@ -324,6 +327,8 @@ def simple_preview(
             raise click.UsageError("Nucleo --alternate-mode must be 0, 1, or 2; or use --light-mode")
     if trigger_device != "nucleo" and light_mode is not None:
         raise click.UsageError("--light-mode requires --trigger-device nucleo")
+    if trigger_device != "nucleo" and surface_polarity == "high":
+        raise click.UsageError("--surface-polarity high requires --trigger-device nucleo")
 
     alternating = light_mode == "alternate" if trigger_device == "nucleo" else alternate_mode in (2, 3)
     fps_stride = 2 if hw_trigger and alternating else 1
@@ -573,6 +578,7 @@ def simple_preview(
                     surface_illumination_percent=surface_illumination_percent,
                     fluorescence_illumination_percent=fluorescence_illumination_percent,
                     surface_voltage=surface_voltage,
+                    surface_polarity=surface_polarity,
                     fluorescence_voltage=fluorescence_voltage,
                     light_settle_us=light_settle_us,
                 )

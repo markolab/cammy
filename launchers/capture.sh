@@ -91,5 +91,5 @@ cd -- "$DATA_DIR"
 run_cammy "$cammy" run --hw-trigger --trigger-device nucleo --trigger-port /dev/ttyACM0 \
     --camera-options "$CAMERA_OPTIONS" --light-mode "$mode" --light-settle-us "$LIGHT_SETTLE_US" \
     --surface-illumination-percent "$SURFACE_ILLUMINATION_PERCENT" --fluorescence-illumination-percent "$FLUORESCENCE_ILLUMINATION_PERCENT" \
-    --surface-voltage "$SURFACE_VOLTAGE" --fluorescence-voltage "$FLUORESCENCE_VOLTAGE" --display-downsample 6 \
+    --surface-polarity "$SURFACE_POLARITY" --surface-voltage "$SURFACE_VOLTAGE" --fluorescence-voltage "$FLUORESCENCE_VOLTAGE" --display-downsample 6 \
     --buffer-size "$ARAVIS_BUFFER_SIZE" "${options[@]}"

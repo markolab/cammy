@@ -10,11 +10,23 @@ serial devices are present. The sketch deliberately requires this board.
 
 | Pin | Function |
 | --- | --- |
-| D2 | Surface bank: LOW on, HIGH off |
+| D2 | Surface enable, LOW on and HIGH off by default |
 | D3 | Fluorescence bank: HIGH on, LOW off |
 | D4 | Camera: HIGH throughout each exposure, LOW between exposures |
 | PA4 | Surface brightness: DAC1 channel 1, 12 bit |
 | PA6 | Fluorescence brightness: DAC2 channel 1, 12 bit |
+
+For an active-low surface driver, use `--surface-polarity low` in `cammy run`
+or `cammy tune` (desktop setting `SURFACE_POLARITY=low`). In fluorescence-only
+mode D2 stays HIGH through settling, exposure, gaps, and STOP. PA4 can still
+show the programmed surface brightness voltage while D2 disables the bank.
+Check D2 and the driver’s trigger input against their common ground to verify
+the signal reaching the driver.
+
+For an active-high driver, flash the updated sketch and select
+`--surface-polarity high`. This drives D2 LOW when off after configuration.
+At reset the sketch drives D2 HIGH until configuration arrives. The active-low
+default uses the original firmware protocol.
 
 Brightness settings specify the voltage after the external 3.3x amplifier.
 Firmware assumes a 3.3 V DAC reference and converts 0.7–10 V settings to
@@ -92,6 +104,7 @@ HELP (or an empty line)      -> stops outputs and prints instructions
 HELLO                       -> CAMMY_NUCLEO,1 (also stops outputs)
 CONFIG,1,mode,settle_us,surface_mV,fluorescence_mV,surface_fill,fluorescence_fill,n,exposure_us,low_us,...
                             -> OK CONFIG
+CONFIG,2 uses the same fields with one trailing polarity field (0=active low, 1=active high).
 START                       -> OK START
 STOP                        -> OK STOP
 ```

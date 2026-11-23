@@ -22,6 +22,7 @@ SHARED_GUI_CORES=""             # Physical cores shared with Aravis receivers. E
 
 SURFACE_TO_FLUORESCENCE_GAP_US=500  # Preferred time from surface exposure end to fluorescence exposure start.
 LIGHT_SETTLE_US=100                 # Turn on the selected light this far before exposure, within the gap.
+SURFACE_POLARITY=low                # D2 level that turns the surface bank on (low/high).
 SURFACE_VOLTAGE=4.0                 # Brightness after the 3.3x amplifier (0.7–10 V).
 FLUORESCENCE_VOLTAGE=10.0
 SURFACE_ILLUMINATION_PERCENT=100     # Percent of exposure illuminated from the start (0–100).

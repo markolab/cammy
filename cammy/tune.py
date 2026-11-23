@@ -20,7 +20,7 @@ BANKS = ("surface", "fluorescence")
 SETTINGS = ("DATA_DIR", "CAMERA_OPTIONS", "FPS", "STREAM_STATS", "STREAM_STATS_INTERVAL", "PREVIEW_TIME_DOWNSAMPLE", "TUNE_DISPLAY",
             "ARAVIS_BUFFER_SIZE", "GAIN_DB", "LIGHT_SETTLE_US", "ROI_WIDTH", "ROI_HEIGHT",
             "ROI_HORIZONTAL", "ROI_VERTICAL", "SURFACE_TO_FLUORESCENCE_GAP_US",
-            "SURFACE_EXPOSURE_US", "FLUORESCENCE_EXPOSURE_US", "SURFACE_VOLTAGE",
+            "SURFACE_EXPOSURE_US", "FLUORESCENCE_EXPOSURE_US", "SURFACE_VOLTAGE", "SURFACE_POLARITY",
             "FLUORESCENCE_VOLTAGE", "SURFACE_ILLUMINATION_PERCENT", "FLUORESCENCE_ILLUMINATION_PERCENT")
 
 
@@ -144,6 +144,7 @@ class TuneSession:
         return NucleoTriggerDevice(
             com=self.port, mode=mode, pulse_widths=[w / 1e6 for w in widths], pulse_widths_low=[v / 1e6 for v in lows],
             light_settle_us=settle, surface_voltage=float(values["SURFACE_VOLTAGE"]),
+            surface_polarity=values["SURFACE_POLARITY"],
             fluorescence_voltage=float(values["FLUORESCENCE_VOLTAGE"]),
             surface_illumination_percent=float(values["SURFACE_ILLUMINATION_PERCENT"]),
             fluorescence_illumination_percent=float(values["FLUORESCENCE_ILLUMINATION_PERCENT"]),
@@ -364,14 +365,18 @@ class TuneSession:
 @click.option("--stream-stats-interval", type=click.IntRange(1, 2**31 - 1),
               help="Override STREAM_STATS_INTERVAL (seconds between polls).")
 @click.option("--trigger-port", default="/dev/ttyACM0", show_default=True)
+@click.option("--surface-polarity", type=click.Choice(["low", "high"]),
+              help="Override SURFACE_POLARITY, the D2 level that turns the surface light on.")
 @click.pass_context
-def tune(ctx, settings, mode, trigger_port, stream_stats, stream_stats_interval, display):
+def tune(ctx, settings, mode, trigger_port, stream_stats, stream_stats_interval, display, surface_polarity):
     """Try trigger settings and measure acquisition drops in all three light modes."""
     path = settings or desktop_settings()
     if not path.is_file():
         raise click.ClickException(f"Cannot find {path}. Run launchers/install.py or supply --settings PATH.")
     try:
         session = TuneSession(path, mode, trigger_port)
+        if surface_polarity is not None:
+            session.values["SURFACE_POLARITY"] = surface_polarity
         if stream_stats is None:
             if session.values["STREAM_STATS"] not in ("on", "off"):
                 raise ValueError("STREAM_STATS must be on or off.")

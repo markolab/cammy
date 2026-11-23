@@ -107,5 +107,28 @@ int main() {
   at(origin + 1000); assert(pins[D2] == HIGH && pins[D4] == HIGH);
   at(origin + 1200); assert_off();
   send("STOP", "OK STOP");
+  // In fluo-only mode D2 must never even pulse active, including between frames.
+  for (int high : {0, 1}) {
+    send("CONFIG,2,1,200,700,700,10000,5000,1,1000,1000," + std::to_string(high), "OK CONFIG");
+    assert(pins[D2] == (high ? LOW : HIGH));
+    origin = clock_us;
+    edges.clear();
+    send("START", "OK START");
+    for (int t : {200, 700, 1200, 2000, 2200}) at(origin + t);
+    send("STOP", "OK STOP");
+    for (auto edge : edges) assert(edge.pin != D2);
+  }
+  send("CONFIG,2,2,200,700,700,5000,10000,1,1000,1000,1", "OK CONFIG");
+  origin = clock_us;
+  send("START", "OK START"); assert(pins[D2] == HIGH);
+  at(origin + 200); assert(pins[D2] == HIGH && pins[D4] == HIGH);
+  at(origin + 700); assert(pins[D2] == LOW && pins[D4] == HIGH);
+  at(origin + 1200); assert(pins[D2] == LOW && pins[D4] == LOW);
+  at(origin + 2000); assert(pins[D2] == LOW && pins[D3] == HIGH);
+  send("CONFIG,2,1,200,700,700,10000,10000,1,1000,1000,2", "ERR CONFIG");
+  assert(pins[D2] == LOW && pins[D3] == LOW && pins[D4] == LOW);
+  send("START", "ERR COMMAND");
+  send("CONFIG,1,1,200,700,700,10000,10000,1,1000,1000", "OK CONFIG");
+  assert_off();
   std::cout << "Nucleo firmware timing and protocol checks passed\n";
 }

@@ -419,7 +419,8 @@ class TuneTests(unittest.TestCase):
                 stack.enter_context(patch(name, return_value=value))
             stack.enter_context(patch("cammy.trigger.nucleo.serial.Serial", serial))
             result = CliRunner().invoke(cli, ["tune", "--settings", str(self.settings), "--trigger-port", "/dev/test",
-                                              "--mode", "alternate", "--stream-stats", "--display", "off"],
+                                              "--mode", "alternate", "--stream-stats", "--display", "off",
+                                              "--surface-polarity", "high"],
                                         catch_exceptions=False)
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertTrue(any(c.args[1] == "0.0 received / 80.5 target FPS" for c in dpg.set_value.call_args_list
@@ -429,9 +430,9 @@ class TuneTests(unittest.TestCase):
         self.assertEqual([c.split(",")[0] for c in commands],
                          ["HELLO", "CONFIG", "START", "STOP", "CONFIG", "START"] + ["STOP", "START"] * 4
                          + ["STOP", "CONFIG", "START", "STOP"])
-        self.assertEqual(commands[1], "CONFIG,1,2,100,3000,2000,10000,5000,2,1000,1250,9000,8750")
-        self.assertEqual(commands[4], "CONFIG,1,1,100,3000,3750,10000,7475,1,8000,4422")
-        self.assertEqual(commands[-3], "CONFIG,1,2,100,3000,3750,10000,7475,2,1000,100,8500,15245")
+        self.assertEqual(commands[1], "CONFIG,2,2,100,3000,2000,10000,5000,2,1000,1250,9000,8750,1")
+        self.assertEqual(commands[4], "CONFIG,2,1,100,3000,3750,10000,7475,1,8000,4422,1")
+        self.assertEqual(commands[-3], "CONFIG,2,2,100,3000,3750,10000,7475,2,1000,100,8500,15245,1")
         port.close.assert_called_once()
         for key, gain in initial_gains.items():
             self.assertEqual(cameras[key].set_feature.call_args_list,
