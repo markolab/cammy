@@ -107,8 +107,10 @@ txt_pos = (25, 25)
 @click.option(
     "--stream-stats",
     is_flag=True,
-    help="Log Aravis buffer, frame, packet, and recording counters once per second."
+    help="Poll and log Aravis buffer, frame, packet, and recording counters."
 )
+@click.option("--stream-stats-interval", type=click.IntRange(1, 2**31 - 1), default=1,
+              help="Seconds between polls when --stream-stats is enabled.")
 @click.option(
     "--save-engine",
     type=click.Choice(["ffmpeg", "raw"]),
@@ -230,6 +232,7 @@ def simple_preview(
     shared_gui_cores: Optional[int],
     receiver_realtime_priority: int,
     stream_stats: bool,
+    stream_stats_interval: int,
     save_engine: str,
     display_downsample: int,
     display_colormap: Optional[str],
@@ -1008,7 +1011,7 @@ def simple_preview(
                 for _cam in cameras.values():
                     if isinstance(_cam, AravisCamera):
                         _cam.log_stream_statistics()
-                next_stream_stats = time.perf_counter() + 1.0
+                next_stream_stats = time.perf_counter() + stream_stats_interval
             stride = display_time_downsample if images_on else 0
             if stride != previous_stride:
                 display_counter = dict.fromkeys(cameras, 0)

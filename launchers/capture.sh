@@ -41,7 +41,7 @@ case "$action" in
 esac
 if [[ -n $ACQUISITION_CORES ]]; then options+=(--acquisition-cores "$ACQUISITION_CORES"); fi
 case "$STREAM_STATS" in
-    on) options+=(--stream-stats) ;;
+    on) options+=(--stream-stats --stream-stats-interval "$STREAM_STATS_INTERVAL") ;;
     off) ;;
     *) die "STREAM_STATS must be on or off." ;;
 esac

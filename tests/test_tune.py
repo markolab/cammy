@@ -9,6 +9,7 @@ from click import ClickException
 from click.testing import CliRunner
 import numpy as np
 
+from cammy.camera.aravis import AravisCamera
 from cammy.cli import cli
 from cammy.tune import TuneSession, read_settings, save_settings
 
@@ -159,6 +160,7 @@ class TuneTests(unittest.TestCase):
         cameras = {k: Mock(id=k, _width=36, _height=36, _spoof_cameras=[], missed_frames=0, fps=100,
                            display_frame=(None, None), frame_count=0, total_frames=0) for k in ("A", "B")}
         for camera in cameras.values():
+            camera.__class__ = AravisCamera
             camera.get_all_features.return_value = {"PixelFormat": "Mono8"}
         cam = cameras["A"]
         dpg = MagicMock()
@@ -199,9 +201,13 @@ class TuneTests(unittest.TestCase):
                 patch("cammy.cli.initialize_cameras", return_value=cameras), \
                 patch("cammy.cli.get_cpu_affinity", return_value=(None, [None], [])), \
                 patch("cammy.cli.mpl_to_cv2_colormap", return_value=2), \
+                patch("cammy.cli.time.perf_counter", side_effect=lambda: dpg.is_dearpygui_running.call_count), \
                 patch("cammy.cli.time.sleep"), patch("cammy.camera.aravis.acquisition_loop"):
-            result = CliRunner().invoke(cli, ["run", "--display-time-downsample", "2"], catch_exceptions=False)
+            result = CliRunner().invoke(cli, ["run", "--display-time-downsample", "2",
+                                              "--stream-stats", "--stream-stats-interval", "5"], catch_exceptions=False)
         self.assertEqual(result.exit_code, 0, result.output)
+        for camera in cameras.values():
+            self.assertEqual(camera.log_stream_statistics.call_count, 2)  # GUI ticks 1 and 6.
         self.assertEqual(drawn, [1, 3, 6, 7])
         self.assertEqual(moves["texture_A"], [(2, "parked"), (3, "live"), (4, "parked"), (6, "live"), (8, "parked")])
         self.assertEqual(moves["texture_B"], [(3, "parked"), (7, "live"), (8, "parked")])
@@ -219,6 +225,15 @@ class TuneTests(unittest.TestCase):
                     result = CliRunner().invoke(cli, ["tune", "--settings", str(self.settings), *flags])
                 self.assertEqual(result.exit_code, 0, result.output)
                 self.assertEqual(preview.call_args.kwargs["stream_stats"], expected)
+
+    def test_tune_stats_interval_setting_and_override(self):
+        with self.settings.open("a") as f:
+            f.write("STREAM_STATS_INTERVAL=5\n")
+        for flags, seconds in [([], 5), (["--stream-stats-interval", "10"], 10)]:
+            with patch.object(cli.commands["run"], "callback") as preview:
+                result = CliRunner().invoke(cli, ["tune", "--settings", str(self.settings), *flags])
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertEqual(preview.call_args.kwargs["stream_stats_interval"], seconds)
 
     def test_aravis_buffer_size_from_settings(self):
         for value, expected in [(None, 512), ("192", 192), ("0", None), ("bad", None)]:

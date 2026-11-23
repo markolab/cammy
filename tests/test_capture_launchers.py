@@ -143,6 +143,7 @@ class CaptureLauncherTests(unittest.TestCase):
         self.assertTrue(upgraded.startswith(original))
         self.assertIn("# SURFACE_VOLTAGE=", upgraded)
         self.assertIn("# STREAM_STATS=on", upgraded)
+        self.assertIn("# STREAM_STATS_INTERVAL=1", upgraded)
         self.assertIn("# ARAVIS_BUFFER_SIZE=512", upgraded)
         self.assertIn("# RECORD_QUEUE_FRAMES=512", upgraded)
         self.install(desktop)
@@ -156,9 +157,12 @@ class CaptureLauncherTests(unittest.TestCase):
         self.assertEqual(params["display_time_downsample"], 1)
         self.assertTrue(params["stream_stats"])
         self.assertEqual(params["shared_gui_cores"], 0)
+        with settings.open("a") as f:
+            f.write("STREAM_STATS_INTERVAL=5\n")
         result = self.run_shortcut(desktop / "cammy-alternate-record.desktop")
         self.assertEqual(result.returncode, 0, result.stderr)
         params = simple_preview.make_context("run", result.stdout.splitlines()[2:]).params
+        self.assertEqual(params["stream_stats_interval"], 5)
         self.assertEqual((params["shared_gui_cores"], params["writer_cores"], params["acquisition_cores"]), (1, 7, None))
         self.assertEqual((params["buffer_size"], params["record_queue_frames"]), (512, 512))
 

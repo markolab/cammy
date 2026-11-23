@@ -7,7 +7,8 @@ ROI_VERTICAL=center             # Part to keep: top, center, or bottom.
 FLUORESCENCE_EXPOSURE_US=10000
 SURFACE_EXPOSURE_US=1000
 FPS=93.0233                     # Total frames/s per camera. Alternate pairs run at FPS/2.
-STREAM_STATS=on                 # Log per-camera stream counters once a second in Preview, Record, and Tune (on/off).
+STREAM_STATS=on                 # Poll and log per-camera stream counters in Preview, Record, and Tune (on/off).
+STREAM_STATS_INTERVAL=1         # Seconds between stream-statistics polls (positive whole number).
 PREVIEW_TIME_DOWNSAMPLE=1       # Display every Nth new preview frame. 0 pauses image updates.
 TUNE_DISPLAY=""                 # Tune only: on or off. Empty follows the preview setting (0 is off).
 

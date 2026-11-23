@@ -26,8 +26,9 @@ from [launchers/settings.sh](launchers/settings.sh) on first install. Rerun the
 installer to add new settings to an older desktop copy as commented examples.
 Uncomment an example to override its default. The settings include gain in dB
 (empty uses the camera TOML), exposure widths in µs, and total FPS per camera.
-Set `STREAM_STATS=off` in that file to silence the once-per-second camera logs
-in Preview, Record, and Tune. The default is `on`. The GUI frame counters stay
+Set `STREAM_STATS_INTERVAL=5` to poll and log camera statistics every five seconds
+in Preview, Record, and Tune. The default is one second. Set `STREAM_STATS=off`
+to disable these polls. The GUI frame counters stay
 active in either case. For a single Tune session, use `--stream-stats` or
 `--no-stream-stats` to override the file.
 
@@ -202,8 +203,10 @@ Receivers can use those two plus the GUI core. Setting `SHARED_GUI_CORES=2` keep
 that worker split and lets the GUI run on two of the three receiver cores. Preview
 defaults to a dedicated GUI core and allocates all other cores to acquisition.
 
-Add `--stream-stats` to `cammy run` to log one line per Aravis camera per second,
-even with preview images disabled. Logs include free input buffers, queued
+Add `--stream-stats` to `cammy run` to poll each Aravis camera and log one line
+per camera, even with preview images disabled. The first poll runs on the first GUI
+iteration. Use `--stream-stats-interval 5` in Run or Tune to allow at least five
+seconds between polls. Logs include free input buffers, queued
 completed buffers, reception failures, buffer underruns, acquired/missed frames,
 written frames, recording queue drops, and GigE resent/missing packets. Buffer
 queue sizes are instantaneous; the other counters are cumulative for the run.

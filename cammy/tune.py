@@ -17,7 +17,7 @@ from cammy.util import shared_asset
 
 
 BANKS = ("surface", "fluorescence")
-SETTINGS = ("DATA_DIR", "CAMERA_OPTIONS", "FPS", "STREAM_STATS", "PREVIEW_TIME_DOWNSAMPLE", "TUNE_DISPLAY",
+SETTINGS = ("DATA_DIR", "CAMERA_OPTIONS", "FPS", "STREAM_STATS", "STREAM_STATS_INTERVAL", "PREVIEW_TIME_DOWNSAMPLE", "TUNE_DISPLAY",
             "ARAVIS_BUFFER_SIZE", "GAIN_DB", "LIGHT_SETTLE_US", "ROI_WIDTH", "ROI_HEIGHT",
             "ROI_HORIZONTAL", "ROI_VERTICAL", "SURFACE_TO_FLUORESCENCE_GAP_US",
             "SURFACE_EXPOSURE_US", "FLUORESCENCE_EXPOSURE_US", "SURFACE_VOLTAGE",
@@ -361,9 +361,11 @@ class TuneSession:
               help="Start Tune with camera images on or off. Overrides TUNE_DISPLAY.")
 @click.option("--stream-stats/--no-stream-stats", default=None,
               help="Override STREAM_STATS for this session's per-camera stream logging.")
+@click.option("--stream-stats-interval", type=click.IntRange(1, 2**31 - 1),
+              help="Override STREAM_STATS_INTERVAL (seconds between polls).")
 @click.option("--trigger-port", default="/dev/ttyACM0", show_default=True)
 @click.pass_context
-def tune(ctx, settings, mode, trigger_port, stream_stats, display):
+def tune(ctx, settings, mode, trigger_port, stream_stats, stream_stats_interval, display):
     """Try trigger settings and measure acquisition drops in all three light modes."""
     path = settings or desktop_settings()
     if not path.is_file():
@@ -392,10 +394,16 @@ def tune(ctx, settings, mode, trigger_port, stream_stats, display):
         buffer_size = click.IntRange(min=1).convert(session.values["ARAVIS_BUFFER_SIZE"], None, None)
     except click.BadParameter as exc:
         raise click.ClickException(f"Invalid ARAVIS_BUFFER_SIZE: {exc}") from exc
+    if stream_stats and stream_stats_interval is None:
+        try:
+            stream_stats_interval = click.IntRange(1, 2**31 - 1).convert(session.values["STREAM_STATS_INTERVAL"], None, None)
+        except click.BadParameter as exc:
+            raise click.ClickException(f"Invalid STREAM_STATS_INTERVAL: {exc}") from exc
     preview = ctx.parent.command.get_command(ctx.parent, "run")
     ctx.invoke(preview, tuning=session, interface="aravis", hw_trigger=True, trigger_device="nucleo",
                display_time_downsample=display_stride,
                light_mode=session.mode, trigger_port=trigger_port, buffer_size=buffer_size, display_downsample=6, stream_stats=stream_stats,
+               stream_stats_interval=stream_stats_interval,
                roi_width=int(session.values["ROI_WIDTH"]), roi_height=int(session.values["ROI_HEIGHT"]),
                roi_horizontal=session.values["ROI_HORIZONTAL"], roi_vertical=session.values["ROI_VERTICAL"],
                camera_options=str(camera_options.resolve()))
