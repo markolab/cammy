@@ -1,5 +1,6 @@
-"""Install the capture and tuning shortcuts using the active Cammy environment."""
+"""Install Cammy shortcuts or the separate session compression environment and shortcut."""
 
+import argparse
 import os
 from pathlib import Path
 import shutil
@@ -7,26 +8,33 @@ import subprocess
 import sys
 
 
-cammy = shutil.which("cammy")
-if cammy is None:
-    sys.exit("Activate the environment that runs cammy, then rerun this installer.")
-cammy = os.path.abspath(cammy)
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("desktop", nargs="?", type=Path, help="Desktop directory")
+parser.add_argument("--compression", action="store_true", help="Install the compression environment and shortcut only")
+args = parser.parse_args()
+scripts = Path(__file__).resolve().parent
 conda_prefix = os.environ.get("CONDA_PREFIX")
-if conda_prefix:
+if args.compression or conda_prefix:
     conda = shutil.which(os.environ.get("CONDA_EXE") or "conda")
     if not conda:
-        sys.exit(f"Could not find conda for {conda_prefix}. Activate the working Cammy environment and retry.")
-if len(sys.argv) > 2:
-    sys.exit("Usage: python3 install.py [desktop-directory]")
-if len(sys.argv) == 2:
-    desktop = Path(sys.argv[1]).expanduser()
+        sys.exit("Could not find conda. Run the installer from a Conda-enabled shell.")
+if args.compression:
+    subprocess.run([conda, "env", "update", "--name", "markolab-cli", "--file", scripts / "markolab-cli.yml"], check=True)
+    compression_env = [os.path.abspath(conda), "run", "--no-capture-output", "--name", "markolab-cli"]
+    subprocess.run([*compression_env, "markolab-cli", "convert-dat-to-avi", "--help"], check=True)
+else:
+    cammy = shutil.which("cammy")
+    if cammy is None:
+        sys.exit("Activate the environment that runs cammy, then rerun this installer.")
+    cammy = os.path.abspath(cammy)
+if args.desktop is not None:
+    desktop = args.desktop.expanduser()
 elif shutil.which("xdg-user-dir"):
     desktop = Path(subprocess.check_output(["xdg-user-dir", "DESKTOP"], text=True).strip())
 else:
     desktop = Path.home() / "Desktop"
 desktop.mkdir(parents=True, exist_ok=True)
 
-scripts = Path(__file__).resolve().parent
 settings = desktop.resolve() / "cammy-settings.sh"
 defaults = (scripts / "settings.sh").read_text(encoding="utf-8")
 try:
@@ -56,7 +64,23 @@ def exec_arg(arg):
     return '"' + value.replace("\\", "\\\\") + '"'
 
 
-script_dir = str(scripts).replace("\\", "\\\\")
+def install_shortcut(slug, label, argv):
+    script_dir = str(scripts).replace("\\", "\\\\")
+    command = " ".join(exec_arg(arg) for arg in argv)
+    shortcut = desktop / f"cammy-{slug}.desktop"
+    shortcut.write_text(
+        f"[Desktop Entry]\nType=Application\nName=Cammy {label}\n"
+        f"Path={script_dir}\nExec={command}\nTerminal=true\nIcon=camera-video\n",
+        encoding="utf-8",
+    )
+    shortcut.chmod(0o755)
+    print(shortcut)
+
+
+if args.compression:
+    install_shortcut("compress", "Compress Sessions", [*compression_env, "bash", "./capture.sh", "compress", settings])
+    sys.exit(0)
+
 launcher = []
 if conda_prefix:
     launcher.extend([os.path.abspath(conda), "run", "--no-capture-output", "--prefix", conda_prefix])
@@ -66,17 +90,7 @@ paths = [f"{key}={os.environ[key]}" for key in ("GI_TYPELIB_PATH", "LD_LIBRARY_P
 if paths:
     launcher.extend(["env", *paths])
 launcher.extend(["bash", "./capture.sh"])
-command = " ".join(exec_arg(arg) for arg in launcher)
 shortcuts = [(mode, action) for mode in ("surface", "fluorescence", "alternate") for action in ("preview", "record")]
 shortcuts.append(("tune",))
-for args in shortcuts:
-    action = " ".join(args)
-    shortcut = desktop / f"cammy-{'-'.join(args)}.desktop"
-    shortcut.write_text(
-        f"[Desktop Entry]\nType=Application\nName=Cammy {action.title()}\n"
-        f"Path={script_dir}\nExec={command} {action} {exec_arg(cammy)} {exec_arg(settings)}\n"
-        "Terminal=true\nIcon=camera-video\n",
-        encoding="utf-8",
-    )
-    shortcut.chmod(0o755)
-    print(shortcut)
+for action in shortcuts:
+    install_shortcut("-".join(action), " ".join(action).title(), [*launcher, *action, cammy, settings])

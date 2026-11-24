@@ -14,7 +14,7 @@ check_us() {
     [[ $2 =~ ^(0|[1-9][0-9]{0,9})$ ]] && (( $2 >= $3 && $2 <= 2147483647 )) ||
         die "$1 must be a whole number of microseconds between $3 and 2147483647 (got '$2')."
 }
-if [[ $# -ge 3 && -t 0 ]]; then
+if [[ -t 0 && ( $# -ge 3 || ${1:-} == compress ) ]]; then
     trap 'if (( $? != 0 )); then read -rp "Press Enter to close. " || true; fi' EXIT
 fi
 if [[ ${1:-} == tune ]]; then
@@ -24,6 +24,13 @@ if [[ ${1:-} == tune ]]; then
     else
         run_cammy "$cammy" tune
     fi
+    exit
+fi
+if [[ ${1:-} == compress ]]; then
+    source "$(dirname "$0")/settings.sh"
+    if [[ -n ${2:-} ]]; then source "$2"; fi
+    [[ -n $DATA_DIR && -d $DATA_DIR ]] || die "Cannot find DATA_DIR: $DATA_DIR"
+    run_cammy python "$(dirname "$0")/compress.py" "$DATA_DIR"
     exit
 fi
 

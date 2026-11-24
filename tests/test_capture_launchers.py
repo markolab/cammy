@@ -71,6 +71,45 @@ class CaptureLauncherTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(result.stdout.splitlines(), [prefix, typelibs, libraries])
 
+    def test_compression_shortcut_recovers_from_failure_and_skips_finished_avis(self):
+        desktop = self.root / "test desktop"
+        conda = self.root / "conda"
+        conda.write_text('#!/bin/sh\n'
+                         'if [ "$1 $2 $3 $4" = "env update --name markolab-cli" ]; then test -f "$6"; exit; fi\n'
+                         '[ "$1 $2 $3 $4" = "run --no-capture-output --name markolab-cli" ] || exit 1\n'
+                         'shift 4\nexport PATH="$(dirname "$0"):$PATH"\nexec "$@"\n')
+        conda.chmod(0o755)
+        (self.root / "python").symlink_to(sys.executable)
+        converter = self.root / "markolab-cli"
+        converter.write_text('#!/bin/sh\n[ "$1" = convert-dat-to-avi ] || exit 1\n'
+                             '[ "$2" = --help ] && exit 0\n'
+                             'echo "$2" >> "$HOME/calls"\nprintf avi > "$4"\n'
+                             '[ -s "$2" ]\n')
+        converter.chmod(0o755)
+        subprocess.run([sys.executable, self.scripts / "install.py", "--compression", desktop],
+                       check=True, capture_output=True, env={"PATH": os.defpath, "CONDA_EXE": str(conda)})
+        data = self.root / "camera data"
+        sessions = [data.resolve() / name for name in ("session_01 (rig)", "session_02", "other")]
+        for session in sessions:
+            session.mkdir()
+            (session / "cam A.dat").write_bytes(b"raw")
+        bad = sessions[0] / "cam B.dat"
+        bad.touch()
+        shortcut = desktop / "cammy-compress.desktop"
+        result = self.run_shortcut(shortcut)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("1 failed", result.stdout)
+        self.assertFalse(bad.with_suffix(".avi").exists())
+        self.assertEqual((sessions[0] / "cam A.avi").read_bytes(), b"avi")
+        self.assertEqual((sessions[1] / "cam A.dat").read_bytes(), b"raw")
+        self.assertFalse((sessions[2] / "cam A.avi").exists())
+        bad.write_bytes(b"fixed")
+        result = self.run_shortcut(shortcut)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("1 converted, 2 skipped, 0 failed", result.stdout)
+        self.assertEqual([Path(line) for line in (self.root / "calls").read_text().splitlines()],
+                         [sessions[0] / "cam A.dat", bad, sessions[1] / "cam A.dat", bad])
+
     def test_six_shortcuts_use_expected_trigger_sequence_and_recording_options(self):
         desktop = self.root / "test desktop"
         self.install(desktop)

@@ -20,8 +20,34 @@ with that environment's full path. The installer also carries over exported
 Rerun the installer after moving the checkout or changing the environment or
 library paths.
 
+### Compress recorded sessions
+
+From a Conda-enabled shell on the acquisition PC, run this separate install once:
+
+```sh
+python3 launchers/install.py --compression
+```
+
+This creates or updates the `markolab-cli` environment from
+[markolab-cli.yml](launchers/markolab-cli.yml) and installs **Cammy Compress
+Sessions** on the desktop. The install needs Git access to the lab's
+`markolab-cli` and `markovids` repositories. An optional desktop directory
+argument works the same as for the capture installer.
+
+After recording and writer shutdown finish, click the shortcut. It reads
+`DATA_DIR` from the same desktop `cammy-settings.sh`, visits its immediate
+`session_*` directories in name order, and converts one camera `.dat` at a
+time using `markolab-cli convert-dat-to-avi` (lossless FFV1, 64-frame chunks).
+Each AVI appears beside its DAT after the converter's pixel integrity check
+succeeds. Raw data, timestamps, and metadata are retained. A second click
+during compression reports the active job. On later runs, existing nonempty
+AVIs at least as recent as their DATs are skipped. Errors are reported per
+file and processing continues. Inspect any reported stale outputs before retrying.
+
+### Capture settings
+
 Edit `cammy-settings.sh` beside the desktop shortcuts and save it before the
-next run. All seven shortcuts read that file at startup. The installer copies it
+next run. All shortcuts read that file at startup. The installer copies it
 from [launchers/settings.sh](launchers/settings.sh) on first install. Rerun the
 installer to add new settings to an older desktop copy as commented examples.
 Uncomment an example to override its default. The settings include gain in dB

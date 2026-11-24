@@ -1,0 +1,10 @@
+name: markolab-cli
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - ffmpeg
+  - git
+  - pip
+  - pip:
+      - git+https://github.com/markolab/markolab-cli.git@053cffa9e5ebb99c14ab66cf7e6eec23c20ec697
