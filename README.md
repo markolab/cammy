@@ -35,14 +35,14 @@ Sessions** on the desktop. The install needs Git access to the lab's
 argument works the same as for the capture installer.
 
 After recording and writer shutdown finish, click the shortcut. It reads
-`DATA_DIR` from the same desktop `cammy-settings.sh`, visits its immediate
-`session_*` directories in name order, and converts one camera `.dat` at a
-time using `markolab-cli convert-dat-to-avi` (lossless FFV1). Set
-`COMPRESS_CHUNK_SIZE` in the desktop settings to choose how many frames the
-converter encodes and verifies per chunk (default 64).
-The runner prints the chunk size and encoder thread count at startup. By default it uses all
-logical CPUs available to the process. Set `COMPRESS_THREADS=8` in the desktop
-`cammy-settings.sh` for eight encoder threads, or leave it empty for automatic detection.
+`DATA_DIR` from the same desktop `cammy-settings.sh` and compresses up to
+two `session_*` directories concurrently. Each session converts one camera
+`.dat` at a time using `markolab-cli convert-dat-to-avi` (lossless FFV1).
+Set `COMPRESS_SESSIONS=3` to process three directories at once, or `1` for
+sequential processing. `COMPRESS_THREADS` sets encoder threads per file.
+Leaving it empty divides the available logical CPUs across the configured jobs,
+up to five threads each. `COMPRESS_CHUNK_SIZE` sets frames per chunk for
+encoding and verification (default 64). The runner prints all three settings at startup.
 Each AVI appears beside its DAT after the converter's pixel integrity check
 succeeds. Raw data, timestamps, and metadata are retained. A second click
 during compression reports the active job. On later runs, existing nonempty

@@ -118,15 +118,24 @@ class CaptureLauncherTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("COMPRESS_CHUNK_SIZE", result.stderr)
         with settings.open("a") as f:
-            f.write("COMPRESS_CHUNK_SIZE=256\n")
+            f.write("COMPRESS_CHUNK_SIZE=256\nCOMPRESS_SESSIONS=0\n")
+        result = self.run_shortcut(shortcut)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("COMPRESS_SESSIONS", result.stderr)
+        with settings.open("a") as f:
+            f.write("COMPRESS_SESSIONS=3\n")
         result = self.run_shortcut(shortcut)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("1 converted, 2 skipped, 0 failed", result.stdout)
+        self.assertIn("up to 3 sessions at once with 3 threads", result.stdout)
         available = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else os.cpu_count() or 1
-        self.assertEqual((self.root / "threads").read_text().splitlines(), [str(available)] * 3 + ["3"])
+        self.assertEqual((self.root / "threads").read_text().splitlines(),
+                         [str(max(1, min(5, available // 2)))] * 3 + ["3"])
         self.assertEqual((self.root / "chunks").read_text().splitlines(), ["64"] * 3 + ["256"])
-        self.assertEqual([Path(line) for line in (self.root / "calls").read_text().splitlines()],
-                         [sessions[0] / "cam A.dat", bad, sessions[1] / "cam A.dat", bad])
+        calls = [Path(line) for line in (self.root / "calls").read_text().splitlines()]
+        self.assertCountEqual(calls[:-1], [sessions[0] / "cam A.dat", bad, sessions[1] / "cam A.dat"])
+        self.assertLess(calls.index(sessions[0] / "cam A.dat"), calls.index(bad))
+        self.assertEqual(calls[-1], bad)
 
     def test_six_shortcuts_use_expected_trigger_sequence_and_recording_options(self):
         desktop = self.root / "test desktop"
