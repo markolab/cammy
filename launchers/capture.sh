@@ -30,7 +30,7 @@ if [[ ${1:-} == compress ]]; then
     source "$(dirname "$0")/settings.sh"
     if [[ -n ${2:-} ]]; then source "$2"; fi
     [[ -n $DATA_DIR && -d $DATA_DIR ]] || die "Cannot find DATA_DIR: $DATA_DIR"
-    export COMPRESS_THREADS
+    export COMPRESS_THREADS COMPRESS_CHUNK_SIZE
     run_cammy python "$(dirname "$0")/compress.py" "$DATA_DIR"
     exit
 fi

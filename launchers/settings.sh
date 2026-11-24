@@ -30,4 +30,5 @@ FLUORESCENCE_ILLUMINATION_PERCENT=50
 
 DATA_DIR=/data/qdpi             # Cammy creates session directories here.
 COMPRESS_THREADS=""             # FFV1 encoder threads per file. Empty uses all available logical CPUs.
+COMPRESS_CHUNK_SIZE=64          # Frames per chunk for AVI encoding and verification.
 CAMERA_OPTIONS=basler_new_8bit.toml  # Absolute path or relative to DATA_DIR.

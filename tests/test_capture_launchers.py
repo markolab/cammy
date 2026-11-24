@@ -83,6 +83,7 @@ class CaptureLauncherTests(unittest.TestCase):
         converter = self.root / "markolab-cli"
         converter.write_text('#!/bin/sh\n[ "$1" = convert-dat-to-avi ] || exit 1\n'
                              '[ "$2" = --help ] && exit 0\n'
+                             '[ "$5" = --chunk-size ] || exit 1\necho "$6" >> "$HOME/chunks"\n'
                              '[ "$7" = --threads ] || exit 1\necho "$8" >> "$HOME/threads"\n'
                              'echo "$2" >> "$HOME/calls"\nprintf avi > "$4"\n'
                              '[ -s "$2" ]\n')
@@ -112,12 +113,18 @@ class CaptureLauncherTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("COMPRESS_THREADS", result.stderr)
         with settings.open("a") as f:
-            f.write("COMPRESS_THREADS=3\n")
+            f.write("COMPRESS_THREADS=3\nCOMPRESS_CHUNK_SIZE=0\n")
+        result = self.run_shortcut(shortcut)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("COMPRESS_CHUNK_SIZE", result.stderr)
+        with settings.open("a") as f:
+            f.write("COMPRESS_CHUNK_SIZE=256\n")
         result = self.run_shortcut(shortcut)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("1 converted, 2 skipped, 0 failed", result.stdout)
         available = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else os.cpu_count() or 1
         self.assertEqual((self.root / "threads").read_text().splitlines(), [str(available)] * 3 + ["3"])
+        self.assertEqual((self.root / "chunks").read_text().splitlines(), ["64"] * 3 + ["256"])
         self.assertEqual([Path(line) for line in (self.root / "calls").read_text().splitlines()],
                          [sessions[0] / "cam A.dat", bad, sessions[1] / "cam A.dat", bad])
 

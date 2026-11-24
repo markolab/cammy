@@ -22,6 +22,9 @@ def encoder_threads():
 
 def compress_sessions(root):
     threads = encoder_threads()
+    chunk_size = os.environ.get("COMPRESS_CHUNK_SIZE", "64")
+    if not chunk_size.isascii() or not chunk_size.isdecimal() or int(chunk_size) < 1:
+        raise SystemExit("COMPRESS_CHUNK_SIZE must be a positive integer (frames)")
     failures = 0
     converted = 0
     skipped = 0
@@ -31,7 +34,7 @@ def compress_sessions(root):
         except BlockingIOError:
             raise SystemExit(f"A compression job is already running in {root}")
 
-        print(f"Encoding with {threads} threads per file.", flush=True)
+        print(f"Encoding with {threads} threads per file and {chunk_size} frames per chunk.", flush=True)
         for session in sorted(root.glob("session_*")):
             if not session.is_dir():
                 continue
@@ -52,7 +55,7 @@ def compress_sessions(root):
                     with TemporaryDirectory(prefix=".cammy-compress-", dir=session) as tmp:
                         staged = Path(tmp) / avi.name
                         subprocess.run(["markolab-cli", "convert-dat-to-avi", str(raw),
-                                        "--output-filename", str(staged), "--chunk-size", "64",
+                                        "--output-filename", str(staged), "--chunk-size", chunk_size,
                                         "--threads", str(threads)], check=True)
                         if not staged.is_file() or not staged.stat().st_size:
                             raise ValueError("Converter produced no AVI. Check the camera entry in metadata.toml.")

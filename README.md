@@ -37,8 +37,10 @@ argument works the same as for the capture installer.
 After recording and writer shutdown finish, click the shortcut. It reads
 `DATA_DIR` from the same desktop `cammy-settings.sh`, visits its immediate
 `session_*` directories in name order, and converts one camera `.dat` at a
-time using `markolab-cli convert-dat-to-avi` (lossless FFV1, 64-frame chunks).
-The runner prints its encoder thread count at startup. By default it uses all
+time using `markolab-cli convert-dat-to-avi` (lossless FFV1). Set
+`COMPRESS_CHUNK_SIZE` in the desktop settings to choose how many frames the
+converter encodes and verifies per chunk (default 64).
+The runner prints the chunk size and encoder thread count at startup. By default it uses all
 logical CPUs available to the process. Set `COMPRESS_THREADS=8` in the desktop
 `cammy-settings.sh` for eight encoder threads, or leave it empty for automatic detection.
 Each AVI appears beside its DAT after the converter's pixel integrity check
