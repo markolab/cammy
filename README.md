@@ -50,7 +50,9 @@ Leaving it empty divides the available logical CPUs across the configured jobs,
 up to five threads each. `COMPRESS_CHUNK_SIZE` sets frames per chunk for
 encoding and verification (default 64). The runner prints all three settings at startup.
 Each AVI appears beside its DAT after the converter's pixel integrity check
-succeeds. Raw data, timestamps, and metadata are retained. A second click
+succeeds. The default `COMPRESS_DELETE_RAW=off` retains the DAT. Set it to
+`on` to delete each DAT after its newly verified AVI is published and synced
+to disk. Skipped AVIs leave their DATs in place. Timestamps and metadata are retained. A second click
 during compression reports the active job. On later runs, existing nonempty
 AVIs at least as recent as their DATs are skipped. Errors are reported per
 file and processing continues. Inspect any reported stale outputs before retrying.

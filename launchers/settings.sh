@@ -32,4 +32,5 @@ DATA_DIR=/data/qdpi             # Cammy creates session directories here.
 COMPRESS_SESSIONS=2             # Maximum session directories compressed at once.
 COMPRESS_THREADS=""             # FFV1 threads per file. Empty splits available CPUs across jobs, up to 5 each.
 COMPRESS_CHUNK_SIZE=64          # Frames per chunk for AVI encoding and verification.
+COMPRESS_DELETE_RAW=off         # Set to on to delete each DAT after its new AVI is verified and published.
 CAMERA_OPTIONS=basler_new_8bit.toml  # Absolute path or relative to DATA_DIR.

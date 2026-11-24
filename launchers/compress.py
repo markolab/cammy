@@ -28,7 +28,14 @@ def encoder_threads(session_jobs):
     return max(1, min(5, available // session_jobs))
 
 
-def compress_session(session, threads, chunk_size, stopping):
+def check_raw_unchanged(raw, original):
+    current = raw.stat()
+    if (not os.path.samestat(current, original) or current.st_size != original.st_size
+            or current.st_ctime_ns != original.st_ctime_ns or current.st_mtime_ns != original.st_mtime_ns):
+        raise ValueError("Raw file changed during conversion. Retry after recording stops.")
+
+
+def compress_session(session, threads, chunk_size, stopping, delete_raw):
     failures = 0
     converted = 0
     skipped = 0
@@ -55,10 +62,23 @@ def compress_session(session, threads, chunk_size, stopping):
                                 "--threads", str(threads)], check=True)
                 if not staged.is_file() or not staged.stat().st_size:
                     raise ValueError("Converter produced no AVI. Check the camera entry in metadata.toml.")
-                current = raw.stat()
-                if (current.st_size, current.st_mtime_ns) != (original.st_size, original.st_mtime_ns):
-                    raise ValueError("Raw file changed during conversion. Retry after recording stops.")
+                if delete_raw:
+                    with staged.open("rb") as verified:
+                        os.fsync(verified.fileno())
+                check_raw_unchanged(raw, original)
                 os.link(staged, avi)  # Publish verified output without replacing an existing file.
+                if delete_raw:
+                    # Persist the final AVI directory entry before removing the source.
+                    directory = os.open(session, os.O_RDONLY | os.O_DIRECTORY)
+                    try:
+                        os.fsync(directory)
+                    finally:
+                        os.close(directory)
+                    check_raw_unchanged(raw, original)
+                    if not staged.samefile(avi):
+                        raise ValueError(f"Published AVI changed: {avi}")
+                    raw.unlink()
+                    print(f"  Deleted {raw}", flush=True)
             converted += 1
         except (OSError, ValueError, subprocess.CalledProcessError) as exc:
             print(f"Failed: {raw}: {exc}", file=sys.stderr, flush=True)
@@ -70,6 +90,9 @@ def compress_sessions(root):
     session_jobs = positive_integer("COMPRESS_SESSIONS", os.getenv("COMPRESS_SESSIONS", "2"))
     threads = encoder_threads(session_jobs)
     chunk_size = positive_integer("COMPRESS_CHUNK_SIZE", os.getenv("COMPRESS_CHUNK_SIZE", "64"))
+    delete_raw = os.getenv("COMPRESS_DELETE_RAW", "off")
+    if delete_raw not in ("on", "off"):
+        raise SystemExit("COMPRESS_DELETE_RAW must be on or off")
     with (root / ".cammy-compress.lock").open("a") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -80,7 +103,8 @@ def compress_sessions(root):
               f"and {chunk_size} frames per chunk.", flush=True)
         sessions = sorted(path for path in root.glob("session_*") if path.is_dir())
         stopping = Event()
-        worker = partial(compress_session, threads=threads, chunk_size=chunk_size, stopping=stopping)
+        worker = partial(compress_session, threads=threads, chunk_size=chunk_size, stopping=stopping,
+                         delete_raw=delete_raw == "on")
         converted = skipped = failures = 0
         with ThreadPoolExecutor(max_workers=session_jobs) as pool:
             try:

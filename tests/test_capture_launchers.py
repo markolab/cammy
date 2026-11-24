@@ -124,10 +124,13 @@ class CaptureLauncherTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("COMPRESS_SESSIONS", result.stderr)
         with settings.open("a") as f:
-            f.write("COMPRESS_SESSIONS=3\n")
+            f.write("COMPRESS_SESSIONS=3\nCOMPRESS_DELETE_RAW=on\n")
         result = self.run_shortcut(shortcut)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("1 converted, 2 skipped, 0 failed", result.stdout)
+        self.assertFalse(bad.exists())
+        self.assertEqual(bad.with_suffix(".avi").read_bytes(), b"avi")
+        self.assertEqual((sessions[0] / "cam A.dat").read_bytes(), b"raw")
         self.assertIn("up to 3 sessions at once with 3 threads", result.stdout)
         available = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else os.cpu_count() or 1
         self.assertEqual((self.root / "threads").read_text().splitlines(),
@@ -137,6 +140,14 @@ class CaptureLauncherTests(unittest.TestCase):
         self.assertCountEqual(calls[:-1], [sessions[0] / "cam A.dat", bad, sessions[1] / "cam A.dat"])
         self.assertLess(calls.index(sessions[0] / "cam A.dat"), calls.index(bad))
         self.assertEqual(calls[-1], bad)
+
+        # Even with deletion enabled, a failed conversion keeps its source.
+        failed_raw = sessions[0] / "cam C.dat"
+        failed_raw.touch()
+        result = self.run_shortcut(shortcut)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(failed_raw.is_file())
+        self.assertFalse(failed_raw.with_suffix(".avi").exists())
 
     def test_six_shortcuts_use_expected_trigger_sequence_and_recording_options(self):
         desktop = self.root / "test desktop"

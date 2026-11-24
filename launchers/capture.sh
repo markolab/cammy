@@ -36,7 +36,7 @@ if [[ ${1:-} == compress || ${1:-} == trim ]]; then
         run_cammy sudo fstrim --verbose -- "$DATA_DIR"
         exit
     fi
-    export COMPRESS_SESSIONS COMPRESS_THREADS COMPRESS_CHUNK_SIZE
+    export COMPRESS_SESSIONS COMPRESS_THREADS COMPRESS_CHUNK_SIZE COMPRESS_DELETE_RAW
     run_cammy python "$(dirname "$0")/compress.py" "$DATA_DIR"
     exit
 fi
