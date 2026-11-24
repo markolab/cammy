@@ -10,7 +10,7 @@ import sys
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("desktop", nargs="?", type=Path, help="Desktop directory")
-parser.add_argument("--compression", action="store_true", help="Install the compression environment and shortcut only")
+parser.add_argument("--compression", action="store_true", help="Install the compression environment and storage shortcuts")
 args = parser.parse_args()
 scripts = Path(__file__).resolve().parent
 conda_prefix = os.environ.get("CONDA_PREFIX")
@@ -77,6 +77,7 @@ def install_shortcut(slug, label, argv):
     print(shortcut)
 
 
+install_shortcut("trim", "Trim Data Drive", ["bash", "./capture.sh", "trim", settings])
 if args.compression:
     install_shortcut("compress", "Compress Sessions", [*compression_env, "bash", "./capture.sh", "compress", settings])
     sys.exit(0)

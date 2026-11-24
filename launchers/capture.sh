@@ -14,7 +14,9 @@ check_us() {
     [[ $2 =~ ^(0|[1-9][0-9]{0,9})$ ]] && (( $2 >= $3 && $2 <= 2147483647 )) ||
         die "$1 must be a whole number of microseconds between $3 and 2147483647 (got '$2')."
 }
-if [[ -t 0 && ( $# -ge 3 || ${1:-} == compress ) ]]; then
+if [[ -t 0 && ${1:-} == trim ]]; then
+    trap 'read -rp "Press Enter to close. " || true' EXIT
+elif [[ -t 0 && ( $# -ge 3 || ${1:-} == compress ) ]]; then
     trap 'if (( $? != 0 )); then read -rp "Press Enter to close. " || true; fi' EXIT
 fi
 if [[ ${1:-} == tune ]]; then
@@ -26,10 +28,14 @@ if [[ ${1:-} == tune ]]; then
     fi
     exit
 fi
-if [[ ${1:-} == compress ]]; then
+if [[ ${1:-} == compress || ${1:-} == trim ]]; then
     source "$(dirname "$0")/settings.sh"
     if [[ -n ${2:-} ]]; then source "$2"; fi
     [[ -n $DATA_DIR && -d $DATA_DIR ]] || die "Cannot find DATA_DIR: $DATA_DIR"
+    if [[ $1 == trim ]]; then
+        run_cammy sudo fstrim --verbose -- "$DATA_DIR"
+        exit
+    fi
     export COMPRESS_SESSIONS COMPRESS_THREADS COMPRESS_CHUNK_SIZE
     run_cammy python "$(dirname "$0")/compress.py" "$DATA_DIR"
     exit

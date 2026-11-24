@@ -42,10 +42,10 @@ class CaptureLauncherTests(unittest.TestCase):
             env=env, capture_output=True,
         )
 
-    def run_shortcut(self, shortcut):
+    def run_shortcut(self, shortcut, path=os.defpath):
         fields = dict(line.split("=", 1) for line in shortcut.read_text().splitlines() if "=" in line)
         return subprocess.run(shlex.split(fields["Exec"]), cwd=fields["Path"], text=True, capture_output=True,
-                              env={"PATH": os.defpath, "HOME": str(self.root)})
+                              env={"PATH": path, "HOME": str(self.root)})
 
     def assert_printed_command_matches(self, result):
         command, = [line for line in result.stderr.splitlines() if line.startswith("cd -- ")]
@@ -90,6 +90,7 @@ class CaptureLauncherTests(unittest.TestCase):
         converter.chmod(0o755)
         subprocess.run([sys.executable, self.scripts / "install.py", "--compression", desktop],
                        check=True, capture_output=True, env={"PATH": os.defpath, "CONDA_EXE": str(conda)})
+        self.assertTrue((desktop / "cammy-trim.desktop").is_file())
         data = self.root / "camera data"
         sessions = [data.resolve() / name for name in ("session_01 (rig)", "session_02", "other")]
         for session in sessions:
@@ -140,7 +141,7 @@ class CaptureLauncherTests(unittest.TestCase):
     def test_six_shortcuts_use_expected_trigger_sequence_and_recording_options(self):
         desktop = self.root / "test desktop"
         self.install(desktop)
-        self.assertEqual(len(list(desktop.glob("*.desktop"))), 7)
+        self.assertEqual(len(list(desktop.glob("*.desktop"))), 8)
         settings = desktop / "cammy-settings.sh"
         self.assertEqual(settings.read_bytes(), self.settings.read_bytes())
         with settings.open("a") as f:
@@ -192,6 +193,26 @@ class CaptureLauncherTests(unittest.TestCase):
                         fluorescence_illumination_percent=p["fluorescence_illumination_percent"],
                     )
                     self.assertEqual(dev.config_command, f"CONFIG,2,{dev.MODES[mode]},200,3500,1250,0,6250,{steps},1")
+
+    def test_trim_shortcut_uses_desktop_data_directory(self):
+        desktop = self.root / "Desktop"
+        self.install(desktop)
+        shortcut = desktop / "cammy-trim.desktop"
+        settings = desktop / "cammy-settings.sh"
+        data = self.root / "recording volume"
+        with settings.open("a") as f:
+            f.write(f'DATA_DIR="{data}"\n')
+        sudo = self.root / "sudo"
+        sudo.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\nexit 7\n')
+        sudo.chmod(0o755)
+        path = f"{self.root}:{os.defpath}"
+        missing = self.run_shortcut(shortcut, path)
+        self.assertIn("Cannot find DATA_DIR", missing.stderr)
+        self.assertEqual(missing.stdout, "")
+        data.mkdir()
+        result = self.run_shortcut(shortcut, path)
+        self.assertEqual(result.stdout.splitlines(), ["fstrim", "--verbose", "--", str(data)])
+        self.assertEqual(result.returncode, 7)
 
     def test_tune_shortcut_uses_installed_settings_and_direct_launch_uses_cli_default(self):
         desktop = self.root / "custom desktop"

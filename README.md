@@ -20,6 +20,12 @@ with that environment's full path. The installer also carries over exported
 Rerun the installer after moving the checkout or changing the environment or
 library paths.
 
+Both installers add **Cammy Trim Data Drive**. Click it between runs to trim
+free space on the filesystem containing `DATA_DIR` from your desktop
+`cammy-settings.sh`. The shortcut runs `sudo fstrim --verbose -- "$DATA_DIR"`
+in a terminal, prompts for your sudo password if needed, and leaves the
+result visible until you press Enter.
+
 ### Compress recorded sessions
 
 From a Conda-enabled shell on the acquisition PC, run this separate install once:
