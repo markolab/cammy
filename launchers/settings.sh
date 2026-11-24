@@ -29,4 +29,5 @@ SURFACE_ILLUMINATION_PERCENT=100     # Percent of exposure illuminated from the 
 FLUORESCENCE_ILLUMINATION_PERCENT=50
 
 DATA_DIR=/data/qdpi             # Cammy creates session directories here.
+COMPRESS_THREADS=""             # FFV1 encoder threads per file. Empty uses all available logical CPUs.
 CAMERA_OPTIONS=basler_new_8bit.toml  # Absolute path or relative to DATA_DIR.

@@ -38,6 +38,9 @@ After recording and writer shutdown finish, click the shortcut. It reads
 `DATA_DIR` from the same desktop `cammy-settings.sh`, visits its immediate
 `session_*` directories in name order, and converts one camera `.dat` at a
 time using `markolab-cli convert-dat-to-avi` (lossless FFV1, 64-frame chunks).
+The runner prints its encoder thread count at startup. By default it uses all
+logical CPUs available to the process. Set `COMPRESS_THREADS=8` in the desktop
+`cammy-settings.sh` for eight encoder threads, or leave it empty for automatic detection.
 Each AVI appears beside its DAT after the converter's pixel integrity check
 succeeds. Raw data, timestamps, and metadata are retained. A second click
 during compression reports the active job. On later runs, existing nonempty
