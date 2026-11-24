@@ -36,6 +36,7 @@ from cammy.util import (
     shared_asset,
 )
 from cammy.record.base import RECORD_QUEUE_FRAMES
+from cammy.record.buffered import BufferedRawVideoRecorder
 from cammy.record.video import FfmpegVideoRecorder, RawVideoRecorder
 from cammy.camera.spoof import SpoofCamera
 from cammy.roi import HORIZONTAL_POSITIONS, VERTICAL_POSITIONS, crop_region, set_region
@@ -48,6 +49,41 @@ def cli():
 
 
 cli.add_command(tune)
+
+
+def apply_transmission_stagger(cameras, step_us):
+    """Apply a run-scoped GevSCFTD override after the camera TOML and ROI."""
+    from cammy.camera.aravis import AravisCamera
+
+    applied = {}
+    for key, cam in sorted(cameras.items()):
+        if not isinstance(cam, AravisCamera) or not cam.camera.is_gv_device():
+            continue
+        delay_us = len(applied) * step_us
+        try:
+            native = cam.camera
+            hz = cam.device.get_timestamp_tick_frequency()
+            if hz <= 0:
+                raise ValueError("camera reported no timestamp tick frequency")
+            ticks = (delay_us * hz + 500_000) // 1_000_000
+            low, high = native.get_integer_bounds("GevSCFTD")
+            if not low <= ticks <= high:
+                raise ValueError(f"{ticks} ticks outside camera range {low}–{high}")
+            original = native.get_integer("GevSCFTD")
+            if original != ticks:
+                native.set_integer("GevSCFTD", ticks)
+                click.get_current_context().call_on_close(
+                    lambda c=native, value=original: c.set_integer("GevSCFTD", value))
+            actual = native.get_integer("GevSCFTD")
+            if actual != ticks:
+                raise ValueError(f"requested {ticks} ticks, read back {actual}")
+            applied[key] = actual
+            logger.info("%s GevSCFTD: %d µs requested, %d ticks read back (%d Hz)", key, delay_us, actual, hz)
+        except Exception as exc:
+            raise click.ClickException(f"{key}: could not set GevSCFTD for {delay_us} µs: {exc}") from exc
+    if not applied:
+        raise click.ClickException("--transmission-stagger-us requires a GigE camera")
+    return applied
 
 
 slider_defaults_min = {
@@ -88,6 +124,9 @@ txt_pos = (25, 25)
          "--acquisition-cores, or half the worker cores if neither count is set."
 )
 @click.option("--jumbo-frames", default=True, type=bool, help="Turn on jumbo frames (GigE only)")
+@click.option("--transmission-stagger-us", type=click.IntRange(min=0),
+              help="GigE frame transmission delay step in µs across sorted camera IDs (0, step, 2×step, …). "
+                   "Omit to keep configured delays. 0 sets every delay to zero.")
 @click.option(
     "--share-gui-core",
     is_flag=True,
@@ -106,8 +145,10 @@ txt_pos = (25, 25)
 @click.option(
     "--stream-stats",
     is_flag=True,
-    help="Log Aravis buffer, frame, packet, and recording counters once per second."
+    help="Poll and log Aravis buffer, frame, packet, and recording counters."
 )
+@click.option("--stream-stats-interval", type=click.IntRange(1, 2**31 - 1), default=1,
+              help="Seconds between polls when --stream-stats is enabled.")
 @click.option(
     "--save-engine",
     type=click.Choice(["ffmpeg", "raw"]),
@@ -128,6 +169,8 @@ txt_pos = (25, 25)
 @click.option("--surface-illumination-percent", type=click.FloatRange(0, 100), default=100, help="Nucleo: percent of each surface exposure illuminated")
 @click.option("--fluorescence-illumination-percent", type=click.FloatRange(0, 100), default=100, help="Nucleo: percent of each fluorescence exposure illuminated")
 @click.option("--surface-voltage", type=click.FloatRange(0.7, 10), default=0.7, help="Nucleo: surface brightness voltage after 3.3x gain")
+@click.option("--surface-polarity", type=click.Choice(["low", "high"]), default="low",
+              help="Nucleo D2 level that turns the surface light on. High requires updated firmware.")
 @click.option("--fluorescence-voltage", type=click.FloatRange(0.7, 10), default=0.7, help="Nucleo: fluorescence brightness voltage after 3.3x gain")
 @click.option("--light-settle-us", type=click.IntRange(min=0), default=200, help="Nucleo: light settling time before D4 rises, included in pulse-low time")
 @click.option("--hw-trigger-rate", type=float, default=0.0, help="Trigger rate")
@@ -194,6 +237,11 @@ txt_pos = (25, 25)
          "Queue RAM is roughly 2 x this value x frame bytes, plus writer batches."
 )
 @click.option(
+    "--writer-buffer-mib", type=click.IntRange(min=0), default=0,
+    help="Preallocated raw recording buffer per camera in MiB, in addition to ZMQ. "
+         "A positive size enables a separate disk thread. 0 uses the original writer.",
+)
+@click.option(
     "--frame-writer-batch-size",
     type=int,
     default=20,
@@ -220,10 +268,12 @@ def simple_preview(
     writer_cores: Optional[int],
     acquisition_cores: Optional[int],
     jumbo_frames: bool,
+    transmission_stagger_us: Optional[int],
     share_gui_core: bool,
     shared_gui_cores: Optional[int],
     receiver_realtime_priority: int,
     stream_stats: bool,
+    stream_stats_interval: int,
     save_engine: str,
     display_downsample: int,
     display_colormap: Optional[str],
@@ -234,6 +284,7 @@ def simple_preview(
     surface_illumination_percent: float,
     fluorescence_illumination_percent: float,
     surface_voltage: float,
+    surface_polarity: str,
     fluorescence_voltage: float,
     light_settle_us: int,
     hw_trigger_rate: float,
@@ -247,6 +298,7 @@ def simple_preview(
     prefix: Optional[str],
     display_time_downsample: int,
     record_queue_frames: int,
+    writer_buffer_mib: int,
     frame_writer_batch_size: int,
     verbose: bool,
     tuning=None,
@@ -254,6 +306,8 @@ def simple_preview(
     
     cli_params = locals().copy()
     del cli_params["tuning"]
+    if writer_buffer_mib and (not record or save_engine != "raw"):
+        raise click.UsageError("--writer-buffer-mib requires --record with the raw save engine")
 
     if gain_db is not None and (not np.isfinite(gain_db) or interface == "fake_custom"):
         raise click.UsageError("--gain-db requires a finite gain and an Aravis camera")
@@ -273,6 +327,8 @@ def simple_preview(
             raise click.UsageError("Nucleo --alternate-mode must be 0, 1, or 2; or use --light-mode")
     if trigger_device != "nucleo" and light_mode is not None:
         raise click.UsageError("--light-mode requires --trigger-device nucleo")
+    if trigger_device != "nucleo" and surface_polarity == "high":
+        raise click.UsageError("--surface-polarity high requires --trigger-device nucleo")
 
     alternating = light_mode == "alternate" if trigger_device == "nucleo" else alternate_mode in (2, 3)
     fps_stride = 2 if hw_trigger and alternating else 1
@@ -429,6 +485,9 @@ def simple_preview(
                     tuning.sensor_regions[key] = (0, 0, full_width, full_height)
             except Exception as exc:
                 raise click.ClickException(f"Could not crop {key}: {exc}") from exc
+    transmission_delays = (apply_transmission_stagger(cameras, transmission_stagger_us)
+                           if transmission_stagger_us is not None else {})
+
     @contextmanager
     def receiver_affinity():
         # Native Aravis receive threads inherit this mask on startup and after a crop.
@@ -446,6 +505,8 @@ def simple_preview(
     set_receiver_realtime_priority(receiver_realtime_priority)
     for i, (k, v) in enumerate(cameras.items()):
         feature_dct = v.get_all_features()
+        if k in transmission_delays:
+            feature_dct["GevSCFTD"] = transmission_delays[k]
         feature_dct = dict(sorted(feature_dct.items()))
 
         # make sure we set so we know how to decode frame buffers
@@ -517,6 +578,7 @@ def simple_preview(
                     surface_illumination_percent=surface_illumination_percent,
                     fluorescence_illumination_percent=fluorescence_illumination_percent,
                     surface_voltage=surface_voltage,
+                    surface_polarity=surface_polarity,
                     fluorescence_voltage=fluorescence_voltage,
                     light_settle_us=light_settle_us,
                 )
@@ -562,6 +624,15 @@ def simple_preview(
         }
 
         write_dtype, codec = get_output_format(save_engine, bit_depth)
+        writer_buffer_bytes = writer_buffer_mib * 1024**2
+        frame_bytes = {}
+        if writer_buffer_bytes:
+            for key, camera in cameras.items():
+                size = camera._width * camera._height * np.dtype(write_dtype[key]).itemsize
+                if not 0 < size * frame_writer_batch_size <= writer_buffer_bytes:
+                    raise click.UsageError(f"{key}: a batch of {frame_writer_batch_size} frames "
+                                           f"of {size} bytes must fit in --writer-buffer-mib {writer_buffer_mib}")
+                frame_bytes[key] = size
         recording_metadata["codec"] = codec
         recording_metadata["pixel_format"] = write_dtype
 
@@ -641,7 +712,12 @@ def simple_preview(
                     batch_size=frame_writer_batch_size,
                 )
             elif save_engine == "raw":
-                _recorder = RawVideoRecorder(
+                raw_writer = RawVideoRecorder
+                buffer_options = {}
+                if writer_buffer_mib:
+                    raw_writer = BufferedRawVideoRecorder
+                    buffer_options = dict(frame_bytes=frame_bytes[_id], buffer_bytes=writer_buffer_bytes)
+                _recorder = raw_writer(
                     filename=os.path.join(save_path, f"{_id}.dat"),
                     write_dtype=write_dtype[_id],
                     timestamp_fields=timestamp_fields,
@@ -649,6 +725,7 @@ def simple_preview(
                     cpu_id=write_cpus[i % len(write_cpus)],
                     zmq_address=zmq_addresses[_id],
                     queue_frames=record_queue_frames,
+                    **buffer_options,
                 )
             else:
                 raise RuntimeError(
@@ -984,7 +1061,7 @@ def simple_preview(
                 for _cam in cameras.values():
                     if isinstance(_cam, AravisCamera):
                         _cam.log_stream_statistics()
-                next_stream_stats = time.perf_counter() + 1.0
+                next_stream_stats = time.perf_counter() + stream_stats_interval
             stride = display_time_downsample if images_on else 0
             if stride != previous_stride:
                 display_counter = dict.fromkeys(cameras, 0)

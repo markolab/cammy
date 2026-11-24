@@ -28,7 +28,10 @@ class NucleoTriggerDevice:
         fluorescence_voltage=0.7,
         light_settle_us=200,
         timeout=3.0,
+        surface_polarity="low",
     ):
+        if surface_polarity not in ("low", "high"):
+            raise ValueError("Surface polarity must be low or high")
         if mode not in self.MODES:
             raise ValueError(f"Unknown light mode: {mode}")
         if not math.isfinite(timeout) or timeout <= 0:
@@ -55,7 +58,7 @@ class NucleoTriggerDevice:
             raise ValueError("Exposure plus low interval exceeds the firmware timing range")
 
         params = [
-            1,
+            2 if surface_polarity == "high" else 1,
             self.MODES[mode],
             int(light_settle_us),
             self._scaled(surface_voltage, 0.7, 10, 1000, "Surface voltage"),
@@ -71,6 +74,8 @@ class NucleoTriggerDevice:
         ]
         for width, low in zip(widths, lows):
             params.extend((width, low))
+        if surface_polarity == "high":
+            params.append(1)  # CONFIG,2 adds the polarity after the timing pairs.
         self._config = tuple(params)
         self.com = com
         self.baudrate = baudrate
@@ -87,7 +92,8 @@ class NucleoTriggerDevice:
 
     @property
     def steps(self):
-        return list(zip(self._config[8::2], self._config[9::2]))
+        timings = self._config[8:8 + 2 * self._config[7]]
+        return list(zip(timings[::2], timings[1::2]))
 
     def describe_sequence(self):
         _, _, settle, surface_mv, fluo_mv, surface_fill, fluo_fill, _ = self._config[:8]
@@ -100,7 +106,7 @@ class NucleoTriggerDevice:
         if self.mode == "alternate":
             rate += f", {fps / 2:.3f} pairs/s"
         lines = [f"Nucleo {self.mode}, programmed cycle {period} µs, {rate}",
-                 f"D2 surface active low, D3 fluorescence active high. Brightness setpoints "
+                 f"D2 surface active {'high' if self._config[0] == 2 else 'low'}, D3 fluorescence active high. Brightness setpoints "
                  f"{surface_mv / 1000:g} V surface, {fluo_mv / 1000:g} V fluorescence. "
                  f"Settling {settle} µs. Times from first D4 rise."]
         start = 0

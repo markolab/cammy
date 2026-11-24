@@ -18,7 +18,7 @@ class StreamStatisticsTests(unittest.TestCase):
     def test_gige_logs_frame_and_packet_counters_from_their_respective_apis(self):
         self.camera.stream = Mock(spec=Aravis.GvStream)
         self.camera.stream.get_n_buffers.return_value = (3, 508)
-        self.camera.recorder = SimpleNamespace(frames_written=1400)
+        self.camera.recorder = SimpleNamespace(frames_written=1400, buffer_statistics=lambda: " writer_buffer_frames=5/8")
         self.camera.recording_drops = 12
 
         with patch.object(Aravis.Stream, "get_statistics", return_value=(2000, 7, 11)) as frames, \
@@ -34,7 +34,7 @@ class StreamStatisticsTests(unittest.TestCase):
         self.assertIn(
             "test-camera stream: free_buffers=3 queued_buffers=508 completed=2000 failures=7 "
             "underruns=11 acquired=1492 missed=18 written=1400 recording_drops=12 "
-            "resent_packets=17 missing_packets=23",
+            "resent_packets=17 missing_packets=23 writer_buffer_frames=5/8",
             logs.output[0],
         )
         self.camera.stream.pop_buffer.assert_not_called()

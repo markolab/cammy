@@ -10,12 +10,13 @@ struct Edge { uint32_t time; int pin; int value; };
 inline uint32_t clock_us = 0;
 inline int pins[20] = {}, dac[20] = {};
 inline std::vector<Edge> edges;
+extern bool surface_active_high;
 inline uint32_t micros() { return clock_us; }
 inline void pinMode(int, int) {}
 inline void digitalWrite(int pin, int value) {
   if (pins[pin] != value) edges.push_back({clock_us, pin, value});
   pins[pin] = value;
-  assert(!(pins[D2] == LOW && pins[D3] == HIGH));  // Banks never overlap.
+  assert(!(pins[D2] == (surface_active_high ? HIGH : LOW) && pins[D3] == HIGH));
 }
 inline void analogWriteResolution(int bits) { assert(bits == 12); }
 inline void analogWrite(int pin, int value) { dac[pin] = value; }

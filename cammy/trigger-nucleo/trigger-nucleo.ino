@@ -8,7 +8,7 @@
 #error "Select the NUCLEO-G474RE board (PA4 and PA6 must be DAC outputs)."
 #endif
 
-constexpr uint32_t SURFACE_PIN = D2;       // Active low.
+constexpr uint32_t SURFACE_PIN = D2;       // Active low until configured.
 constexpr uint32_t FLUORESCENCE_PIN = D3;  // Active high.
 constexpr uint32_t CAMERA_PIN = D4;        // High for the entire exposure.
 constexpr uint32_t MAX_INTERVAL_US = 0x7fffffff;
@@ -21,6 +21,7 @@ uint32_t mode, settle_us, surface_mv, fluorescence_mv;
 uint32_t illumination[2], n_steps;
 uint32_t exposure_us[MAX_STEPS], low_us[MAX_STEPS];
 bool configured = false;
+bool surface_active_high = false;
 enum Phase { STOPPED, SETTLING, EXPOSING, GAP };
 Phase phase = STOPPED;
 uint32_t phase_start, step_index, bank, light_duration, gap_duration;
@@ -28,8 +29,12 @@ char command[768];
 size_t command_length = 0;
 bool command_overflow = false;
 
+void set_surface(bool on) {
+  digitalWrite(SURFACE_PIN, on == surface_active_high ? HIGH : LOW);
+}
+
 void lights_off() {
-  digitalWrite(SURFACE_PIN, HIGH);
+  set_surface(false);
   digitalWrite(FLUORESCENCE_PIN, LOW);
 }
 
@@ -45,9 +50,9 @@ void prepare_light() {
   // levels leaves single-bank 100% illumination on continuously across frames.
   if (bank == 0) {
     digitalWrite(FLUORESCENCE_PIN, LOW);
-    digitalWrite(SURFACE_PIN, light_duration == 0 ? HIGH : LOW);
+    set_surface(light_duration != 0);
   } else {
-    digitalWrite(SURFACE_PIN, HIGH);
+    set_surface(false);
     digitalWrite(FLUORESCENCE_PIN, light_duration == 0 ? LOW : HIGH);
   }
   phase_start = micros();
@@ -61,11 +66,12 @@ uint32_t dac_value(uint32_t output_mv) {
 }
 
 bool configure(char *input) {
-  uint32_t values[8 + 2 * MAX_STEPS];
+  constexpr size_t max_fields = 8 + 2 * MAX_STEPS + 1;
+  uint32_t values[max_fields];
   size_t count = 0;
   // Strict parsing rejects empty fields, signs, overflow, and trailing junk.
   while (*input) {
-    if (count == 8 + 2 * MAX_STEPS || *input < '0' || *input > '9') return false;
+    if (count == max_fields || *input < '0' || *input > '9') return false;
     char *end;
     unsigned long value = strtoul(input, &end, 10);
     if (value > MAX_INTERVAL_US || (*end != ',' && *end != '\0')) return false;
@@ -74,11 +80,13 @@ bool configure(char *input) {
     input = end + 1;
     if (*input == '\0') return false;
   }
-  if (count < 8 || values[0] != 1 || values[1] > 2 ||
+  if (count < 8 || (values[0] != 1 && values[0] != 2) || values[1] > 2 ||
       values[3] < 700 || values[3] > 10000 ||
       values[4] < 700 || values[4] > 10000 ||
       values[5] > 10000 || values[6] > 10000 ||
-      values[7] < 1 || values[7] > MAX_STEPS || count != 8 + 2 * values[7]) return false;
+      values[7] < 1 || values[7] > MAX_STEPS) return false;
+  bool has_polarity = values[0] == 2;
+  if (count != 8 + 2 * values[7] + has_polarity || (has_polarity && values[count - 1] > 1)) return false;
   for (size_t i = 0; i < values[7]; ++i) {
     uint32_t width = values[8 + 2 * i], low = values[9 + 2 * i];
     if (width == 0 || low == 0 || low < values[2] || width > MAX_INTERVAL_US - low) return false;
@@ -94,6 +102,8 @@ bool configure(char *input) {
     exposure_us[i] = values[8 + 2 * i];
     low_us[i] = values[9 + 2 * i];
   }
+  surface_active_high = has_polarity && values[count - 1] == 1;
+  lights_off();  // Apply the new idle level before acknowledging CONFIG.
   configured = true;
   return true;
 }
@@ -105,10 +115,11 @@ void print_help() {
   Serial.println("# HELP (or an empty line): stop outputs and print these instructions.");
   Serial.println("# HELLO: stop outputs and report firmware identity. STOP: all TTL outputs off.");
   Serial.println("# CONFIG: configure while stopped. START: begin the configured sequence.");
-  Serial.println("# D2 surface LOW=on; D3 fluorescence HIGH=on; D4 HIGH=exposing.");
+  Serial.println("# D2 surface defaults LOW=on; D3 fluorescence HIGH=on; D4 HIGH=exposing.");
   Serial.println("# PA4 surface and PA6 fluorescence: 12-bit DAC brightness.");
   Serial.println("# Configuration format (integers, no spaces):");
   Serial.println("# CONFIG,1,mode,settle_us,surface_mV,fluorescence_mV,surface_fill,fluorescence_fill,n,exposure_us,low_us,...");
+  Serial.println("# CONFIG,2 uses the same fields plus one final D2 polarity: 0=active low, 1=active high.");
   Serial.println("# mode: 0=surface, 1=fluorescence, 2=alternate (surface first).");
   Serial.println("# Brightness: 700..10000 mV AFTER the 3.3x amplifier.");
   Serial.println("# Fill: 0..10000; 8000=80% illuminated, 10000=full exposure.");

@@ -32,9 +32,15 @@ class NucleoTests(unittest.TestCase):
         self.assertIn("2. fluorescence light on [1, 202) µs", sequence)
         self.assertIn("1. fluorescence light continuous", NucleoTriggerDevice(mode="fluorescence").describe_sequence())
 
+    def test_surface_polarity_override_only_changes_d2(self):
+        dev = NucleoTriggerDevice(mode="fluorescence", surface_polarity="high")
+        self.assertEqual(dev.config_command, "CONFIG,2,1,200,700,700,10000,10000,1,30000,2000,1")
+        self.assertEqual(dev.steps, [(30000, 2000)])
+        self.assertIn("D2 surface active high, D3 fluorescence active high", dev.describe_sequence())
+
     def test_invalid_configuration_rejected_before_opening_serial(self):
         for kwargs in (
-            {"mode": "both"}, {"pulse_widths": ()}, {"pulse_widths": (0,)},
+            {"mode": "both"}, {"surface_polarity": "unknown"}, {"pulse_widths": ()}, {"pulse_widths": (0,)},
             {"pulse_widths": (float("nan"),)}, {"pulse_widths": (3000,)},
             {"pulse_widths": (.001,) * 21}, {"pulse_widths_low": ()},
             {"pulse_widths_low": (.001, .002)}, {"pulse_widths_low": (.0001,)},

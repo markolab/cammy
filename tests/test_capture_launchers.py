@@ -47,6 +47,11 @@ class CaptureLauncherTests(unittest.TestCase):
         return subprocess.run(shlex.split(fields["Exec"]), cwd=fields["Path"], text=True, capture_output=True,
                               env={"PATH": os.defpath, "HOME": str(self.root)})
 
+    def assert_printed_command_matches(self, result):
+        command, = [line for line in result.stderr.splitlines() if line.startswith("cd -- ")]
+        replay = subprocess.run(["bash", "-c", command], cwd=self.root, text=True, capture_output=True, check=True)
+        self.assertEqual(replay.stdout, result.stdout)
+
     def test_desktop_launch_recreates_the_installing_shells_aravis_environment(self):
         desktop = self.root / "Desktop"
         prefix = str(self.root / "conda envs" / "aravis")
@@ -76,8 +81,8 @@ class CaptureLauncherTests(unittest.TestCase):
             f.write("STREAM_STATS=off\nGAIN_DB=2.5\nROI_WIDTH=1024\nROI_HEIGHT=768\nROI_HORIZONTAL=right\nROI_VERTICAL=bottom\n"
                     "PREVIEW_TIME_DOWNSAMPLE=4\nSURFACE_TO_FLUORESCENCE_GAP_US=1250\nLIGHT_SETTLE_US=200\n"
                     "WRITER_CORES=5\nACQUISITION_CORES=3\nSHARED_GUI_CORES=2\n"
-                    "ARAVIS_BUFFER_SIZE=192\nRECORD_QUEUE_FRAMES=96\n"
-                    "SURFACE_VOLTAGE=3.5\nFLUORESCENCE_VOLTAGE=1.25\n"
+                    "ARAVIS_BUFFER_SIZE=192\nRECORD_QUEUE_FRAMES=96\nWRITER_BUFFER_MIB=512\nFRAME_WRITER_BATCH_SIZE=16\n"
+                    "SURFACE_POLARITY=high\nSURFACE_VOLTAGE=3.5\nFLUORESCENCE_VOLTAGE=1.25\n"
                     "SURFACE_ILLUMINATION_PERCENT=0\nFLUORESCENCE_ILLUMINATION_PERCENT=62.5\n")
         self.install(desktop)
         expected_steps = {"surface": "1,1000,9750", "fluorescence": "1,10000,750",
@@ -89,6 +94,7 @@ class CaptureLauncherTests(unittest.TestCase):
                     self.assertTrue(os.access(shortcut, os.X_OK))
                     result = self.run_shortcut(shortcut)
                     self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assert_printed_command_matches(result)
                     data, command, *args = result.stdout.splitlines()
                     self.assertEqual(Path(data).resolve(), (self.root / "camera data").resolve())
                     self.assertEqual(command, "run")
@@ -98,24 +104,28 @@ class CaptureLauncherTests(unittest.TestCase):
                     self.assertEqual(p["buffer_size"], 192)
                     if action == "record":
                         self.assertEqual(p["record_queue_frames"], 96)
+                        self.assertEqual((p["writer_buffer_mib"], p["frame_writer_batch_size"]), (512, 16))
                     else:
                         self.assertNotIn("--record-queue-frames", args)
+                        self.assertNotIn("--writer-buffer-mib", args)
                     self.assertFalse(p["stream_stats"])
                     self.assertEqual(p["display_time_downsample"], 0 if action == "record" else 4)
                     self.assertEqual(p["shared_gui_cores"], 2)
                     self.assertEqual(p["acquisition_cores"], 3)
                     self.assertEqual(p["writer_cores"], 5 if action == "record" else None)
                     self.assertEqual(p["gain_db"], 2.5)
+                    self.assertEqual(p["surface_polarity"], "high")
                     self.assertEqual((p["roi_width"], p["roi_height"]), (1024, 768))
                     self.assertEqual((p["roi_horizontal"], p["roi_vertical"]), ("right", "bottom"))
                     dev = NucleoTriggerDevice(
                         mode=mode, pulse_widths=p["hw_trigger_pulse_width"],
                         pulse_widths_low=p["hw_trigger_pulse_low"], light_settle_us=p["light_settle_us"],
                         surface_voltage=p["surface_voltage"], fluorescence_voltage=p["fluorescence_voltage"],
+                        surface_polarity=p["surface_polarity"],
                         surface_illumination_percent=p["surface_illumination_percent"],
                         fluorescence_illumination_percent=p["fluorescence_illumination_percent"],
                     )
-                    self.assertEqual(dev.config_command, f"CONFIG,1,{dev.MODES[mode]},200,3500,1250,0,6250,{steps}")
+                    self.assertEqual(dev.config_command, f"CONFIG,2,{dev.MODES[mode]},200,3500,1250,0,6250,{steps},1")
 
     def test_tune_shortcut_uses_installed_settings_and_direct_launch_uses_cli_default(self):
         desktop = self.root / "custom desktop"
@@ -125,6 +135,7 @@ class CaptureLauncherTests(unittest.TestCase):
         result = self.run_shortcut(shortcut)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.splitlines()[1:], ["tune", "--settings", str(desktop.resolve() / "cammy-settings.sh")])
+        self.assert_printed_command_matches(result)
         direct = subprocess.run(["bash", self.scripts / "capture.sh", "tune"], text=True, capture_output=True,
                                 env={"PATH": f"{self.root}:{os.defpath}"}, cwd=self.root)
         self.assertEqual(direct.returncode, 0, direct.stderr)
@@ -141,6 +152,7 @@ class CaptureLauncherTests(unittest.TestCase):
         self.assertTrue(upgraded.startswith(original))
         self.assertIn("# SURFACE_VOLTAGE=", upgraded)
         self.assertIn("# STREAM_STATS=on", upgraded)
+        self.assertIn("# STREAM_STATS_INTERVAL=1", upgraded)
         self.assertIn("# ARAVIS_BUFFER_SIZE=512", upgraded)
         self.assertIn("# RECORD_QUEUE_FRAMES=512", upgraded)
         self.install(desktop)
@@ -154,9 +166,12 @@ class CaptureLauncherTests(unittest.TestCase):
         self.assertEqual(params["display_time_downsample"], 1)
         self.assertTrue(params["stream_stats"])
         self.assertEqual(params["shared_gui_cores"], 0)
+        with settings.open("a") as f:
+            f.write("STREAM_STATS_INTERVAL=5\n")
         result = self.run_shortcut(desktop / "cammy-alternate-record.desktop")
         self.assertEqual(result.returncode, 0, result.stderr)
         params = simple_preview.make_context("run", result.stdout.splitlines()[2:]).params
+        self.assertEqual(params["stream_stats_interval"], 5)
         self.assertEqual((params["shared_gui_cores"], params["writer_cores"], params["acquisition_cores"]), (1, 7, None))
         self.assertEqual((params["buffer_size"], params["record_queue_frames"]), (512, 512))
 

@@ -173,12 +173,13 @@ class AravisCamera(CammyCamera):
             resent, missing = Aravis.GvStream.get_statistics(self.stream)
             packet_stats = f" resent_packets={resent} missing_packets={missing}"
         writer = getattr(self, "recorder", None)
+        buffer_stats = getattr(writer, "buffer_statistics", None)
         self.logger.info(
             "%s stream: free_buffers=%d queued_buffers=%d completed=%d failures=%d "
-            "underruns=%d acquired=%d missed=%d written=%d recording_drops=%d%s",
+            "underruns=%d acquired=%d missed=%d written=%d recording_drops=%d%s%s",
             self.id, free, queued, completed, failures, underruns,
             self.frame_count, self.missed_frames, getattr(writer, "frames_written", 0),
-            getattr(self, "recording_drops", 0), packet_stats,
+            getattr(self, "recording_drops", 0), packet_stats, buffer_stats() if buffer_stats else "",
         )
 
 

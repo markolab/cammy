@@ -65,8 +65,10 @@ class RoiTests(unittest.TestCase):
                     # A status-only recording never publishes or reads preview frames.
                     pixels = (nullcontext() if display_stride else
                               patch.object(AravisCamera, "display_frame", new_callable=PropertyMock, create=True))
+                    writer_mib = 2 if requested_width == 0 else 0
                     with pixels as display_frame, self.assertLogs(level="INFO") as logs:
                         result = runner.invoke(cli, ["run", "--record", "--frame-writer-batch-size", "1",
+                                                     "--writer-buffer-mib", str(writer_mib),
                                                      "--display-time-downsample", str(display_stride), *args],
                                                catch_exceptions=False)
                     self.assertEqual(result.exit_code, 0, result.output)
@@ -86,6 +88,7 @@ class RoiTests(unittest.TestCase):
                     self.assertIn(f"Fake ROI readback: Width={w} Height={h} OffsetX={x} OffsetY={y} (pixels)", messages)
                     session = sorted(Path.cwd().glob("session_*"))[-1]
                     metadata = toml.load(session / "metadata.toml")
+                    self.assertEqual(metadata["cli_parameters"]["writer_buffer_mib"], writer_mib)
                     features = metadata["camera_metadata"]["Fake"]
                     self.assertEqual(tuple(features[k] for k in ("OffsetX", "OffsetY", "Width", "Height")), expected)
                     self.assertEqual(metadata["cli_parameters"].get("roi_width"), requested_width)

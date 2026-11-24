@@ -8,6 +8,8 @@ RECORD_QUEUE_FRAMES = 64
 
 # simple data writer, should be general enough to take 1d/2d/etc. data
 class BaseRecord(threading.Thread):
+	worker_role = "writer"
+
 	def __init__(self, save_queue, filename, cpu_id=None, batch_size=16, zmq_address=None,
 				 queue_frames=RECORD_QUEUE_FRAMES):
 		super().__init__()
@@ -50,32 +52,14 @@ class BaseRecord(threading.Thread):
 		try:
 			if self.cpu_id is not None:
 				os.sched_setaffinity(0, {int(self.cpu_id)})
-				self.logger.info("%s writer TID %d pinned to CPU %d", self.filename, threading.get_native_id(), self.cpu_id)
+				self.logger.info("%s %s TID %d pinned to CPU %d", self.filename, self.worker_role, threading.get_native_id(), self.cpu_id)
 
 			self.zmq_context = zmq.Context.instance()
 			self.zmq_socket = self.zmq_context.socket(zmq.PULL)
 			self.zmq_socket.setsockopt(zmq.RCVHWM, self.queue_frames)
 			self.zmq_socket.connect(self.zmq_address)
 			self.open_writer()
-			self.ready.set()
-
-			while True:
-				has_frame = self.zmq_socket.poll(100, zmq.POLLIN)
-				if has_frame:
-					metadata = self.zmq_socket.recv_json()
-					self.frame_batch.append(self.zmq_socket.recv(copy=False))
-					self.timestamp_batch.append(metadata["timestamps"])
-				elif not self._stop_requested.is_set():
-					continue
-
-				if self.frame_batch and (len(self.frame_batch) >= self.batch_size or not has_frame):
-					# Never replay a failed batch: pixels may already be partly written.
-					self.write_batch(self.frame_batch, self.timestamp_batch)
-					self.frames_written += len(self.frame_batch)
-					self.frame_batch.clear()
-					self.timestamp_batch.clear()
-				if not has_frame:
-					break
+			self.receive_frames()
 		except BaseException as error:
 			self.error = error
 			raise
@@ -91,3 +75,24 @@ class BaseRecord(threading.Thread):
 				if self.zmq_socket is not None:
 					self.zmq_socket.close(linger=0)
 				self.ready.set()
+
+	def receive_frames(self):
+		self.ready.set()
+
+		while True:
+			has_frame = self.zmq_socket.poll(100, zmq.POLLIN)
+			if has_frame:
+				metadata = self.zmq_socket.recv_json()
+				self.frame_batch.append(self.zmq_socket.recv(copy=False))
+				self.timestamp_batch.append(metadata["timestamps"])
+			elif not self._stop_requested.is_set():
+				continue
+
+			if self.frame_batch and (len(self.frame_batch) >= self.batch_size or not has_frame):
+				# Never replay a failed batch: pixels may already be partly written.
+				self.write_batch(self.frame_batch, self.timestamp_batch)
+				self.frames_written += len(self.frame_batch)
+				self.frame_batch.clear()
+				self.timestamp_batch.clear()
+			if not has_frame:
+				break
