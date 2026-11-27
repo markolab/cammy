@@ -1,15 +1,101 @@
 import gi
-import multiprocessing
 import cv2
 import numpy as np
 import logging
+import os
 import sys
+from functools import lru_cache
+from importlib.metadata import distribution
+from pathlib import Path
 
 gi.require_version("Aravis", "0.8")
 from gi.repository import Aravis
 
 
 logger = logging.getLogger(__name__)
+
+
+def shared_asset(relative):
+    """Locate a launcher or GUI asset in a checkout or the installed wheel."""
+    path = Path(__file__).resolve().parents[1] / relative
+    if path.is_file():
+        return path
+    package = distribution("cammy")
+    for item in package.files or ():
+        if item.parts[-3:] == ("share", "cammy", path.name):
+            return Path(package.locate_file(item))
+    raise FileNotFoundError(f"Cammy asset missing: {relative}")
+
+
+def get_physical_core_map():
+    from collections import defaultdict
+
+    physical_cores = defaultdict(list)
+    # Sibling CPU lists identify physical cores across sockets and SMT layouts.
+    # Only assign CPUs allowed by the current taskset/container affinity.
+    for cpu in sorted(os.sched_getaffinity(0)):
+        with open(f"/sys/devices/system/cpu/cpu{cpu}/topology/thread_siblings_list") as f:
+            physical_cores[f.read().strip()].append(cpu)
+    return physical_cores
+
+
+def get_cpu_affinity(record=False, writer_cores=None, acquisition_cores=None, shared_gui_cores=0):
+    """Split physical worker cores and optionally extend the GUI mask into acquisition."""
+    import platform
+
+    if platform.system().lower() != "linux":
+        if writer_cores is not None:
+            logger.warning("--writer-cores only applies on Linux")
+        if acquisition_cores is not None:
+            logger.warning("--acquisition-cores only applies on Linux")
+        if shared_gui_cores:
+            logger.warning("GUI core sharing only applies on Linux")
+        return None, [None], [None]
+
+    cores = list(get_physical_core_map().values())
+    minimum = 3 if record else 2
+    if len(cores) < minimum:
+        raise ValueError(
+            f"Need at least {minimum} available physical cores for separate CPU "
+            f"affinity pools; found {len(cores)}"
+        )
+
+    gui_cpus = set(cores[0])
+    workers = cores[1:]
+    max_acquisition = len(workers) - int(record)
+    if acquisition_cores is not None and not 1 <= acquisition_cores <= max_acquisition:
+        raise ValueError(f"--acquisition-cores must be between 1 and {max_acquisition} "
+                         f"with {len(cores)} available physical cores")
+    if record:
+        if writer_cores is None:
+            writer_cores = len(workers) // 2 if acquisition_cores is None else len(workers) - acquisition_cores
+        if not 1 <= writer_cores < len(workers):
+            raise ValueError(
+                f"--writer-cores must be between 1 and {len(workers) - 1} "
+                f"with {len(cores)} available physical cores"
+            )
+        if acquisition_cores is not None and acquisition_cores + writer_cores > len(workers):
+            raise ValueError(f"--acquisition-cores and --writer-cores together exceed the {len(workers)} worker cores")
+        recording = workers[-writer_cores:]
+        workers = workers[:-writer_cores]
+    else:
+        recording = []
+    acquisition = workers[:acquisition_cores]
+    if not 0 <= shared_gui_cores <= 1 + len(acquisition):
+        raise ValueError(f"--shared-gui-cores must be between 0 and {1 + len(acquisition)} "
+                         "for this GUI and acquisition allocation")
+    # The first shared core is the original GUI core. Additional ones come from acquisition.
+    if shared_gui_cores > 1:
+        gui_cpus.update(cpu for core in acquisition[:shared_gui_cores - 1] for cpu in core)
+
+    # Use one CPU per physical core before using its sibling hardware threads.
+    acquire_cpus = [core[0] for core in acquisition] + [
+        cpu for core in acquisition for cpu in core[1:]
+    ]
+    write_cpus = [core[0] for core in recording] + [
+        cpu for core in recording for cpu in core[1:]
+    ]
+    return gui_cpus, acquire_cpus, write_cpus
 
 
 def intrinsics_file_to_cv2(intrinsics_file):
@@ -63,16 +149,6 @@ def get_pixel_format_bit_depth(pixel_format):
     return bit_depth, spoof_ims
 
 
-def get_queues(ids=None) -> dict:
-    if ids:
-        queues = {}
-        queues["display"] = {id: multiprocessing.Manager().Queue(100) for id in ids}
-        queues["storage"] = {id: multiprocessing.Manager().Queue(1000) for id in ids}
-        return queues
-    else:
-        raise RuntimeError("Must specify IDs to construct queues")
-
-
 # https://stackoverflow.com/questions/52498777/apply-matplotlib-or-custom-colormap-to-opencv-image
 def mpl_to_cv2_colormap(cmap_name):
     import matplotlib.pyplot as plt
@@ -99,13 +175,39 @@ def intensity_to_rgba(frame, minval=1800, maxval=2200, colormap=cv2.COLORMAP_TUR
     return new_frame
 
 
+def intensity_to_rgba_lut(frame, minval=1800, maxval=2200, colormap=cv2.COLORMAP_TURBO):
+    """Map a 2D uint8/uint16 image to float32 RGBA using a cached lookup table."""
+    if frame.ndim != 2 or frame.dtype not in (np.uint8, np.uint16):
+        raise ValueError("frame must be a 2D uint8 or uint16 array")
+    if not np.isfinite(minval) or not np.isfinite(maxval) or maxval <= minval:
+        raise ValueError("Display limits must be finite, with maxval greater than minval")
+    if isinstance(colormap, np.ndarray):
+        if colormap.dtype != np.uint8 or colormap.shape != (256, 1, 3):
+            raise ValueError("Custom colormap must be a uint8 array with shape (256, 1, 3)")
+        colormap = colormap.tobytes()
+    return _intensity_rgba_lut(minval, maxval, colormap)[frame]
+
+
+@lru_cache(maxsize=16)
+def _intensity_rgba_lut(minval, maxval, colormap):
+    # Bytes make custom colormaps hashable and detect changes to their contents.
+    if isinstance(colormap, bytes):
+        colormap = np.frombuffer(colormap, dtype=np.uint8).reshape(256, 1, 3)
+    values = np.arange(65536, dtype=np.uint16).reshape(-1, 1)
+    rgba = intensity_to_rgba(values, minval, maxval, colormap)
+    return rgba.astype(np.float32).reshape(65536, 4)
+
+
 def initialize_camera(id, interface: str, config={}, **kwargs):
     if (interface == "aravis") or (interface == "all"):
         from cammy.camera.aravis import AravisCamera
 
         cam = AravisCamera(id=id, **kwargs)
         for k, v in config.items():
-            cam.set_feature(k, v)
+            try:
+                cam.set_feature(k, v)
+            except Exception as exc:
+                raise RuntimeError(f"Camera {id}: failed to set {k}={v!r}") from exc
     elif interface == "fake_custom":
         from cammy.camera.fake import FakeCamera
 
@@ -115,16 +217,20 @@ def initialize_camera(id, interface: str, config={}, **kwargs):
     return cam
 
 
-def initialize_cameras(ids, configs, **kwargs):
+def initialize_cameras(ids, configs, *, skip_features=(), **kwargs):
     cameras = {}
     for _id, _interface in ids.items():
         use_config = {}
-        if "genicam" in configs.keys():
-            for k, v in configs["genicam"].items():
-                for k2, v2 in v.items():
-                    if k in _id:
-                        use_config = {**use_config, **v2}
-        cameras[_id] = initialize_camera(_id, _interface, use_config, **kwargs)
+        for pattern, groups in configs.get("genicam", {}).items():
+            if pattern in _id:
+                for settings in groups.values():
+                    use_config.update(settings)
+        for name in skip_features:
+            use_config.pop(name, None)
+        try:
+            cameras[_id] = initialize_camera(_id, _interface, use_config, **kwargs)
+        except Exception:
+            logger.exception("Failed to initialize camera %s", _id)
 
     return cameras
 

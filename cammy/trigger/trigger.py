@@ -84,6 +84,24 @@ class TriggerDevice:
                     break
 
     def start(self):
+        params = self.command_params
+        mode = params["alternate_mode"]
+        steps = list(zip(params["pulse_widths"], params["pulse_widths_low"]))
+        alternating = mode in (2, 3)
+        if alternating and len(steps) % 2:
+            steps *= 2
+        lines = [f"Arduino programmed sequence, camera pins {params['pins']}, light mode {mode}"]
+        if alternating:
+            lines.append(f"D2 active low, D3 active {'high' if mode == 3 else 'low'}. "
+                         "The first 200 µs of each programmed width are used for light settling.")
+        else:
+            d2 = "low" if mode in (-1, 0) else "high"
+            d3 = "high" if mode in (-2, 0) else "low"
+            lines.append(f"D2 held {d2}, D3 held {d3}.")
+        for i, (width, low) in enumerate(steps):
+            bank = f", light D{2 + i % 2}" if alternating else ""
+            lines.append(f"  {i + 1}. width {width} µs, following low {low} µs{bank}")
+        self.logger.info("\n".join(lines))
         command_list = (
             [len(self.command_params["pins"])]
             + self.command_params["pins"]
